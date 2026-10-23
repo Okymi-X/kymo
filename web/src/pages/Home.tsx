@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
-import type { Format } from '../api/types'
-import { Button, ErrorText, Field, Input, Select, StatusPill } from '../components/ui'
+import type { Format, Status } from '../api/types'
+import { CardSkeleton, TournamentCard } from '../components/TournamentCard'
+import { Button, ErrorText, Field, Input, Select } from '../components/ui'
 import { formatLabel } from '../lib/labels'
 
 function CreateForm() {
@@ -49,31 +50,76 @@ function CreateForm() {
   )
 }
 
+type Filter = 'all' | Status
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'live', label: 'Live' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'done', label: 'Finished' },
+]
+
+function FilterBar({ value, counts, onChange }: { value: Filter; counts: Record<Filter, number>; onChange: (f: Filter) => void }) {
+  return (
+    <div role="group" aria-label="Filter by status" className="inline-flex gap-1 self-start rounded-full border border-line bg-surface p-1">
+      {FILTERS.map((f) => (
+        <button
+          key={f.value}
+          type="button"
+          aria-pressed={value === f.value}
+          onClick={() => onChange(f.value)}
+          className={`rounded-full px-3.5 py-1 text-sm font-medium transition-colors ${value === f.value ? 'bg-ink text-bg' : 'text-muted hover:text-ink'}`}
+        >
+          {f.label} <span className="font-mono text-xs tabular-nums opacity-70">{counts[f.value]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
+  const [filter, setFilter] = useState<Filter>('all')
+
+  const counts = useMemo(() => {
+    const c: Record<Filter, number> = { all: data?.length ?? 0, live: 0, draft: 0, done: 0 }
+    for (const t of data ?? []) c[t.status] += 1
+    return c
+  }, [data])
+  const shown = (data ?? []).filter((t) => filter === 'all' || t.status === filter)
+
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-4xl font-semibold tracking-tight">Tournaments</h1>
-        <p className="mt-2 text-muted">Knockout brackets for CTF events.</p>
+    <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-3">
+        <h1 className="text-5xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-6xl">Tournaments</h1>
+        <p className="max-w-xl text-lg text-muted">
+          {counts.live > 0 ? `${counts.live} live now. ` : ''}Knockout brackets for CTF events, updated as results come in.
+        </p>
       </div>
       {admin && <CreateForm />}
-      {isPending && <p className="text-muted">Loading</p>}
+      {data && data.length > 0 && <FilterBar value={filter} counts={counts} onChange={setFilter} />}
       <ErrorText error={error} />
-      {data?.length === 0 && <p className="text-muted">No tournaments yet.</p>}
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {data?.map((t) => (
+      {isPending && (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading tournaments">
+          {[0, 1, 2].map((i) => (
+            <li key={i}>
+              <CardSkeleton />
+            </li>
+          ))}
+        </ul>
+      )}
+      {data?.length === 0 && (
+        <div className="rounded-card border border-dashed border-field-line p-10 text-center">
+          <p className="text-lg font-medium">No tournaments yet</p>
+          <p className="mt-1 text-muted">{admin ? 'Create the first one above.' : 'Check back when the organizer starts one.'}</p>
+        </div>
+      )}
+      {data && data.length > 0 && shown.length === 0 && <p className="text-muted">Nothing matches this filter.</p>}
+      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map((t) => (
           <li key={t.id}>
-            <Link to={`/t/${t.slug}`} className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface p-4 transition-colors hover:bg-line/30">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{t.name}</p>
-                <p className="text-sm text-muted">
-                  {formatLabel[t.format]} · {t.teams.length} teams
-                </p>
-              </div>
-              <StatusPill status={t.status} />
-            </Link>
+            <TournamentCard t={t} />
           </li>
         ))}
       </ul>

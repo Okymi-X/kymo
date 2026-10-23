@@ -46,6 +46,7 @@ export interface Tournament {
   teams: Team[]
   bracket: Bracket | null
   champion: number | null
+  progress: { played: number; total: number }
 }
 
 export interface ApiToken {

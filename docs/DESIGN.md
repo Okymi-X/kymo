@@ -30,3 +30,9 @@ WCAG AA contrast, visible focus ring (2px accent), full keyboard control of matc
 
 ## Brand
 Logo: `web/public/logo.png` (wordmark with bracket nodes). Favicon and app icon: `favicon-32.png`, `favicon-192.png`, `apple-touch-icon.png`, cropped from the supplied rounded square K mark. Header logo height 40px.
+
+## Home
+Large display title (tracking -0.03em, leading 1.05), one line of context, a pill status filter with counts, then a card grid. Card: name and format, status pill, match progress bar (live and finished), avatar stack with team count. Press feedback scales to 0.99. Loading uses skeleton cards, empty state is a dashed panel with a next step.
+
+## Icons
+lucide-react only. Font Awesome was considered and not added: a second icon set would duplicate the first and add weight for no gain.
