@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test'
-import { PASSWORD } from './e2e/constants'
+import { PASSWORD } from './e2e/constants.js'
 
 const PORT = 8791
 

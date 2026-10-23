@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { PASSWORD } from './constants'
+import { PASSWORD } from './constants.js'
 
 async function signIn(page: Page) {
   await page.goto('/login')
