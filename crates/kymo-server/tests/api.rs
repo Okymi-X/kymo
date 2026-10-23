@@ -821,3 +821,91 @@ async fn round_robin_plays_with_draws_to_a_champion_and_caps_the_roster() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn groups_then_knockout_runs_over_the_api_and_validates_its_setup() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+
+    let bad = json!({"name": "Bad", "format": "group_knockout", "groups": 9, "advance": 2});
+    let (status, _) = call(&app, "POST", "/api/v1/tournaments", t, Some(bad)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let body = json!({"name": "Worlds", "format": "group_knockout", "groups": 2, "advance": 2});
+    let (status, made) = call(&app, "POST", "/api/v1/tournaments", t, Some(body)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        (made["groups"].as_u64(), made["advance"].as_u64()),
+        (Some(2), Some(2))
+    );
+
+    let few: Vec<_> = (1..=5).map(|n| json!({"name": format!("f{n}")})).collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": few})),
+    )
+    .await;
+    let (status, error) = call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error["error"].as_str().unwrap().contains("at least 6"));
+
+    let eight: Vec<_> = (1..=8)
+        .map(|n| json!({"name": format!("team {n}"), "score": 100 - n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": eight})),
+    )
+    .await;
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "score"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(started["bracket"]["matches"].as_array().unwrap().len(), 15);
+
+    for _ in 0..40 {
+        let (_, tour) = call(&app, "GET", "/api/v1/tournaments/worlds", None, None).await;
+        if tour["status"] == "done" {
+            assert!(tour["champion"].is_number());
+            assert_eq!(tour["progress"]["played"], tour["progress"]["total"]);
+            return;
+        }
+        let next = tour["bracket"]["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| {
+                m["score"].is_null()
+                    && m["slots"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|s| s["kind"] == "team")
+            })
+            .map(|m| m["id"].as_u64().unwrap());
+        let id = next.expect("a match should be ready until the tournament is done");
+        let uri = format!("/api/v1/admin/tournaments/1/matches/{id}/result");
+        let (status, _) = call(
+            &app,
+            "PUT",
+            &uri,
+            t,
+            Some(json!({"score_a": 2, "score_b": 1})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    panic!("tournament never finished");
+}

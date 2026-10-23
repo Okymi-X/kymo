@@ -37,6 +37,8 @@ struct Row {
     slug: String,
     format: String,
     third_place: bool,
+    groups: i64,
+    advance: i64,
     status: Status,
     bracket: Option<String>,
     created_at: String,
@@ -49,6 +51,8 @@ pub struct Tournament {
     pub slug: String,
     pub format: Format,
     pub third_place: bool,
+    pub groups: u8,
+    pub advance: u8,
     pub status: Status,
     pub created_at: String,
     pub teams: Vec<Team>,
@@ -75,6 +79,7 @@ fn format_to_text(format: Format) -> &'static str {
         Format::SingleElimination => "single_elimination",
         Format::DoubleElimination => "double_elimination",
         Format::RoundRobin => "round_robin",
+        Format::GroupKnockout => "group_knockout",
     }
 }
 
@@ -107,6 +112,8 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         slug: row.slug,
         format: serde_json::from_value(row.format.into()).map_err(parse)?,
         third_place: row.third_place,
+        groups: u8::try_from(row.groups).unwrap_or(2),
+        advance: u8::try_from(row.advance).unwrap_or(2),
         status: row.status,
         created_at: row.created_at,
         teams,
@@ -152,21 +159,27 @@ pub async fn get_by_slug(pool: &SqlitePool, slug: &str) -> Result<Tournament, Ap
     hydrate(row, teams)
 }
 
-pub async fn create(
-    pool: &SqlitePool,
-    name: &str,
-    slug: &str,
-    format: Format,
-    third_place: bool,
-) -> Result<i64, ApiError> {
-    let result =
-        sqlx::query("INSERT INTO tournament (name, slug, format, third_place) VALUES (?, ?, ?, ?)")
-            .bind(name)
-            .bind(slug)
-            .bind(format_to_text(format))
-            .bind(third_place)
-            .execute(pool)
-            .await?;
+pub struct NewTournament<'a> {
+    pub name: &'a str,
+    pub slug: &'a str,
+    pub format: Format,
+    pub third_place: bool,
+    pub groups: u8,
+    pub advance: u8,
+}
+
+pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, ApiError> {
+    let result = sqlx::query(
+        "INSERT INTO tournament (name, slug, format, third_place, groups, advance) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(new.name)
+    .bind(new.slug)
+    .bind(format_to_text(new.format))
+    .bind(new.third_place)
+    .bind(i64::from(new.groups))
+    .bind(i64::from(new.advance))
+    .execute(pool)
+    .await?;
     Ok(result.last_insert_rowid())
 }
 

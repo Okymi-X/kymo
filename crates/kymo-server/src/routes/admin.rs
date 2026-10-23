@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 use serde::Deserialize;
 
 use crate::auth::Admin;
-use crate::db::{self, NewTeam, Status, Tournament};
+use crate::db::{self, NewTeam, NewTournament, Status, Tournament};
 use crate::error::ApiError;
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
@@ -24,6 +24,18 @@ pub struct CreateBody {
     format: Format,
     #[serde(default)]
     third_place: bool,
+    #[serde(default = "default_groups")]
+    groups: u8,
+    #[serde(default = "default_advance")]
+    advance: u8,
+}
+
+fn default_groups() -> u8 {
+    2
+}
+
+fn default_advance() -> u8 {
+    2
 }
 
 #[derive(Deserialize)]
@@ -114,12 +126,23 @@ pub async fn create(
             "name needs at least one letter or digit".into(),
         ));
     }
+    if body.format == Format::GroupKnockout
+        && (!(2..=8).contains(&body.groups) || !(1..=4).contains(&body.advance))
+    {
+        return Err(ApiError::BadRequest(
+            "use 2 to 8 groups and 1 to 4 teams advancing per group".into(),
+        ));
+    }
     let id = db::create(
         &state.pool,
-        &name,
-        &slug,
-        body.format,
-        body.third_place && body.format == Format::SingleElimination,
+        NewTournament {
+            name: &name,
+            slug: &slug,
+            format: body.format,
+            third_place: body.third_place && body.format == Format::SingleElimination,
+            groups: body.groups,
+            advance: body.advance,
+        },
     )
     .await?;
     Ok((StatusCode::CREATED, Json(db::get(&state.pool, id).await?)))
@@ -161,7 +184,7 @@ pub async fn set_teams(
             "teams can only change before the tournament starts".into(),
         ));
     }
-    let max_teams = if t.format == Format::RoundRobin {
+    let max_teams = if matches!(t.format, Format::RoundRobin | Format::GroupKnockout) {
         kymo_engine::MAX_ROUND_ROBIN_TEAMS
     } else {
         kymo_engine::MAX_TEAMS
@@ -230,6 +253,8 @@ pub async fn start(
         t.format,
         Options {
             third_place: t.third_place,
+            groups: t.groups,
+            advance: t.advance,
         },
     )?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;
