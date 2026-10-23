@@ -105,6 +105,22 @@ function FilterBar({ value, counts, onChange }: { value: Filter; counts: Record<
   )
 }
 
+function DemoButton() {
+  const client = useQueryClient()
+  const load = useMutation({
+    mutationFn: api.loadDemo,
+    onSuccess: () => client.invalidateQueries({ queryKey: ['tournaments'] }),
+  })
+  return (
+    <div className="mt-4 flex flex-col items-center gap-2">
+      <Button onClick={() => load.mutate()} disabled={load.isPending}>
+        {load.isPending ? 'Loading samples' : 'Load sample tournaments'}
+      </Button>
+      <ErrorText error={load.error} />
+    </div>
+  )
+}
+
 export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
@@ -142,7 +158,8 @@ export function Home() {
       {data?.length === 0 && (
         <div className="rounded-card border border-dashed border-field-line p-10 text-center">
           <p className="text-lg font-medium">No tournaments yet</p>
-          <p className="mt-1 text-muted">{admin ? 'Create the first one above.' : 'Check back when the organizer starts one.'}</p>
+          <p className="mt-1 text-muted">{admin ? 'Create the first one above, or load sample tournaments to explore every format.' : 'Check back when the organizer starts one.'}</p>
+          {admin && <DemoButton />}
         </div>
       )}
       {data && data.length > 0 && shown.length === 0 && <p className="text-muted">Nothing matches this filter.</p>}

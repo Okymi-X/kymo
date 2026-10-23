@@ -314,6 +314,7 @@ test('the header shows the tournament once its title scrolls away', async ({ pag
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
   await expect(page.getByRole('heading', { name: 'Nav Cup' })).toBeVisible()
+  await expect(page.getByText('Losers bracket')).toBeVisible()
   const header = page.getByRole('banner')
   await expect(header.getByText('Nav Cup')).toHaveCount(0)
   await page.mouse.move(600, 500)

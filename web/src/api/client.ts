@@ -77,6 +77,7 @@ export const api = {
   logout: () => request<void>('POST', '/auth/logout'),
   list: () => request<Tournament[]>('GET', '/tournaments'),
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
+  loadDemo: () => request<{ added: number }>('POST', '/admin/demo'),
   activity: (slug: string) => request<LogEvent[]>('GET', `/tournaments/${encodeURIComponent(slug)}/activity`),
   create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number }) =>
     request<Tournament>('POST', '/tournaments', {

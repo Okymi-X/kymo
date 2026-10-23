@@ -53,3 +53,9 @@ Standings first (P, W, D, L, +/-, Pts), then Schedule (cards grouped by round, n
 
 ## Groups then knockout views
 Groups tab: one standings table per group (top N advancing rows tinted with an accent rank) and a folded Fixtures panel. Knockout tab shows only the elimination bracket and keeps the wide area only when the bracket is wider than the page column. After the groups finish the page opens on Knockout.
+
+## Navigation
+Header: logo, primary link (Tournaments, accent underline when active), a centered context slot, search (icon only on phones), organizer menu or sign in. When a tournament page's own title scrolls under the header, the title, status and progress fade into the context slot (hidden below 768px). The organizer menu is a popover with arrow key navigation, Escape returns focus to the trigger.
+
+## Activity and following
+Activity tab: a vertical timeline with an icon per kind, relative time with the exact time on hover, the round, and a red icon for corrections. Following a team is stored in localStorage per tournament and shown as an accent tinted chip with the team's next match; the team is highlighted in the bracket.
