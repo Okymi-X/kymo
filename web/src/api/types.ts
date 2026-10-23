@@ -2,7 +2,7 @@ export type Format = 'single_elimination' | 'double_elimination'
 export type Status = 'draft' | 'live' | 'done'
 export type Stage = 'winners' | 'losers' | 'grand_final' | 'grand_reset'
 export type Side = 'A' | 'B'
-export type Seeding = 'manual' | 'random'
+export type Seeding = 'manual' | 'random' | 'score'
 
 export type Slot = { kind: 'empty' } | { kind: 'bye' } | { kind: 'team'; team: number }
 
@@ -31,6 +31,7 @@ export interface Team {
   id: number
   name: string
   seed: number
+  score: number
 }
 
 export interface Tournament {

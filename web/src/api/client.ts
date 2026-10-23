@@ -78,7 +78,8 @@ export const api = {
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
   create: (name: string, format: Format) => request<Tournament>('POST', '/tournaments', { name, format }),
   remove: (id: number) => request<void>('DELETE', admin(id)),
-  setTeams: (id: number, names: string[]) => request<Tournament>('PUT', `${admin(id)}/teams`, { names }),
+  setTeams: (id: number, teams: { name: string; score: number }[]) =>
+    request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),
   start: (id: number, seeding: Seeding) => request<Tournament>('POST', `${admin(id)}/start`, { seeding }),
   reset: (id: number) => request<Tournament>('POST', `${admin(id)}/reset`),
   setResult: (id: number, match: number, a: number, b: number) =>

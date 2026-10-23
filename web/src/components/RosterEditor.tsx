@@ -25,9 +25,20 @@ import { Button, ErrorText, Field, Select } from './ui'
 interface Item {
   key: number
   name: string
+  score: number
 }
 
-function Row({ item, seed, onRemove }: { item: Item; seed: number; onRemove: () => void }) {
+function Row({
+  item,
+  seed,
+  onScore,
+  onRemove,
+}: {
+  item: Item
+  seed: number
+  onScore: (score: number) => void
+  onRemove: () => void
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.key })
   return (
     <li
@@ -40,6 +51,15 @@ function Row({ item, seed, onRemove }: { item: Item; seed: number; onRemove: () 
       </button>
       <span className="w-7 font-mono text-xs tabular-nums text-muted">{seed}</span>
       <span className="flex-1 truncate">{item.name}</span>
+      <input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        aria-label={`Qualifier score for ${item.name}`}
+        value={item.score}
+        onChange={(e) => onScore(Math.max(0, Number(e.target.value) || 0))}
+        className="w-20 rounded-control border border-line bg-bg px-2 py-1 text-right font-mono text-xs tabular-nums"
+      />
       <button type="button" aria-label={`Remove ${item.name}`} onClick={onRemove} className="p-1 text-muted hover:text-danger">
         <X size={16} />
       </button>
@@ -47,9 +67,17 @@ function Row({ item, seed, onRemove }: { item: Item; seed: number; onRemove: () 
   )
 }
 
+/** Accepts "Name" or "Name, 420" where the number is a qualifier score. */
+function parseLine(line: string): Omit<Item, 'key'> | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  const match = /^(.*\S)\s*,\s*(\d+)$/.exec(trimmed)
+  return match ? { name: match[1], score: Number(match[2]) } : { name: trimmed, score: 0 }
+}
+
 export function RosterEditor({ tournament }: { tournament: Tournament }) {
   const nextKey = useRef(tournament.teams.length)
-  const [items, setItems] = useState<Item[]>(() => tournament.teams.map((t, key) => ({ key, name: t.name })))
+  const [items, setItems] = useState<Item[]>(() => tournament.teams.map((t, key) => ({ key, name: t.name, score: t.score })))
   const [draft, setDraft] = useState('')
   const [seeding, setSeeding] = useState<Seeding>('manual')
   const client = useQueryClient()
@@ -60,12 +88,13 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
 
   const minTeams = tournament.format === 'double_elimination' ? 3 : 2
   const names = items.map((i) => i.name)
+  const payload = items.map(({ name, score }) => ({ name, score }))
   const publish = (t: Tournament) => client.setQueryData(['tournament', t.slug], t)
 
-  const save = useMutation({ mutationFn: () => api.setTeams(tournament.id, names), onSuccess: publish })
+  const save = useMutation({ mutationFn: () => api.setTeams(tournament.id, payload), onSuccess: publish })
   const start = useMutation({
     mutationFn: async () => {
-      await api.setTeams(tournament.id, names)
+      await api.setTeams(tournament.id, payload)
       return api.start(tournament.id, seeding)
     },
     onSuccess: publish,
@@ -73,12 +102,14 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
 
   const add = () => {
     const known = new Set(names.map((n) => n.toLowerCase()))
-    const fresh = draft
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !known.has(line.toLowerCase()))
-      .filter((line, i, all) => all.findIndex((l) => l.toLowerCase() === line.toLowerCase()) === i)
-    setItems((prev) => [...prev, ...fresh.map((name) => ({ key: nextKey.current++, name }))])
+    const parsed = draft.split('\n').map(parseLine).filter((t): t is Omit<Item, 'key'> => t !== null)
+    const fresh = parsed.filter((t) => {
+      const id = t.name.toLowerCase()
+      if (known.has(id)) return false
+      known.add(id)
+      return true
+    })
+    setItems((prev) => [...prev, ...fresh.map((t) => ({ ...t, key: nextKey.current++ }))])
     setDraft('')
   }
 
@@ -100,14 +131,20 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
           <SortableContext items={items.map((i) => i.key)} strategy={verticalListSortingStrategy}>
             <ul className="flex flex-col gap-1.5">
               {items.map((item, index) => (
-                <Row key={item.key} item={item} seed={index + 1} onRemove={() => setItems((p) => p.filter((i) => i.key !== item.key))} />
+                <Row
+                  key={item.key}
+                  item={item}
+                  seed={index + 1}
+                  onScore={(score) => setItems((p) => p.map((i) => (i.key === item.key ? { ...i, score } : i)))}
+                  onRemove={() => setItems((p) => p.filter((i) => i.key !== item.key))}
+                />
               ))}
             </ul>
           </SortableContext>
         </DndContext>
       </div>
       <div className="flex flex-col gap-4">
-        <Field label="Add teams, one per line">
+        <Field label="Add teams, one per line (optional: Name, score)">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -122,6 +159,7 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
         <Field label="Seeding on start">
           <Select value={seeding} onChange={(e) => setSeeding(e.target.value as Seeding)}>
             <option value="manual">Keep this order</option>
+            <option value="score">By qualifier score</option>
             <option value="random">Shuffle</option>
           </Select>
         </Field>
