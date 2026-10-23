@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Web: single canvas layout with links from winners and losers into the grand final (9 layout tests), verified in browser
 - [x] Web: API token panel (create with one time secret, list, revoke via dialog), checked in browser
 - [x] Server: sessions and API tokens stored hashed (sha256) in SQLite, survive restarts; /admin/tokens list, create, revoke; test added
 - [x] Seeding by qualifier score (team score column, roster editor, API), confirm dialog replaces window.confirm
@@ -15,6 +16,6 @@
 ## In progress
 
 ## Todo
-- [ ] Web: command palette, cross-section links into the grand final
+- [ ] Web: command palette
 - [ ] Web: component and e2e tests
 - [ ] README with quickstart
