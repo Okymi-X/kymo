@@ -2,6 +2,7 @@ import { Check } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { CSSProperties } from 'react'
 import type { Match, Slot } from '../api/types'
+import { Avatar } from './Avatar'
 
 interface Props {
   match: Match
@@ -25,8 +26,9 @@ function Row({ name, slot, score, won, forfeit }: { name: string; slot: Slot; sc
         transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
         className={`flex min-w-0 items-center gap-1.5 truncate ${dim ? 'text-muted' : ''} ${won ? 'font-semibold' : ''}`}
       >
-        {won && <Check size={14} aria-label="Winner" className="shrink-0 text-win" />}
+        {slot.kind === 'team' && <Avatar name={name} size={20} />}
         <span className="truncate">{name}</span>
+        {won && <Check size={14} aria-label="Winner" className="shrink-0 text-win" />}
       </motion.span>
       <span className={`font-mono tabular-nums ${won ? 'font-semibold' : 'text-muted'}`}>{forfeit ? (won ? 'W' : 'FF') : (score ?? '')}</span>
     </div>

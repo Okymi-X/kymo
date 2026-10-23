@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, X } from 'lucide-react'
 import { api } from '../api/client'
 import type { Seeding, Tournament } from '../api/types'
+import { Avatar } from './Avatar'
 import { Button, ErrorText, Field, Select, Textarea } from './ui'
 
 interface Item {
@@ -50,6 +51,7 @@ function Row({
         <GripVertical size={16} />
       </button>
       <span className="w-7 font-mono text-xs tabular-nums text-muted">{seed}</span>
+      <Avatar name={item.name} size={24} />
       <span className="flex-1 truncate">{item.name}</span>
       <input
         type="number"

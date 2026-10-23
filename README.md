@@ -36,3 +36,7 @@ cd web && pnpm e2e
 ```
 
 Starts its own server on port 8791 with a throwaway database and drives the organizer flow in Google Chrome. Build the web app first (`pnpm build`).
+
+## Credits
+
+Team avatars are generated with [blobatar](https://github.com/Alain00/blobatar) (MIT). The same team name always gets the same avatar.

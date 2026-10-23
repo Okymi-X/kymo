@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useLiveUpdates, useTournament } from '../api/hooks'
 import type { Match, Slot, Tournament } from '../api/types'
+import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RosterEditor } from '../components/RosterEditor'
@@ -20,10 +21,12 @@ function useTeamName(t: Tournament | undefined) {
 
 function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => string }) {
   if (t.champion === null) return null
+  const name = teamName({ kind: 'team', team: t.champion })
   return (
-    <p className="rounded-card border border-line bg-surface px-4 py-3">
-      <span className="text-muted">Champion </span>
-      <span className="font-semibold">{teamName({ kind: 'team', team: t.champion })}</span>
+    <p className="flex items-center gap-3 rounded-card border border-line bg-surface px-4 py-3">
+      <span className="text-muted">Champion</span>
+      <Avatar name={name} size={28} />
+      <span className="font-semibold">{name}</span>
     </p>
   )
 }
