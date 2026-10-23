@@ -47,12 +47,12 @@
 
 - [x] API tokens expire (7 days to 1 year or never) and API tokens cannot mint tokens
 
+- [x] Public list trims rosters (team_count), drag announcements use team names, curved or square bracket lines, map fits under the header
+
 ## Todo
+- [ ] More customization: per tournament accent
 - [ ] Swiss format
 - [ ] Knockout entrants chosen by hand or by tiebreak play-offs when group ties decide who advances
-- [ ] Roster drag and drop announcements use team names
-- [ ] Public list endpoint pages or trims rosters
-- [ ] More customization: per tournament accent, bracket line style
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

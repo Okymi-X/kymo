@@ -61,8 +61,8 @@ export function TournamentCard({ t }: { t: Tournament }) {
       <div className="mt-auto flex flex-col gap-3">
         {t.progress.total > 0 && <Progress played={t.progress.played} total={t.progress.total} />}
         <div className="flex items-center justify-between">
-          {t.teams.length > 0 ? <AvatarStack names={names} total={t.teams.length} /> : <span className="text-sm text-muted">No teams yet</span>}
-          <span className="text-sm text-muted">{t.teams.length} teams</span>
+          {t.team_count > 0 ? <AvatarStack names={names} total={t.team_count} /> : <span className="text-sm text-muted">No teams yet</span>}
+          <span className="text-sm text-muted">{t.team_count} teams</span>
         </div>
       </div>
     </Link>

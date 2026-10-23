@@ -46,6 +46,13 @@ pub enum Tint {
     Cool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineStyle {
+    Square,
+    Curved,
+}
+
 fn default_tagline() -> String {
     DEFAULT_TAGLINE.into()
 }
@@ -71,6 +78,13 @@ pub struct Appearance {
     /// Header logo as a small raster data URI. SVG is refused so no script can ride along.
     #[serde(default)]
     pub logo: Option<String>,
+    /// How bracket connections are drawn. Applied by the web app, no CSS involved.
+    #[serde(default = "default_lines")]
+    pub lines: LineStyle,
+}
+
+fn default_lines() -> LineStyle {
+    LineStyle::Square
 }
 
 fn default_tint() -> Tint {
@@ -103,6 +117,7 @@ impl Default for Appearance {
             tint: Tint::Neutral,
             avatars: true,
             logo: None,
+            lines: LineStyle::Square,
         }
     }
 }

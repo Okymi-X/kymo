@@ -13,6 +13,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   tint: 'neutral',
   avatars: true,
   logo: null,
+  lines: 'square',
 }
 
 export const FONT_STACKS: Record<FontChoice, string> = {

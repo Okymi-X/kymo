@@ -1386,3 +1386,35 @@ async fn api_tokens_can_expire_and_cannot_mint_tokens() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn public_list_trims_rosters_but_reports_the_full_count() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Big", "format": "single_elimination"})),
+    )
+    .await;
+    let teams: Vec<_> = (0..9)
+        .map(|i| json!({"name": format!("T{i}"), "score": 0}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({ "teams": teams })),
+    )
+    .await;
+
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    assert_eq!(list[0]["teams"].as_array().unwrap().len(), 4);
+    assert_eq!(list[0]["team_count"], 9);
+    let (_, full) = call(&app, "GET", "/api/v1/tournaments/big", None, None).await;
+    assert_eq!(full["teams"].as_array().unwrap().len(), 9);
+}

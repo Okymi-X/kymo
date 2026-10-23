@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
-import type { Appearance, Density, FontChoice, Match, Scheme, Slot, Tint } from '../api/types'
+import type { Appearance, Density, FontChoice, LineStyle, Match, Scheme, Slot, Tint } from '../api/types'
 import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
 import { BackLink } from '../components/BackLink'
@@ -145,6 +145,11 @@ const TINTS: { value: Tint; label: string }[] = [
   { value: 'cool', label: 'Cool' },
 ]
 
+const LINES: { value: LineStyle; label: string }[] = [
+  { value: 'square', label: 'Square' },
+  { value: 'curved', label: 'Curved' },
+]
+
 const AVATAR_OPTIONS: { value: 'on' | 'off'; label: string }[] = [
   { value: 'on', label: 'Show' },
   { value: 'off', label: 'Hide' },
@@ -268,6 +273,9 @@ export function Settings() {
               </Field>
               <Field label="Page tint">
                 <Segmented label="Page tint" value={current.tint} options={TINTS} onChange={(v) => set('tint', v)} />
+              </Field>
+              <Field label="Bracket lines">
+                <Segmented label="Bracket lines" value={current.lines} options={LINES} onChange={(v) => set('lines', v)} />
               </Field>
               <Field label="Team avatars">
                 <Segmented label="Team avatars" value={current.avatars ? 'on' : 'off'} options={AVATAR_OPTIONS} onChange={(v) => set('avatars', v === 'on')} />

@@ -32,6 +32,7 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   status: 'live',
   created_at: '',
   teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),
+  team_count: 4,
   bracket: { format: 'single_elimination', matches },
   champion: null,
   progress: { played: 0, total: 0 },

@@ -7,6 +7,7 @@ import {
   closestCenter,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
 } from '@dnd-kit/core'
 import {
@@ -122,6 +123,15 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
     setDraft('')
   }
 
+  const nameOf = (id: string | number) => items.find((i) => i.key === id)?.name ?? 'Team'
+  const seedOf = (id: string | number) => items.findIndex((i) => i.key === id) + 1
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}, seed ${seedOf(active.id)} of ${items.length}.`,
+    onDragOver: ({ active, over }) => (over ? `${nameOf(active.id)} is over seed ${seedOf(over.id)}, ${nameOf(over.id)}.` : undefined),
+    onDragEnd: ({ active, over }) => (over ? `${nameOf(active.id)} dropped at seed ${seedOf(over.id)}.` : `${nameOf(active.id)} dropped where it was.`),
+    onDragCancel: ({ active }) => `Move cancelled. ${nameOf(active.id)} stays at seed ${seedOf(active.id)}.`,
+  }
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
     setItems((prev) => {
@@ -139,7 +149,7 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
           <p className="text-xs text-muted">Qualifier score on the right</p>
         </div>
         {items.length === 0 && <p className="text-muted">No teams yet. Add some on the right.</p>}
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} accessibility={{ announcements }}>
           <SortableContext items={items.map((i) => i.key)} strategy={verticalListSortingStrategy}>
             <ul className="flex flex-col gap-1.5">
               {items.map((item, index) => (

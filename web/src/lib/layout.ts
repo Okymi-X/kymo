@@ -17,6 +17,8 @@ export interface Placed {
 export interface Link {
   key: string
   path: string
+  /** The same connection drawn as a smooth curve. */
+  curve: string
 }
 
 export interface ColumnHead {
@@ -117,7 +119,7 @@ export function layoutBracket(matches: Match[]): BracketLayout {
     const x2 = to.x
     const y2 = to.y + CARD_H / 2
     const mid = x2 - COL_GAP / 2
-    links.push({ key: `${from.match.id}-${to.match.id}`, path: `M${x1} ${y1}H${mid}V${y2}H${x2}` })
+    links.push({ key: `${from.match.id}-${to.match.id}`, path: `M${x1} ${y1}H${mid}V${y2}H${x2}`, curve: `M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}` })
   }
 
   const all = [...placed.values()]

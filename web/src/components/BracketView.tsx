@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Bracket, Match, Slot, Stage } from '../api/types'
 import { roundLabel } from '../lib/labels'
 import { CARD_H, CARD_W, layoutBracket, type BracketLayout } from '../lib/layout'
+import { useAppearance } from './ThemeLoader'
 import { MapViewport, type MapRect } from './MapViewport'
 import { MatchCard } from './MatchCard'
 
@@ -31,6 +32,7 @@ function Canvas({
   highlight,
   onHoverTeam,
 }: { bracket: Bracket; layout: BracketLayout; highlight: number | null; onHoverTeam: (team: number | null) => void } & Pick<Props, 'teamName' | 'onEdit'>) {
+  const curved = useAppearance().data?.lines === 'curved'
   const totals = useMemo(() => {
     const out = new Map<Stage, number>()
     for (const m of bracket.matches) out.set(m.stage, Math.max(out.get(m.stage) ?? 0, m.round))
@@ -50,7 +52,7 @@ function Canvas({
       ))}
       <svg className="absolute left-0 top-0 text-muted/40" width={layout.width} height={layout.height} fill="none" aria-hidden="true">
         {layout.links.map((link) => (
-          <path key={link.key} d={link.path} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+          <path key={link.key} d={curved ? link.curve : link.path} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
         ))}
       </svg>
       {layout.placed

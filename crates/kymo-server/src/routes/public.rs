@@ -61,10 +61,14 @@ pub async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// The list only needs a few names for the avatar stack, not every roster.
+const LIST_TEAMS: usize = 4;
+
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>, ApiError> {
     let mut all = db::list(&state.pool).await?;
     for t in &mut all {
         t.bracket = None;
+        t.teams.truncate(LIST_TEAMS);
     }
     Ok(Json(all))
 }

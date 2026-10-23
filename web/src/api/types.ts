@@ -49,6 +49,8 @@ export interface Tournament {
   status: Status
   created_at: string
   teams: Team[]
+  /** Full roster size. On the public list `teams` holds only the first few. */
+  team_count: number
   bracket: Bracket | null
   champion: number | null
   progress: { played: number; total: number }
@@ -65,6 +67,7 @@ export type FontChoice = 'sans' | 'serif' | 'mono'
 
 export type Scheme = 'system' | 'light' | 'dark'
 export type Density = 'comfortable' | 'compact'
+export type LineStyle = 'square' | 'curved'
 export type Tint = 'neutral' | 'warm' | 'cool'
 
 export interface Appearance {
@@ -79,6 +82,7 @@ export interface Appearance {
   tint: Tint
   avatars: boolean
   logo: string | null
+  lines: LineStyle
 }
 
 export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled'

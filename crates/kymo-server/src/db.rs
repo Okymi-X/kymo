@@ -56,6 +56,8 @@ pub struct Tournament {
     pub status: Status,
     pub created_at: String,
     pub teams: Vec<Team>,
+    /// Full roster size, kept when the public list trims `teams`.
+    pub team_count: usize,
     pub bracket: Option<Bracket>,
     pub champion: Option<u32>,
     pub progress: Progress,
@@ -116,6 +118,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         advance: u8::try_from(row.advance).unwrap_or(2),
         status: row.status,
         created_at: row.created_at,
+        team_count: teams.len(),
         teams,
     })
 }
