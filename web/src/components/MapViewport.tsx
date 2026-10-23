@@ -97,6 +97,8 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
   const box = useRef<HTMLDivElement>(null)
   const [vp, setVp] = useState<Size>({ w: 0, h: 0 })
   const vpRef = useRef(vp)
+  /** Screen height left under the map's top edge, so the controls and minimap stay on screen. */
+  const [room, setRoom] = useState(Infinity)
   const [view, setView] = useState<View>({ x: PAD, y: PAD, s: 1 })
   const viewRef = useRef(view)
   const manual = useRef(false)
@@ -132,11 +134,16 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
       const next = { w: el.clientWidth, h: el.clientHeight }
       vpRef.current = next
       setVp(next)
+      setRoom(window.innerHeight - (el.getBoundingClientRect().top + window.scrollY) - 24)
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
-    return () => observer.disconnect()
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [])
 
   const defaultView = useCallback((): View => {
@@ -156,7 +163,7 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
 
   const baseScale = vp.w > 0 ? widthScale(width, vp.w) : 1
   // Leave room for the header, title and tabs above so the whole map, minimap included, fits on screen.
-  const maxHeight = typeof window === 'undefined' ? 700 : window.innerWidth < 640 ? Math.max(320, window.innerHeight * 0.65) : Math.max(360, Math.min(window.innerHeight - 340, 900))
+  const maxHeight = typeof window === 'undefined' ? 700 : window.innerWidth < 640 ? Math.max(320, window.innerHeight * 0.65) : Math.max(280, Math.min(window.innerHeight - 340, 900, room))
   const boxHeight = fill ? undefined : Math.round(Math.min(Math.max(height * baseScale + 2 * PAD + (hideControls ? 0 : CONTROLS_ROOM), 220), maxHeight))
 
   const zoomBy = useCallback(

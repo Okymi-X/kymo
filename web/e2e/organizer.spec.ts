@@ -499,6 +499,8 @@ test('the bracket is a map: drag, zoom at the cursor, keys, minimap, and no acci
   await expect(map.getByRole('button', { name: /Edit result for TeamA versus TeamP/ })).toBeVisible()
   const start = await mapTransform(page)
   const box = (await map.boundingBox())!
+  // The whole map, controls and minimap included, fits under the page header without scrolling.
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height)
 
   // Dragging from a match card moves the map and does not open the result dialog.
   const card = map.getByRole('button', { name: /Edit result for TeamA versus TeamP/ })
