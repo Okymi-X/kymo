@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::auth::Admin;
 use crate::db::{self, NewTeam, NewTournament, Status, Tournament};
 use crate::error::ApiError;
+use crate::events;
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, ApiToken, Kind};
@@ -258,6 +259,13 @@ pub async fn start(
         },
     )?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;
+    events::record_tournament(
+        &state.pool,
+        id,
+        "started",
+        serde_json::json!({ "teams": ids.len(), "format": t.format }),
+    )
+    .await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
 }
@@ -270,13 +278,18 @@ pub async fn reset(
     let _guard = state.write_lock.lock().await;
     let t = db::get(&state.pool, id).await?;
     db::save_bracket(&state.pool, id, None, Status::Draft).await?;
+    events::record_tournament(&state.pool, id, "reset", serde_json::json!({})).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
 }
 
+/// Applies one change to a match under the write lock and records it in the activity log.
+/// A change to a match that already had a result is logged as a correction.
 async fn edit_bracket(
     state: &AppState,
     id: i64,
+    match_id: usize,
+    kind: &'static str,
     edit: impl FnOnce(&mut kymo_engine::Bracket) -> Result<(), kymo_engine::EngineError>,
 ) -> Result<Tournament, ApiError> {
     let _guard = state.write_lock.lock().await;
@@ -284,6 +297,7 @@ async fn edit_bracket(
     let mut bracket = t
         .bracket
         .ok_or_else(|| ApiError::Conflict("tournament has not started".into()))?;
+    let had_result = bracket.matches.get(match_id).is_some_and(|m| m.is_played());
     edit(&mut bracket)?;
     let status = if bracket.champion().is_some() {
         Status::Done
@@ -291,6 +305,12 @@ async fn edit_bracket(
         Status::Live
     };
     db::save_bracket(&state.pool, id, Some(&bracket), status).await?;
+    let kind = if had_result && kind != "cleared" {
+        "corrected"
+    } else {
+        kind
+    };
+    events::record_match(&state.pool, id, kind, &bracket, match_id).await?;
     state.notify(&t.slug);
     db::get(&state.pool, id).await
 }
@@ -306,7 +326,7 @@ pub async fn set_result(
             "scores must be at most {MAX_SCORE}"
         )));
     }
-    let t = edit_bracket(&state, id, |b| {
+    let t = edit_bracket(&state, id, match_id, "result", |b| {
         b.set_result(match_id, body.score_a, body.score_b)
     })
     .await?;
@@ -320,7 +340,10 @@ pub async fn set_forfeit(
     Json(body): Json<ForfeitBody>,
 ) -> Result<Json<Tournament>, ApiError> {
     Ok(Json(
-        edit_bracket(&state, id, |b| b.set_forfeit(match_id, body.winner)).await?,
+        edit_bracket(&state, id, match_id, "forfeit", |b| {
+            b.set_forfeit(match_id, body.winner)
+        })
+        .await?,
     ))
 }
 
@@ -330,7 +353,10 @@ pub async fn clear_result(
     Path((id, match_id)): Path<(i64, usize)>,
 ) -> Result<Json<Tournament>, ApiError> {
     Ok(Json(
-        edit_bracket(&state, id, |b| b.clear_result(match_id)).await?,
+        edit_bracket(&state, id, match_id, "cleared", |b| {
+            b.clear_result(match_id)
+        })
+        .await?,
     ))
 }
 

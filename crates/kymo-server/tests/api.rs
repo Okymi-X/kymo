@@ -909,3 +909,102 @@ async fn groups_then_knockout_runs_over_the_api_and_validates_its_setup() {
     }
     panic!("tournament never finished");
 }
+
+#[tokio::test]
+async fn activity_log_is_public_ordered_and_marks_corrections() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Audit", "format": "single_elimination"})),
+    )
+    .await;
+    let teams: Vec<_> = (1..=4).map(|n| json!({"name": format!("t{n}")})).collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": teams})),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    let uri = |m: usize, tail: &str| format!("/api/v1/admin/tournaments/1/matches/{m}/{tail}");
+    call(
+        &app,
+        "PUT",
+        &uri(0, "result"),
+        t,
+        Some(json!({"score_a": 3, "score_b": 1})),
+    )
+    .await;
+    call(
+        &app,
+        "PUT",
+        &uri(0, "result"),
+        t,
+        Some(json!({"score_a": 1, "score_b": 3})),
+    )
+    .await;
+    call(
+        &app,
+        "PUT",
+        &uri(1, "forfeit"),
+        t,
+        Some(json!({"winner": "A"})),
+    )
+    .await;
+    call(&app, "DELETE", &uri(1, "result"), t, None).await;
+    // A refused edit must not leave a log line behind.
+    call(
+        &app,
+        "PUT",
+        &uri(2, "result"),
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+
+    let (status, log) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/audit/activity",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let kinds: Vec<_> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["cleared", "forfeit", "corrected", "result", "started"]
+    );
+    let corrected = &log[2];
+    assert_eq!(corrected["data"]["score_a"], 1);
+    assert_eq!(corrected["data"]["winner"], "B");
+    assert!(log[0]["at"].as_i64().unwrap() >= log[4]["at"].as_i64().unwrap());
+    assert_eq!(log[3]["match_id"], 0);
+
+    let (status, _) = call(&app, "GET", "/api/v1/tournaments/nope/activity", None, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    call(&app, "POST", "/api/v1/admin/tournaments/1/reset", t, None).await;
+    let (_, after) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/audit/activity",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(after[0]["kind"], "reset");
+}

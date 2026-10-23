@@ -13,6 +13,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::auth::ClientIp;
 use crate::db::{self, Tournament};
 use crate::error::ApiError;
+use crate::events::{self, Event as LogEvent};
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, Kind};
@@ -90,4 +91,12 @@ pub async fn events(
 
 pub async fn appearance(State(state): State<AppState>) -> Result<Json<Appearance>, ApiError> {
     Ok(Json(settings::load(&state.pool).await?))
+}
+
+pub async fn activity(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<Vec<LogEvent>>, ApiError> {
+    let t = db::get_by_slug(&state.pool, &slug).await?;
+    Ok(Json(events::list(&state.pool, t.id).await?))
 }

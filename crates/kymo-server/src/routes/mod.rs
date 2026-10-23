@@ -22,6 +22,7 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments", get(public::list).post(admin::create))
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))
+        .route("/tournaments/{slug}/activity", get(public::activity))
         .route("/settings", get(public::appearance))
         .route(
             "/admin/settings",
