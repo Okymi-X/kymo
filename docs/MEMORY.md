@@ -9,3 +9,4 @@
 - Login throttle is one shared budget, not per IP: an attacker can lock the organizer out for a minute. Revisit with per IP limits once a trusted proxy header is configured.
 - API token secrets are shown once at creation; only the sha256 hash is stored.
 - Start the local app with setsid nohup so it survives the tool shell: KYMO_ADMIN_PASSWORD=$(cat .kymo-password) KYMO_ADDR=127.0.0.1:8787 KYMO_DATABASE_URL=sqlite://kymo.db setsid nohup target/debug/kymo-server &
+- e2e: pnpm e2e in web/ uses channel chrome (no browser download), port 8791, db target/e2e.db. Needs web/dist built first.

@@ -28,3 +28,11 @@ cd web && pnpm exec tsc -b
 ```
 
 Docs for contributors and agents live in `docs/`.
+
+## End to end tests
+
+```sh
+cd web && pnpm e2e
+```
+
+Starts its own server on port 8791 with a throwaway database and drives the organizer flow in Google Chrome. Build the web app first (`pnpm build`).

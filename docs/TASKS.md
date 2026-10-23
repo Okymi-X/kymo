@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Playwright e2e (system Chrome): organizer plays a 4 team knockout to a champion, public view is read only, bad password rejected
 - [x] API test plays a 7 team double elimination tournament to a champion over HTTP (7 API tests total)
 - [x] Web: single canvas layout with links from winners and losers into the grand final (9 layout tests), verified in browser
 - [x] Web: API token panel (create with one time secret, list, revoke via dialog), checked in browser
@@ -18,5 +19,4 @@
 
 ## Todo
 - [ ] Web: command palette
-- [ ] Web: browser e2e tests (Playwright) for the organizer flow
 - [ ] README with quickstart
