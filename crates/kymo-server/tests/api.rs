@@ -473,3 +473,47 @@ async fn third_place_option_adds_a_match_and_keeps_the_champion() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn appearance_is_public_editable_by_admins_and_validated() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+
+    let (status, defaults) = call(&app, "GET", "/api/v1/settings", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(defaults["site_name"], "Kymo");
+
+    let custom = json!({"site_name": " HTB Club ", "accent_light": "#aa2200", "accent_dark": "#ff8866", "radius": 14, "font": "serif"});
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/settings",
+        None,
+        Some(custom.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, saved) = call(&app, "PUT", "/api/v1/admin/settings", t, Some(custom)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["site_name"], "HTB Club");
+
+    let (_, public) = call(&app, "GET", "/api/v1/settings", None, None).await;
+    assert_eq!(public["accent_light"], "#aa2200");
+    assert_eq!(public["font"], "serif");
+
+    for bad in [
+        json!({"site_name": "", "accent_light": "#aa2200", "accent_dark": "#ff8866", "radius": 8, "font": "sans"}),
+        json!({"site_name": "x", "accent_light": "red", "accent_dark": "#ff8866", "radius": 8, "font": "sans"}),
+        json!({"site_name": "x", "accent_light": "#aa2200", "accent_dark": "#ff8866", "radius": 99, "font": "sans"}),
+    ] {
+        let (status, _) = call(&app, "PUT", "/api/v1/admin/settings", t, Some(bad)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    let (status, reset) = call(&app, "DELETE", "/api/v1/admin/settings", t, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reset["accent_light"], "#0a6fe0");
+    let (_, after) = call(&app, "GET", "/api/v1/settings", None, None).await;
+    assert_eq!(after["site_name"], "Kymo");
+}

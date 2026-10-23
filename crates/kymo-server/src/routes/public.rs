@@ -10,6 +10,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::db::{self, Tournament};
 use crate::error::ApiError;
+use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, Kind};
 
@@ -65,4 +66,8 @@ pub async fn events(
         _ => None,
     });
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+pub async fn appearance(State(state): State<AppState>) -> Result<Json<Appearance>, ApiError> {
+    Ok(Json(settings::load(&state.pool).await?))
 }

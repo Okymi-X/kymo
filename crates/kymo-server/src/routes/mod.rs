@@ -15,6 +15,11 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments", get(public::list).post(admin::create))
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))
+        .route("/settings", get(public::appearance))
+        .route(
+            "/admin/settings",
+            put(admin::save_appearance).delete(admin::reset_appearance),
+        )
         .route(
             "/admin/tokens",
             get(admin::list_tokens).post(admin::create_token),

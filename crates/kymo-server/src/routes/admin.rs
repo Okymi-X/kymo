@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::auth::Admin;
 use crate::db::{self, NewTeam, Status, Tournament};
 use crate::error::ApiError;
+use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, ApiToken, Kind};
 
@@ -314,4 +315,22 @@ pub async fn revoke_token(
 ) -> Result<StatusCode, ApiError> {
     tokens::revoke_api(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn save_appearance(
+    _: Admin,
+    State(state): State<AppState>,
+    Json(mut body): Json<Appearance>,
+) -> Result<Json<Appearance>, ApiError> {
+    body.validate()?;
+    settings::save(&state.pool, &body).await?;
+    Ok(Json(body))
+}
+
+pub async fn reset_appearance(
+    _: Admin,
+    State(state): State<AppState>,
+) -> Result<Json<Appearance>, ApiError> {
+    settings::reset(&state.pool).await?;
+    Ok(Json(Appearance::default()))
 }
