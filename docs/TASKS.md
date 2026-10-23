@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Optional third place match for single elimination: engine (5 tests), tournament option (migration 0004, 1 API test), layout under the final (2 tests), create form checkbox, e2e
 - [x] Team avatars via blobatar (deterministic from team name) on match cards, roster rows and the champion banner
 - [x] Forfeit wins: engine (4 tests), PUT .../forfeit endpoint (1 test), dialog buttons, W/FF on the card, e2e test
 - [x] Web: command palette (Ctrl/Cmd K, filter, arrows, enter), 4 unit tests and 1 e2e test

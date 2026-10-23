@@ -68,3 +68,21 @@ describe('double elimination canvas', () => {
     expect(double.titles.map((t) => t.text)).toEqual(['Winners bracket', 'Losers bracket', 'Finals'])
   })
 })
+
+describe('third place match', () => {
+  const layout = layoutBracket([
+    match(0, 1, 0, 2),
+    match(1, 1, 1, 2),
+    match(2, 2, 0, null),
+    match(3, 2, 0, null, 'third_place'),
+  ])
+
+  it('sits in the final column below the final', () => {
+    expect(at(layout, 3).x).toBe(at(layout, 2).x)
+    expect(at(layout, 3).y).toBeGreaterThanOrEqual(at(layout, 2).y + CARD_H + ROW_GAP)
+  })
+
+  it('adds no column of its own', () => {
+    expect(new Set(layout.heads.map((h) => h.x)).size).toBe(2)
+  })
+})

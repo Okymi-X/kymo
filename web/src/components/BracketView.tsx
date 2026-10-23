@@ -45,6 +45,13 @@ function Canvas({ bracket, zoom, teamName, onEdit }: { bracket: Bracket; zoom: n
               <path key={link.key} d={link.path} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
             ))}
           </svg>
+          {layout.placed
+            .filter((p) => p.match.stage === 'third_place')
+            .map((p) => (
+              <h4 key={`cap-${p.match.id}`} className="absolute text-xs font-medium text-muted" style={{ left: p.x, top: p.y - 18, width: CARD_W }}>
+                Third place
+              </h4>
+            ))}
           {layout.placed.map((p) => (
             <MatchCard key={p.match.id} match={p.match} teamName={teamName} onEdit={onEdit} style={{ position: 'absolute', left: p.x, top: p.y }} />
           ))}

@@ -11,3 +11,4 @@
 - Start the local app with setsid nohup so it survives the tool shell: KYMO_ADMIN_PASSWORD=$(cat .kymo-password) KYMO_ADDR=127.0.0.1:8787 KYMO_DATABASE_URL=sqlite://kymo.db setsid nohup target/debug/kymo-server &
 - e2e: pnpm e2e in web/ uses channel chrome (no browser download), port 8791, db target/e2e.db. Needs web/dist built first.
 - Avatars come from the blobatar npm package (blobatarUri, data URI in an img). CSP img-src allows data:. Avatar depends on the team name, so renaming a team changes its avatar.
+- Third place match: Stage::ThirdPlace is the last match; Bracket::champion uses the last Winners stage match for single elimination. The tournament is Done once the champion is known, even if third place is unplayed.

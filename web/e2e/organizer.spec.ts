@@ -79,3 +79,20 @@ test('organizer awards a match by forfeit and can undo it', async ({ page }) => 
   await page.getByRole('button', { name: 'Clear result' }).click()
   await expect(page.getByText('FF')).toHaveCount(0)
 })
+
+test('third place match is played after the semifinals', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Bronze Cup')
+  await page.getByLabel('Third place match').check()
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  await record(page, 'Edit result for Alpha versus Delta', '3', '1')
+  await record(page, 'Edit result for Bravo versus Charlie', '0', '2')
+  await expect(page.getByText('Third place', { exact: true })).toBeVisible()
+  await record(page, 'Edit result for Delta versus Bravo', '1', '0')
+  await record(page, 'Edit result for Alpha versus Charlie', '2', '1')
+  await expect(page.getByText('Champion')).toBeVisible()
+})

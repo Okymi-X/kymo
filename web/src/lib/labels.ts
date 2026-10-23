@@ -8,6 +8,7 @@ export const formatLabel: Record<Format, string> = {
 export function roundLabel(stage: Stage, round: number, totalRounds: number, format: Format): string {
   if (stage === 'grand_final') return 'Grand final'
   if (stage === 'grand_reset') return 'Reset'
+  if (stage === 'third_place') return 'Third place'
   const fromEnd = totalRounds - round
   if (stage === 'losers') return fromEnd === 0 ? 'Losers final' : `Losers round ${round}`
   if (fromEnd === 0) return format === 'single_elimination' ? 'Final' : 'Winners final'

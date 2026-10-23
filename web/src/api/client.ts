@@ -76,7 +76,8 @@ export const api = {
   login: (password: string) => request<{ token: string }>('POST', '/auth/login', { password }),
   list: () => request<Tournament[]>('GET', '/tournaments'),
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
-  create: (name: string, format: Format) => request<Tournament>('POST', '/tournaments', { name, format }),
+  create: (name: string, format: Format, thirdPlace: boolean) =>
+    request<Tournament>('POST', '/tournaments', { name, format, third_place: thirdPlace }),
   remove: (id: number) => request<void>('DELETE', admin(id)),
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),

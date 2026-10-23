@@ -10,10 +10,11 @@ import { formatLabel } from '../lib/labels'
 function CreateForm() {
   const [name, setName] = useState('')
   const [format, setFormat] = useState<Format>('single_elimination')
+  const [thirdPlace, setThirdPlace] = useState(false)
   const client = useQueryClient()
   const navigate = useNavigate()
   const create = useMutation({
-    mutationFn: () => api.create(name, format),
+    mutationFn: () => api.create(name, format, format === 'single_elimination' && thirdPlace),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
       navigate(`/t/${t.slug}`)
@@ -34,6 +35,12 @@ function CreateForm() {
           <option value="double_elimination">{formatLabel.double_elimination}</option>
         </Select>
       </Field>
+      {format === 'single_elimination' && (
+        <label className="flex h-10 items-center gap-2 text-sm">
+          <input type="checkbox" checked={thirdPlace} onChange={(e) => setThirdPlace(e.target.checked)} className="size-4 accent-accent" />
+          Third place match
+        </label>
+      )}
       <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
         Create
       </Button>

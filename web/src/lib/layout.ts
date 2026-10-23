@@ -42,10 +42,15 @@ export interface BracketLayout {
   height: number
 }
 
-const stageRank: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2, grand_reset: 3 }
+const stageRank: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2, grand_reset: 3, third_place: 4 }
+
+/** The third place match shares the final's column, below it. */
+const columnKey = (m: Match) => `${m.stage === 'third_place' ? 'winners' : m.stage}-${m.round}`
+
+const THIRD_PLACE_CAPTION = 20
 
 const GROUPS: { title: string; stages: Stage[] }[] = [
-  { title: 'Winners bracket', stages: ['winners'] },
+  { title: 'Winners bracket', stages: ['winners', 'third_place'] },
   { title: 'Losers bracket', stages: ['losers'] },
   { title: 'Finals', stages: ['grand_final', 'grand_reset'] },
 ]
@@ -81,16 +86,16 @@ export function layoutBracket(matches: Match[]): BracketLayout {
     const headY = top + (titled ? TITLE_H : 0)
     const y0 = headY + LABEL_H
 
-    const keys = [...new Set(inGroup.map((m) => `${m.stage}-${m.round}`))]
+    const keys = [...new Set(inGroup.map(columnKey))]
     keys.forEach((key, col) => {
       const x = x0 + col * (CARD_W + COL_GAP)
-      const column = inGroup.filter((m) => `${m.stage}-${m.round}` === key)
+      const column = inGroup.filter((m) => columnKey(m) === key)
       heads.push({ key, x, y: headY, stage: column[0].stage, round: column[0].round })
       let floor = y0
       column.forEach((match, index) => {
         const above = (feeders.get(match.id) ?? []).map((id) => placed.get(id)).filter((p): p is Placed => !!p)
         const wanted = above.length ? above.reduce((sum, p) => sum + p.y, 0) / above.length : y0 + index * (CARD_H + ROW_GAP)
-        const y = Math.max(wanted, floor)
+        const y = Math.max(wanted, floor + (match.stage === 'third_place' ? THIRD_PLACE_CAPTION : 0))
         floor = y + CARD_H + ROW_GAP
         placed.set(match.id, { match, x, y })
       })
