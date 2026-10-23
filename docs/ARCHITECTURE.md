@@ -42,4 +42,16 @@ Organizer action -> API handler -> repository loads matches -> engine applies ch
 Appearance (site name, accent per color scheme, corner radius, typeface) lives in the `setting` table and is served at GET /settings. The web app injects it as a CSS variable override on load; every value is validated on the server (hex colors, radius 0 to 20, fixed font list) and again before it reaches CSS. New options extend the JSON, no migration. Contrast against the page background is shown while editing.
 
 ## Challenge integration (planned, not built)
-Kymo schedules and displays knockout rounds; it does not host challenges. A round can later carry a `challenge` reference with a `kind` (flag, web, full pwn, kubernetes lab) and a provider adapter (CTFd, rCTF, HTB or custom webhook) that reports who solved what. Adapters return plain results the engine can turn into scores, so the bracket logic stays unaware of challenge types. Decision pending: pull data from third party platforms versus accept pushed results through API tokens (tokens already exist).
+Kymo is the tournament layer. It does not host challenges, run containers or check flags. Platforms that do (GZCTF, ForcAD, CTFd, rCTF, HTB) stay the source of truth for play, and Kymo turns their results into bracket results.
+
+What the references show (read 2026-10-23):
+- GZCTF: jeopardy with static or dynamic attachments and containers on Docker or Kubernetes, plus attack and defense and king of the hill modes. A&D ticks report Ok, Mumble, Offline or InternalError per team service. AGPLv3. Its public API and webhooks were not described on the pages read, check before designing an adapter.
+- ForcAD: pure Python attack and defense framework. Rounds of `round_time` seconds, flags valid for `flag_lifetime` rounds, per team tokens, Hackerdom compatible checkers, scoreboard and admin panel. Only `/api/client/attack_data` is documented on the page read. GPLv3.
+
+Design direction:
+1. A `provider` adapter returns, for a given match, a score for each team (and optionally a status such as live, finished). Kymo maps that to `set_result`. The engine never learns about challenge kinds.
+2. Three entry points, in order of effort: manual entry (done), push through API tokens (done, a script can PUT results), pull from a provider scoreboard on a timer.
+3. A round may carry a `source` (provider, game id, challenge kind: flag, web, pwn, kubernetes, attack and defense) shown on the match card and in the dialog.
+4. Qualifier import: a provider scoreboard fills `team.score` so seeding by score works with real data.
+5. Integrate over HTTP only. Do not copy or link GPL or AGPL code into Kymo.
+Open decision: pull versus push as the default, and which provider first. Recommendation: scoreboard import for seeding first, since it needs only read access and the score column already exists.

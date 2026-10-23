@@ -12,3 +12,4 @@
 - e2e: pnpm e2e in web/ uses channel chrome (no browser download), port 8791, db target/e2e.db. Needs web/dist built first.
 - Avatars come from the blobatar npm package (blobatarUri, data URI in an img). CSP img-src allows data:. Avatar depends on the team name, so renaming a team changes its avatar.
 - Third place match: Stage::ThirdPlace is the last match; Bracket::champion uses the last Winners stage match for single elimination. The tournament is Done once the champion is known, even if third place is unplayed.
+- References for challenge integration: GZCTF (AGPLv3, jeopardy plus A&D and KotH, Docker or Kubernetes) and ForcAD (GPLv3, A&D, rounds and flags). Integrate over HTTP only, never copy code.

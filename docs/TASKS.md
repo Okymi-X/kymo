@@ -26,6 +26,6 @@
 
 ## Todo
 - [ ] More customization: logo upload, per tournament accent, card density, bracket line style
-- [ ] Challenge providers (CTFd, rCTF, HTB, webhook) and challenge kinds, see ARCHITECTURE
+- [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart
