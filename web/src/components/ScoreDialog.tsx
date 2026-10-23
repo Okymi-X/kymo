@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { Match, Tournament } from '../api/types'
+import type { Match, Side, Tournament } from '../api/types'
 import { Button, ErrorText, Field, Input } from './ui'
 
 interface Props {
@@ -27,6 +27,10 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   }
   const save = useMutation({
     mutationFn: () => api.setResult(tournament.id, match.id, Number(a), Number(b)),
+    onSuccess: done,
+  })
+  const forfeit = useMutation({
+    mutationFn: (winner: Side) => api.setForfeit(tournament.id, match.id, winner),
     onSuccess: done,
   })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
@@ -57,9 +61,20 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
           </Field>
         </div>
         {a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
-        <ErrorText error={save.error ?? clear.error} />
+        <div className="flex flex-col gap-2 border-t border-line pt-4">
+          <p className="text-xs font-medium text-muted">No game played</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button onClick={() => forfeit.mutate('A')} disabled={forfeit.isPending}>
+              <span className="truncate">{names[0]} advances</span>
+            </Button>
+            <Button onClick={() => forfeit.mutate('B')} disabled={forfeit.isPending}>
+              <span className="truncate">{names[1]} advances</span>
+            </Button>
+          </div>
+        </div>
+        <ErrorText error={save.error ?? clear.error ?? forfeit.error} />
         <div className="flex items-center justify-between gap-2">
-          {match.score ? (
+          {match.score || match.forfeit ? (
             <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>
               Clear result
             </Button>

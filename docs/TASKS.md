@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Forfeit wins: engine (4 tests), PUT .../forfeit endpoint (1 test), dialog buttons, W/FF on the card, e2e test
 - [x] Web: command palette (Ctrl/Cmd K, filter, arrows, enter), 4 unit tests and 1 e2e test
 - [x] Repo published at github.com/Okymi-X/kymo, MIT license added
 - [x] Playwright e2e (system Chrome): organizer plays a 4 team knockout to a champion, public view is read only, bad password rejected

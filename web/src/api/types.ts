@@ -19,6 +19,7 @@ export interface Match {
   slots: [Slot, Slot]
   score: [number, number] | null
   winner: Side | null
+  forfeit: boolean
   next_win: Dest | null
 }
 

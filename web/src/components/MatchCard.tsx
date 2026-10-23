@@ -14,7 +14,7 @@ function isReady(match: Match) {
   return match.slots.every((s) => s.kind === 'team')
 }
 
-function Row({ name, slot, score, won }: { name: string; slot: Slot; score: number | null; won: boolean }) {
+function Row({ name, slot, score, won, forfeit }: { name: string; slot: Slot; score: number | null; won: boolean; forfeit: boolean }) {
   const dim = slot.kind !== 'team'
   return (
     <div className="flex flex-1 items-center justify-between gap-3 px-3">
@@ -28,7 +28,7 @@ function Row({ name, slot, score, won }: { name: string; slot: Slot; score: numb
         {won && <Check size={14} aria-label="Winner" className="shrink-0 text-win" />}
         <span className="truncate">{name}</span>
       </motion.span>
-      <span className={`font-mono tabular-nums ${won ? 'font-semibold' : 'text-muted'}`}>{score ?? ''}</span>
+      <span className={`font-mono tabular-nums ${won ? 'font-semibold' : 'text-muted'}`}>{forfeit ? (won ? 'W' : 'FF') : (score ?? '')}</span>
     </div>
   )
 }
@@ -38,9 +38,9 @@ export function MatchCard({ match, teamName, onEdit, style }: Props) {
   const open = ready && match.winner === null
   const body = (
     <>
-      <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} />
+      <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} />
       <div className="border-t border-line" />
-      <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} />
+      <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} />
     </>
   )
   const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`

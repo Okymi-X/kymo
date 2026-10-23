@@ -60,3 +60,22 @@ test('command palette jumps to a tournament from the keyboard', async ({ page })
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/t\/palette-cup$/)
 })
+
+test('organizer awards a match by forfeit and can undo it', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Walkover Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
+  await page.getByRole('button', { name: 'Delta advances' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.getByText('FF')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Edit result for Delta versus TBD' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
+  await page.getByRole('button', { name: 'Clear result' }).click()
+  await expect(page.getByText('FF')).toHaveCount(0)
+})

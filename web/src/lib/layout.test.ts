@@ -10,6 +10,7 @@ const match = (id: number, round: number, position: number, next: number | null,
   slots: [{ kind: 'empty' }, { kind: 'empty' }],
   score: null,
   winner: null,
+  forfeit: false,
   next_win: next === null ? null : { id: next, side: 'A' },
 })
 
