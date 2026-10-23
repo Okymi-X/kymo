@@ -102,5 +102,7 @@ export const api = {
   revokeToken: (id: number) => request<void>('DELETE', `/admin/tokens/${id}`),
   setForfeit: (id: number, match: number, winner: Side) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/forfeit`, { winner }),
+  setSchedule: (id: number, match: number, at: number | null, venue: string | null) =>
+    request<Tournament>('PUT', `${admin(id)}/matches/${match}/schedule`, { at, venue }),
   clearResult: (id: number, match: number) => request<Tournament>('DELETE', `${admin(id)}/matches/${match}/result`),
 }

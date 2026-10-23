@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 
-export const useTournaments = () => useQuery({ queryKey: ['tournaments'], queryFn: api.list })
+export const useTournaments = () => useQuery({ queryKey: ['tournaments'], queryFn: api.list, refetchInterval: 30_000 })
 
 export const useTournament = (slug: string) =>
   useQuery({ queryKey: ['tournament', slug], queryFn: () => api.get(slug) })

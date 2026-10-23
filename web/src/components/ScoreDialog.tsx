@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Match, Side, Tournament } from '../api/types'
+import { fromLocalInput, toLocalInput } from '../lib/schedule'
 import { Button, ErrorText, Field, Input } from './ui'
 
 interface Props {
@@ -16,6 +17,8 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   const [a, setA] = useState(String(match.score?.[0] ?? ''))
   const [b, setB] = useState(String(match.score?.[1] ?? ''))
   const client = useQueryClient()
+  const [when, setWhen] = useState(toLocalInput(match.scheduled_at))
+  const [venue, setVenue] = useState(match.venue ?? '')
 
   useEffect(() => {
     ref.current?.showModal()
@@ -31,6 +34,10 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   })
   const forfeit = useMutation({
     mutationFn: (winner: Side) => api.setForfeit(tournament.id, match.id, winner),
+    onSuccess: done,
+  })
+  const schedule = useMutation({
+    mutationFn: (clearIt: boolean) => api.setSchedule(tournament.id, match.id, clearIt ? null : fromLocalInput(when), clearIt ? null : venue.trim() || null),
     onSuccess: done,
   })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
@@ -73,7 +80,28 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             </Button>
           </div>
         </div>
-        <ErrorText error={save.error ?? clear.error ?? forfeit.error} />
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <p className="text-xs font-medium text-muted">Schedule</p>
+          <div className="grid grid-cols-[1fr_1fr] gap-3 max-sm:grid-cols-1">
+            <Field label="Starts">
+              <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+            </Field>
+            <Field label="Place">
+              <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Room A" maxLength={40} />
+            </Field>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => schedule.mutate(false)} disabled={schedule.isPending || (when === '' && venue.trim() === '')}>
+              Save schedule
+            </Button>
+            {(match.scheduled_at !== null || match.venue) && (
+              <Button variant="ghost" onClick={() => schedule.mutate(true)} disabled={schedule.isPending}>
+                Clear schedule
+              </Button>
+            )}
+          </div>
+        </div>
+        <ErrorText error={save.error ?? clear.error ?? forfeit.error ?? schedule.error} />
         <div className="flex items-center justify-between gap-2">
           {match.score || match.forfeit ? (
             <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>

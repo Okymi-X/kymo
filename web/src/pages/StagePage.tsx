@@ -10,6 +10,7 @@ import { GroupsView } from '../components/GroupsView'
 import { StandingsTable } from '../components/StandingsTable'
 import { StatusPill } from '../components/ui'
 import { formatLabel, roundNamer } from '../lib/labels'
+import { bySchedule, planLine } from '../lib/schedule'
 import { computeTeamRows, isRealMatch, matchState } from '../lib/stats'
 
 const ROTATE_MS = 15_000
@@ -32,7 +33,7 @@ function useNames(t: Tournament | undefined) {
 
 function UpNext({ t, name }: { t: Tournament; name: (s: Slot) => string }) {
   const label = t.bracket ? roundNamer(t.bracket) : () => ''
-  const next = (t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready').slice(0, 4)
+  const next = bySchedule((t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready')).slice(0, 4)
   return (
     <section aria-label="Up next" className="flex flex-col gap-3">
       <h2 className="text-sm font-medium uppercase tracking-wider text-muted">Up next</h2>
@@ -42,7 +43,10 @@ function UpNext({ t, name }: { t: Tournament; name: (s: Slot) => string }) {
         <ul className="flex flex-col gap-3">
           {next.map((m) => (
             <li key={m.id} className="rounded-card border border-line bg-surface p-4">
-              <p className="mb-2 text-xs text-muted">{label(m)}</p>
+              <p className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
+                <span>{label(m)}</span>
+                {planLine(m) && <span className="font-medium text-accent">{planLine(m)}</span>}
+              </p>
               {m.slots.map((slot, i) => (
                 <div key={i} className="flex items-center gap-3 py-1 text-xl font-semibold tracking-tight">
                   <Avatar name={name(slot)} size={28} />

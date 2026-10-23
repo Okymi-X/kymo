@@ -1,5 +1,6 @@
 import type { Match, Slot, Tournament } from '../api/types'
 import { roundNamer } from '../lib/labels'
+import { bySchedule, planLine } from '../lib/schedule'
 import { isRealMatch, matchState, resultsCsv, stageOrder, type MatchState } from '../lib/stats'
 import { Avatar } from './Avatar'
 import { ExportButton } from './ExportButton'
@@ -27,11 +28,15 @@ function TeamCell({ slot, name, won }: { slot: Slot; name: string; won: boolean 
 
 function Row({ match, label, teamName, onEdit }: { match: Match; label: string; teamName: Props['teamName']; onEdit?: Props['onEdit'] }) {
   const [a, b] = match.slots
+  const plan = planLine(match)
   const editable = onEdit !== undefined && matchState(match) !== 'waiting'
   const score = match.forfeit ? 'Forfeit' : match.score ? `${match.score[0]} : ${match.score[1]}` : 'vs'
   const content = (
     <>
-      <span className="w-28 shrink-0 text-xs text-muted">{label}</span>
+      <span className="w-28 shrink-0 text-xs text-muted">
+        {label}
+        {plan && <span className="block text-accent">{plan}</span>}
+      </span>
       <TeamCell slot={a} name={teamName(a)} won={match.winner === 'A'} />
       <span className="shrink-0 text-center font-mono text-xs tabular-nums text-muted">{score}</span>
       <TeamCell slot={b} name={teamName(b)} won={match.winner === 'B'} />
@@ -61,7 +66,7 @@ export function MatchList({ tournament, teamName, onEdit }: Props) {
         <ExportButton filename={`${tournament.slug}-results.csv`} build={() => resultsCsv(tournament, label)} />
       </div>
       {groups.map((g) => {
-        const items = real.filter((m) => matchState(m) === g.state)
+        const items = g.state === 'played' ? real.filter((m) => matchState(m) === g.state) : bySchedule(real.filter((m) => matchState(m) === g.state))
         return (
           <section key={g.state} aria-label={g.title} className="flex flex-col gap-3">
             <h2 className="text-sm font-medium text-muted">

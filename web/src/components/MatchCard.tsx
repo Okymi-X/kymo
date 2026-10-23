@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react'
 import { motion } from 'motion/react'
+import { planLine } from '../lib/schedule'
 import type { CSSProperties } from 'react'
 import type { Match, Slot } from '../api/types'
 import { Avatar } from './Avatar'
@@ -62,15 +63,21 @@ function Row({
 
 export function MatchCard({ match, teamName, onEdit, style, highlight = null, quiet = false, onHoverTeam }: Props) {
   const ready = isReady(match)
+  const plan = planLine(match)
   const open = !quiet && ready && !match.forfeit && match.score === null
   const body = (
     <>
+      {plan && match.winner === null && (
+        <span title={plan} className="absolute right-2 top-0.5 max-w-[11rem] truncate text-[10px] font-medium text-accent">
+          {plan}
+        </span>
+      )}
       <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} lit={highlight !== null && match.slots[0].kind === 'team' && (match.slots[0] as { team: number }).team === highlight} onHover={onHoverTeam} />
       <div className="border-t border-line" />
       <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} lit={highlight !== null && match.slots[1].kind === 'team' && (match.slots[1] as { team: number }).team === highlight} onHover={onHoverTeam} />
     </>
   )
-  const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
+  const frame = `relative flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
   if (onEdit && ready) {
     return (
       <button

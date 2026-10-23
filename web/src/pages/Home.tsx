@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
 import { useAppearance } from '../components/ThemeLoader'
@@ -124,7 +124,10 @@ function DemoButton() {
 export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
-  const [filter, setFilter] = useState<Filter>('all')
+  const [params, setParams] = useSearchParams()
+  const requested = params.get('status')
+  const filter: Filter = FILTERS.find((f) => f.value === requested)?.value ?? 'all'
+  const setFilter = (f: Filter) => setParams(f === 'all' ? {} : { status: f }, { replace: true })
   const tagline = useAppearance().data?.tagline ?? DEFAULT_APPEARANCE.tagline
 
   const counts = useMemo(() => {

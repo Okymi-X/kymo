@@ -21,6 +21,8 @@ export interface Match {
   winner: Side | null
   forfeit: boolean
   group: number | null
+  scheduled_at: number | null
+  venue: string | null
   next_win: Dest | null
 }
 
@@ -74,7 +76,7 @@ export interface Appearance {
   tagline: string
 }
 
-export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared'
+export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled'
 
 export interface LogEvent {
   id: number
@@ -89,5 +91,7 @@ export interface LogEvent {
     score_b?: number | null
     winner?: 'A' | 'B' | null
     forfeit?: boolean
+    scheduled_at?: number | null
+    venue?: string | null
   }
 }

@@ -42,6 +42,24 @@ const NAMES: [&str; 32] = [
     "Reverse Engineers",
 ];
 
+const ADJECTIVES: [&str; 10] = [
+    "Silent", "Rapid", "Crimson", "Hollow", "Neon", "Arctic", "Binary", "Rogue", "Lunar", "Iron",
+];
+const NOUNS: [&str; 10] = [
+    "Falcons", "Wolves", "Ravens", "Foxes", "Sharks", "Tigers", "Vipers", "Owls", "Lynx", "Bears",
+];
+
+/// A readable, unique name for team number `index`: the hand written list first, then combinations.
+fn team_name(index: usize) -> String {
+    match NAMES.get(index) {
+        Some(name) => (*name).to_owned(),
+        None => {
+            let n = index - NAMES.len();
+            format!("{} {}", ADJECTIVES[n % 10], NOUNS[n / 10 % 10])
+        }
+    }
+}
+
 struct Plan {
     name: &'static str,
     format: Format,
@@ -55,7 +73,7 @@ struct Plan {
     story: bool,
 }
 
-const PLANS: [Plan; 6] = [
+const PLANS: [Plan; 7] = [
     Plan {
         name: "Spring Cup 2026",
         format: Format::DoubleElimination,
@@ -109,6 +127,17 @@ const PLANS: [Plan; 6] = [
         advance: 2,
         play: Some(0),
         started: false,
+        story: false,
+    },
+    Plan {
+        name: "CTF World Open",
+        format: Format::SingleElimination,
+        teams: 100,
+        third_place: true,
+        groups: 2,
+        advance: 2,
+        play: Some(70),
+        started: true,
         story: false,
     },
     Plan {
@@ -174,13 +203,10 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
         },
     )
     .await?;
-    let roster: Vec<NewTeam> = NAMES
-        .iter()
-        .take(plan.teams)
-        .enumerate()
-        .map(|(i, name)| NewTeam {
-            name: (*name).to_owned(),
-            score: 1000 - 55 * i as i64,
+    let roster: Vec<NewTeam> = (0..plan.teams)
+        .map(|i| NewTeam {
+            name: team_name(i),
+            score: (4000 - 37 * i as i64).max(0),
         })
         .collect();
     db::replace_teams(pool, id, &roster).await?;
@@ -230,6 +256,24 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
         bracket.set_forfeit(match_id, Side::B)?;
         at += 300;
         events::record_match_at(pool, id, "forfeit", &bracket, match_id, at).await?;
+    }
+    // Plan the next few open matches so the schedule, calendar and countdowns have something to show.
+    let upcoming: Vec<usize> = bracket
+        .matches
+        .iter()
+        .filter(|m| m.is_ready() && !m.is_played())
+        .take(4)
+        .map(|m| m.id)
+        .collect();
+    for (i, match_id) in upcoming.into_iter().enumerate() {
+        let venue = if i % 2 == 0 { "Room A" } else { "Room B" };
+        bracket.set_schedule(
+            match_id,
+            Some(now() + 900 * (i as i64 + 1)),
+            Some(venue.to_owned()),
+        )?;
+        at += 60;
+        events::record_match_at(pool, id, "scheduled", &bracket, match_id, at).await?;
     }
     let status = if bracket.champion().is_some() {
         Status::Done

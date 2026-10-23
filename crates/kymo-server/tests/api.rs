@@ -1053,13 +1053,13 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
 
     let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(first["added"], 6);
+    assert_eq!(first["added"], 7);
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
     let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
     let list = list.as_array().unwrap();
-    assert_eq!(list.len(), 6);
+    assert_eq!(list.len(), 7);
     let formats: std::collections::HashSet<_> =
         list.iter().map(|t| t["format"].as_str().unwrap()).collect();
     assert_eq!(formats.len(), 4);
@@ -1220,4 +1220,31 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
     )
     .await;
     assert_eq!(empty.matches("BEGIN:VEVENT").count(), 0);
+}
+
+#[tokio::test]
+async fn the_hundred_team_demo_tournament_has_unique_names_byes_and_progress() {
+    let app = app().await;
+    let token = login(&app).await;
+    call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
+    let (_, open) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/ctf-world-open",
+        None,
+        None,
+    )
+    .await;
+    let names: std::collections::HashSet<_> = open["teams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(names.len(), 100);
+    assert_eq!(open["status"], "live");
+    // 100 teams need 99 matches plus the third place match.
+    assert_eq!(open["progress"]["total"], 100);
+    assert!(open["progress"]["played"].as_u64().unwrap() >= 60);
+    assert_eq!(open["bracket"]["matches"].as_array().unwrap().len(), 128);
 }

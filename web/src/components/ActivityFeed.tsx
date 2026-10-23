@@ -1,8 +1,9 @@
-import { ArrowRight, CircleSlash, Flag, History, Pencil, Play, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowRight, CalendarClock, CircleSlash, Flag, History, Pencil, Play, RotateCcw, Trophy } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { EventKind, LogEvent, Slot, Tournament } from '../api/types'
 import { useActivity } from '../api/hooks'
 import { roundNamer } from '../lib/labels'
+import { formatSlot } from '../lib/schedule'
 import { timeAgo } from '../lib/time'
 import { Avatar } from './Avatar'
 
@@ -13,6 +14,7 @@ const ICONS: Record<EventKind, ReactNode> = {
   corrected: <Pencil size={16} />,
   forfeit: <Flag size={16} />,
   cleared: <CircleSlash size={16} />,
+  scheduled: <CalendarClock size={16} />,
 }
 
 interface Props {
@@ -44,6 +46,13 @@ export function describeEvent(e: LogEvent, name: (id: number | null | undefined)
     }
     case 'forfeit':
       return { headline: <><strong>{winner ?? a}</strong> advanced by forfeit against {loser}</> }
+    case 'scheduled': {
+      const when = e.data.scheduled_at == null ? null : formatSlot(e.data.scheduled_at)
+      const where = e.data.venue ? ` in ${e.data.venue}` : ''
+      return when || where
+        ? { headline: <>{a} versus {b} planned for <strong>{when ?? 'a time to be set'}</strong>{where}</> }
+        : { headline: <>Schedule removed for {a} versus {b}</> }
+    }
     case 'cleared':
       return { headline: <>Result removed for {a} versus {b}</>, detail: 'The match is open again.' }
   }

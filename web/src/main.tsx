@@ -5,6 +5,7 @@ import { MotionConfig } from 'motion/react'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { ThemeLoader, appearanceKey } from './components/ThemeLoader'
 import type { Appearance } from './api/types'
+import { resolveScheme } from './lib/scheme'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
@@ -26,6 +27,11 @@ function seedAppearance() {
   }
 }
 seedAppearance()
+{
+  // Apply the visitor's own light or dark choice before the first render, unless the site forces one.
+  const forced = queryClient.getQueryData<Appearance>(appearanceKey)?.scheme ?? 'system'
+  document.documentElement.dataset.scheme = resolveScheme(forced)
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

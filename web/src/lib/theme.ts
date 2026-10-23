@@ -1,4 +1,5 @@
 import type { Appearance, FontChoice } from '../api/types'
+import { resolveScheme } from './scheme'
 
 export const DEFAULT_APPEARANCE: Appearance = {
   site_name: 'Kymo',
@@ -79,7 +80,7 @@ export function applyAppearance(a: Appearance) {
     document.head.appendChild(el)
   }
   el.textContent = themeCss(a)
-  document.documentElement.dataset.scheme = a.scheme
+  document.documentElement.dataset.scheme = resolveScheme(a.scheme)
   document.title = a.site_name
 }
 

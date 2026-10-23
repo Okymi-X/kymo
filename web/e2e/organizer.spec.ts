@@ -13,7 +13,7 @@ async function record(page: Page, match: string, a: string, b: string) {
   const scores = page.getByRole('dialog').getByLabel('Score')
   await scores.nth(0).fill(a)
   await scores.nth(1).fill(b)
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeHidden()
 }
 
@@ -204,14 +204,14 @@ test('round robin plays with a draw and crowns the table leader', async ({ page 
   await cards.first().click()
   await page.getByRole('dialog').getByLabel('Score').nth(0).fill('1')
   await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeHidden()
 
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: /Edit result for/ }).nth(i + 1).click()
     await page.getByRole('dialog').getByLabel('Score').nth(0).fill('2')
     await page.getByRole('dialog').getByLabel('Score').nth(1).fill('0')
-    await page.getByRole('button', { name: 'Save' }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeHidden()
   }
   await page.getByRole('tab', { name: 'Standings' }).click()
@@ -242,7 +242,7 @@ test('groups then knockout plays the groups, fills the knockout and crowns a cha
     await next.click()
     await page.getByRole('dialog').getByLabel('Score').nth(0).fill('2')
     await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
-    await page.getByRole('button', { name: 'Save' }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeHidden()
   }
   await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
@@ -300,9 +300,9 @@ test('organizer menu opens, is keyboard friendly and leads to the settings pages
   await trigger.click()
   await page.getByRole('menuitem', { name: 'Appearance' }).click()
   await expect(page).toHaveURL(/\/settings$/)
-  await expect(page.getByRole('link', { name: 'Tournaments' })).not.toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Tournaments' })).not.toHaveAttribute('aria-current', 'page')
   await page.goto('/')
-  await expect(page.getByRole('link', { name: 'Tournaments' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Tournaments' })).toHaveAttribute('aria-current', 'page')
 })
 
 test('the header shows the tournament once its title scrolls away', async ({ page }) => {
@@ -380,4 +380,61 @@ test('stage mode shows what is next, live results and the champion', async ({ pa
   await expect(screen.getByText('Champion', { exact: true })).toBeVisible()
   await expect(screen.getByRole('region', { name: 'Up next' })).toHaveCount(0)
   await screen.close()
+})
+
+test('a match can be scheduled, shows on the lists and the follow chip, and is exported', async ({ page, request }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Plan Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
+  const soon = new Date(Date.now() + 30 * 60_000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  await page.getByLabel('Starts').fill(`${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}`)
+  await page.getByLabel('Place').fill('Room 7')
+  await page.getByRole('button', { name: 'Save schedule' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+
+  await page.getByRole('tab', { name: 'Matches' }).click()
+  await expect(page.getByRole('button', { name: /Alpha.*Delta/ })).toContainText('Room 7')
+  await page.getByRole('tab', { name: 'Activity' }).click()
+  await expect(page.getByRole('list', { name: 'Activity' })).toContainText('planned for')
+
+  await page.getByRole('tab', { name: 'Teams' }).click()
+  await page.getByRole('button', { name: /Alpha/ }).click()
+  await page.getByRole('button', { name: 'Follow this team' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Following Alpha' })).toContainText(/in (29|30) minutes/)
+
+  const feed = await request.get('/api/v1/tournaments/plan-cup/calendar.ics')
+  expect(await feed.text()).toContain('LOCATION:Room 7')
+  await expect(page.getByRole('link', { name: 'Calendar' })).toBeVisible()
+})
+
+test('nav bar: live badge, search bar, light and dark switch that is remembered', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Live Badge Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await page.goto('/')
+
+  const live = page.getByRole('link', { name: /tournaments? live now/ })
+  await expect(live).toBeVisible()
+  await live.click()
+  await expect(page).toHaveURL(/status=live/)
+  await expect(page.getByRole('button', { name: 'Live', exact: false }).first()).toHaveAttribute('aria-pressed', 'true')
+
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toContainText('Search tournaments')
+
+  await page.getByRole('button', { name: 'Switch to dark mode' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark')
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark')
+  await page.getByRole('button', { name: 'Switch to light mode' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light')
 })

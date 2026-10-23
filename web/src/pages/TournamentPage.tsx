@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { GroupsView } from '../components/GroupsView'
+import { BackLink } from '../components/BackLink'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { usePublishHeader } from '../components/HeaderContext'
 import { MatchList } from '../components/MatchList'
@@ -21,8 +22,9 @@ import { TeamsGrid } from '../components/TeamsGrid'
 import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
+import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
-import { Monitor, X } from 'lucide-react'
+import { CalendarPlus, Monitor, X } from 'lucide-react'
 import { Link } from 'react-router'
 
 function useTeamName(t: Tournament | undefined) {
@@ -58,7 +60,7 @@ function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; te
       : row.status === 'out'
         ? 'Eliminated'
         : next
-          ? `${next.result === 'next' ? 'Up next' : 'Next'}: ${label(next.match)}, versus ${opponent}`
+          ? `${next.result === 'next' ? 'Up next' : 'Next'}: ${label(next.match)}, versus ${opponent}${next.match.scheduled_at === null ? '' : `, ${relativeStart(next.match.scheduled_at)}`}${next.match.venue ? ` in ${next.match.venue}` : ''}`
           : t.bracket
             ? 'No match left'
             : 'Waiting for the start'
@@ -187,6 +189,9 @@ export function TournamentPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      <div className="-mb-4">
+        <BackLink>Tournaments</BackLink>
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div ref={titleRef}>
           <PageTitle>{t.name}</PageTitle>
@@ -204,6 +209,14 @@ export function TournamentPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {t.bracket?.matches.some((m) => m.scheduled_at !== null) && (
+            <a
+              href={`/api/v1/tournaments/${encodeURIComponent(t.slug)}/calendar.ics`}
+              className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40"
+            >
+              <CalendarPlus size={16} aria-hidden="true" /> Calendar
+            </a>
+          )}
           {t.bracket && (
             <Link to={`/t/${t.slug}/stage`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
               <Monitor size={16} aria-hidden="true" /> Stage mode

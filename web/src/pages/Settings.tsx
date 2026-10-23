@@ -6,6 +6,7 @@ import { api, useIsAdmin } from '../api/client'
 import type { Appearance, Density, FontChoice, Match, Scheme, Slot } from '../api/types'
 import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
+import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Segmented, StatusPill } from '../components/ui'
 import { AA, DEFAULT_APPEARANCE, FONT_LABELS, PAGE_BACKGROUND, PRESETS, contrastRatio, isHex, matchingPreset } from '../lib/theme'
 
@@ -27,6 +28,8 @@ const SAMPLE_MATCH: Match = {
   winner: 'A',
   forfeit: false,
   group: null,
+  scheduled_at: null,
+  venue: null,
   next_win: null,
 }
 
@@ -183,6 +186,7 @@ export function Settings() {
   return (
     <form onSubmit={submit} className="flex flex-col gap-10">
       <div className="flex flex-col gap-2">
+        <BackLink>Tournaments</BackLink>
         <PageTitle>Appearance</PageTitle>
         <p className="max-w-xl text-lg text-muted">Pick a look for this instance. Changes preview on this page and apply to everyone once saved.</p>
       </div>

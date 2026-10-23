@@ -4,6 +4,7 @@ import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import type { ApiToken } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle } from '../components/ui'
 
 function NewSecret({ secret, onDone }: { secret: string; onDone: () => void }) {
@@ -65,6 +66,7 @@ export function Tokens() {
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div>
+        <BackLink>Tournaments</BackLink>
         <PageTitle>API tokens</PageTitle>
         <p className="mt-2 text-muted">Use a token as a Bearer header to manage tournaments from scripts.</p>
       </div>
