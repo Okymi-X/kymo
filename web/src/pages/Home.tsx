@@ -5,7 +5,7 @@ import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
 import type { Format, Status } from '../api/types'
 import { CardSkeleton, TournamentCard } from '../components/TournamentCard'
-import { Button, ErrorText, Field, Input, Select } from '../components/ui'
+import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
 import { formatLabel } from '../lib/labels'
 
 function CreateForm() {
@@ -92,7 +92,7 @@ export function Home() {
   return (
     <div className="flex flex-col gap-10">
       <div className="flex flex-col gap-3">
-        <h1 className="text-5xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-6xl">Tournaments</h1>
+        <PageTitle>Tournaments</PageTitle>
         <p className="max-w-xl text-lg text-muted">
           {counts.live > 0 ? `${counts.live} live now. ` : ''}Knockout brackets for CTF events, updated as results come in.
         </p>

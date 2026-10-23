@@ -4,7 +4,7 @@ import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import type { ApiToken } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { Button, ErrorText, Field, Input } from '../components/ui'
+import { Button, ErrorText, Field, Input, PageTitle } from '../components/ui'
 
 function NewSecret({ secret, onDone }: { secret: string; onDone: () => void }) {
   const [copied, setCopied] = useState(false)
@@ -65,7 +65,7 @@ export function Tokens() {
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div>
-        <h1 className="text-4xl font-semibold tracking-tight">API tokens</h1>
+        <PageTitle>API tokens</PageTitle>
         <p className="mt-2 text-muted">Use a token as a Bearer header to manage tournaments from scripts.</p>
       </div>
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">

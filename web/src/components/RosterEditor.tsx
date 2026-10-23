@@ -47,7 +47,7 @@ function Row({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`flex items-center gap-2 rounded-control border border-line bg-surface px-2 py-1.5 ${isDragging ? 'relative z-10 shadow-lg' : ''}`}
     >
-      <button type="button" aria-label={`Reorder ${item.name}`} className="cursor-grab touch-none p-1 text-muted" {...attributes} {...listeners}>
+      <button type="button" aria-label={`Reorder ${item.name}`} className="-m-1 cursor-grab touch-none p-2.5 text-muted" {...attributes} {...listeners}>
         <GripVertical size={16} />
       </button>
       <span className="w-7 font-mono text-xs tabular-nums text-muted">{seed}</span>
@@ -62,7 +62,7 @@ function Row({
         onChange={(e) => onScore(Math.max(0, Number(e.target.value) || 0))}
         className="h-8 w-20 rounded-control border border-field-line bg-field px-2 text-right font-mono text-xs tabular-nums focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/25"
       />
-      <button type="button" aria-label={`Remove ${item.name}`} onClick={onRemove} className="p-1 text-muted hover:text-danger">
+      <button type="button" aria-label={`Remove ${item.name}`} onClick={onRemove} className="-m-1 p-2.5 text-muted hover:text-danger">
         <X size={16} />
       </button>
     </li>
@@ -127,7 +127,10 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
   return (
     <div className="grid gap-8 md:grid-cols-[1fr_20rem]">
       <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-muted">Seeding, top to bottom</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-muted">Seeding, top to bottom</h2>
+          <p className="text-xs text-muted">Qualifier score on the right</p>
+        </div>
         {items.length === 0 && <p className="text-muted">No teams yet. Add some on the right.</p>}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={items.map((i) => i.key)} strategy={verticalListSortingStrategy}>

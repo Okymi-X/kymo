@@ -1,8 +1,8 @@
-import { useMemo, useState, type WheelEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import type { Bracket, Match, Slot, Stage } from '../api/types'
 import { roundLabel } from '../lib/labels'
-import { CARD_W, layoutBracket } from '../lib/layout'
+import { CARD_W, layoutBracket, type BracketLayout } from '../lib/layout'
 import { Button } from './ui'
 import { MatchCard } from './MatchCard'
 
@@ -13,13 +13,19 @@ interface Props {
 }
 
 const MIN_ZOOM = 0.5
+const MIN_FIT = 0.6
 const MAX_ZOOM = 1.5
 const STEP = 0.1
 
 const isVoidReset = (m: Match) => m.stage === 'grand_reset' && m.slots.every((s) => s.kind !== 'team')
 
-function Canvas({ bracket, zoom, teamName, onEdit }: { bracket: Bracket; zoom: number } & Omit<Props, 'bracket'>) {
-  const layout = useMemo(() => layoutBracket(bracket.matches.filter((m) => !isVoidReset(m))), [bracket])
+function Canvas({
+  bracket,
+  layout,
+  zoom,
+  teamName,
+  onEdit,
+}: { bracket: Bracket; layout: BracketLayout; zoom: number } & Omit<Props, 'bracket'>) {
   const totals = useMemo(() => {
     const out = new Map<Stage, number>()
     for (const m of bracket.matches) out.set(m.stage, Math.max(out.get(m.stage) ?? 0, m.round))
@@ -62,28 +68,53 @@ function Canvas({ bracket, zoom, teamName, onEdit }: { bracket: Bracket; zoom: n
 }
 
 export function BracketView({ bracket, teamName, onEdit }: Props) {
-  const [zoom, setZoom] = useState(1)
+  const [manual, setManual] = useState<number | null>(null)
+  const [available, setAvailable] = useState(0)
+  const hostRef = useRef<HTMLDivElement>(null)
   const clamp = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 10) / 10))
+
+  const layout = useMemo(() => layoutBracket(bracket.matches.filter((m) => !isVoidReset(m))), [bracket])
+
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const measure = () => setAvailable(host.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
+
+  const fit = available > 0 && layout.width > available ? Math.max(MIN_FIT, Math.floor((available / layout.width) * 100) / 100) : 1
+  const zoom = manual ?? fit
 
   const onWheel = (e: WheelEvent) => {
     if (!e.ctrlKey) return
-    setZoom((z) => clamp(z - Math.sign(e.deltaY) * STEP))
+    setManual(clamp(zoom - Math.sign(e.deltaY) * STEP))
   }
 
   return (
     <div className="flex flex-col gap-6" onWheel={onWheel}>
       <div className="flex items-center gap-1" role="group" aria-label="Zoom">
-        <Button variant="ghost" aria-label="Zoom out" onClick={() => setZoom(clamp(zoom - STEP))} disabled={zoom <= MIN_ZOOM}>
+        <Button variant="ghost" aria-label="Zoom out" onClick={() => setManual(clamp(zoom - STEP))} disabled={zoom <= MIN_ZOOM}>
           <Minus size={16} />
         </Button>
-        <button type="button" className="w-12 text-center font-mono text-xs tabular-nums text-muted hover:text-ink" onClick={() => setZoom(1)} aria-label="Reset zoom">
+        <button
+          type="button"
+          className="min-w-14 text-center font-mono text-xs tabular-nums text-muted hover:text-ink"
+          onClick={() => setManual(null)}
+          aria-label="Fit bracket to width"
+          title="Fit to width"
+        >
           {Math.round(zoom * 100)}%
         </button>
-        <Button variant="ghost" aria-label="Zoom in" onClick={() => setZoom(clamp(zoom + STEP))} disabled={zoom >= MAX_ZOOM}>
+        <Button variant="ghost" aria-label="Zoom in" onClick={() => setManual(clamp(zoom + STEP))} disabled={zoom >= MAX_ZOOM}>
           <Plus size={16} />
         </Button>
       </div>
-      <Canvas bracket={bracket} zoom={zoom} teamName={teamName} onEdit={onEdit} />
+      <div ref={hostRef}>
+        <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} />
+      </div>
     </div>
   )
 }

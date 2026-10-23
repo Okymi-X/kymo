@@ -9,7 +9,7 @@ import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RosterEditor } from '../components/RosterEditor'
 import { ScoreDialog } from '../components/ScoreDialog'
-import { Button, ErrorText, StatusPill } from '../components/ui'
+import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel } from '../lib/labels'
 
 function useTeamName(t: Tournament | undefined) {
@@ -99,9 +99,18 @@ export function TournamentPage() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-semibold tracking-tight">{t.name}</h1>
-          <p className="mt-2 flex items-center gap-3 text-muted">
-            {formatLabel[t.format]} · {t.teams.length} teams <StatusPill status={t.status} />
+          <PageTitle>{t.name}</PageTitle>
+          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
+            <span>
+              {formatLabel[t.format]} · {t.teams.length} teams
+              {t.progress.total > 0 && (
+                <>
+                  {' '}
+                  · <span className="font-mono tabular-nums">{t.progress.played}/{t.progress.total}</span> matches played
+                </>
+              )}
+            </span>
+            <StatusPill status={t.status} />
           </p>
         </div>
         {admin && <AdminActions t={t} />}
@@ -112,7 +121,10 @@ export function TournamentPage() {
       ) : admin ? (
         <RosterEditor key={t.teams.map((x) => x.id).join()} tournament={t} />
       ) : (
-        <p className="text-muted">The bracket will appear here once the organizer starts the tournament.</p>
+        <div className="rounded-card border border-dashed border-field-line p-10 text-center">
+          <p className="text-lg font-medium">The bracket is not ready</p>
+          <p className="mt-1 text-muted">It appears here once the organizer starts the tournament.</p>
+        </div>
       )}
       {editing && (
         <ScoreDialog

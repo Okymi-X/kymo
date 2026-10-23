@@ -13,6 +13,9 @@
   --color-accent: #0a6fe0;
   --color-win: #1f8f3f;
   --color-danger: #d70015;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-lift: 0 0 0 1px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --radius-control: 8px;
   --radius-card: 12px;
 }
@@ -29,6 +32,8 @@
     --color-accent: #4da3ff;
     --color-win: #30d158;
     --color-danger: #ff6961;
+    --shadow-card: none;
+    --shadow-lift: 0 0 0 1px rgb(255 255 255 / 0.06), 0 8px 24px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -59,9 +64,57 @@ body {
   outline-offset: 2px;
 }
 
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+dialog {
+  box-shadow: var(--shadow-lift);
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out),
+    overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+
+dialog[open] {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  dialog[open] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
 dialog::backdrop {
   background: rgb(0 0 0 / 0.4);
   backdrop-filter: blur(4px);
+  opacity: 0;
+  transition:
+    opacity 180ms var(--ease-out),
+    overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+
+dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -78,3 +78,7 @@ export function ErrorText({ error }: { error: unknown }) {
     </p>
   )
 }
+
+export function PageTitle({ children }: { children: ReactNode }) {
+  return <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">{children}</h1>
+}

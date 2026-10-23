@@ -45,7 +45,7 @@ export function MatchCard({ match, teamName, onEdit, style }: Props) {
       <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} />
     </>
   )
-  const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
+  const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
   if (onEdit && ready) {
     return (
       <button

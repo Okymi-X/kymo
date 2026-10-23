@@ -4,7 +4,7 @@ import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import type { Appearance, FontChoice } from '../api/types'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
-import { Button, ErrorText, Field, Input, Select } from '../components/ui'
+import { Button, ErrorText, Field, Input, Select, PageTitle } from '../components/ui'
 import {
   AA,
   DEFAULT_APPEARANCE,
@@ -74,7 +74,7 @@ export function Settings() {
   return (
     <form onSubmit={submit} className="flex max-w-2xl flex-col gap-8">
       <div>
-        <h1 className="text-4xl font-semibold tracking-tight">Appearance</h1>
+        <PageTitle>Appearance</PageTitle>
         <p className="mt-2 text-muted">Changes preview live. They apply to everyone once saved.</p>
       </div>
       <Field label="Site name">

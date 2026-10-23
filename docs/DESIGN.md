@@ -36,3 +36,11 @@ Large display title (tracking -0.03em, leading 1.05), one line of context, a pil
 
 ## Icons
 lucide-react only. Font Awesome was considered and not added: a second icon set would duplicate the first and add weight for no gain.
+
+## Polish pass (2026-10-23)
+- Header: sticky translucent material (blur), search collapses to an icon below 640px, admin links move to the palette on small screens, no wrapped labels.
+- One `PageTitle` for every page (4xl to 5xl, tracking -0.03em, leading 1.05). Headings use text-wrap balance, paragraphs pretty.
+- Depth: `--shadow-card` at rest, `--shadow-lift` on hover and for dialogs. Dark mode drops the rest shadow and uses a hairline plus a deeper lift.
+- Dialogs enter with opacity and scale 0.96 over 180ms (strong ease out), backdrop fades. Reduced motion collapses durations.
+- Bracket fits the available width by default (floor 60 percent, so text stays readable); the percentage button returns to fit, plus and minus override.
+- Touch targets in the roster editor are at least 40px. Tournament header shows matches played.
