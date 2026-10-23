@@ -1248,3 +1248,55 @@ async fn the_hundred_team_demo_tournament_has_unique_names_byes_and_progress() {
     assert!(open["progress"]["played"].as_u64().unwrap() >= 60);
     assert_eq!(open["bracket"]["matches"].as_array().unwrap().len(), 128);
 }
+
+#[tokio::test]
+async fn only_embed_pages_may_be_framed() {
+    let app = app().await;
+    let header = |res: &axum::http::Response<Body>, name: &str| {
+        res.headers()
+            .get(name)
+            .map(|v| v.to_str().unwrap().to_owned())
+    };
+    for path in ["/", "/t/some-slug", "/api/v1/tournaments"] {
+        let res = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            header(&res, "x-frame-options").as_deref(),
+            Some("DENY"),
+            "{path}"
+        );
+        assert!(
+            header(&res, "content-security-policy")
+                .unwrap()
+                .contains("frame-ancestors 'none'"),
+            "{path}"
+        );
+        assert_eq!(
+            header(&res, "x-content-type-options").as_deref(),
+            Some("nosniff")
+        );
+    }
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/embed/some-slug")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(header(&res, "x-frame-options"), None);
+    assert!(
+        header(&res, "content-security-policy")
+            .unwrap()
+            .contains("frame-ancestors *")
+    );
+    assert_eq!(
+        header(&res, "x-content-type-options").as_deref(),
+        Some("nosniff")
+    );
+}

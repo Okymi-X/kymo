@@ -20,7 +20,7 @@ rand = "0.9"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tower-http = { version = "0.6", features = ["trace", "set-header"] }
+tower-http = { version = "0.6", features = ["trace"] }
 rust-embed = "8"
 
 [dev-dependencies]

@@ -3,13 +3,14 @@ mod public;
 
 use axum::Router;
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderName, HeaderValue};
 use axum::middleware;
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
-use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::error::ApiError;
@@ -58,22 +59,14 @@ pub fn router(state: AppState) -> Router {
             "/admin/tournaments/{id}/matches/{match_id}/forfeit",
             put(admin::set_forfeit),
         );
-    let header = |name: &'static str, value: &'static str| {
-        SetResponseHeaderLayer::if_not_present(
-            HeaderName::from_static(name),
-            HeaderValue::from_static(value),
-        )
-    };
     Router::new()
-        .nest("/api/v1", api.fallback(not_found).layer(middleware::map_response(json_errors)))
+        .nest(
+            "/api/v1",
+            api.fallback(not_found)
+                .layer(middleware::map_response(json_errors)),
+        )
         .fallback(crate::assets::serve)
-        .layer(header("x-content-type-options", "nosniff"))
-        .layer(header("x-frame-options", "DENY"))
-        .layer(header("referrer-policy", "same-origin"))
-        .layer(header(
-            "content-security-policy",
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
-        ))
+        .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -105,4 +98,36 @@ async fn json_errors(response: Response<Body>) -> Response<Body> {
         _ => "invalid request",
     };
     (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
+}
+
+const CSP_BASE: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:";
+
+/// Everything is denied framing except the embed pages, whose whole purpose is to sit in an
+/// iframe on someone else's site or a stream overlay.
+async fn security_headers(request: Request, next: Next) -> Response {
+    let embeddable = request.uri().path().starts_with("/embed/");
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    let mut set = |name: &'static str, value: String| {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            headers
+                .entry(HeaderName::from_static(name))
+                .or_insert(value);
+        }
+    };
+    set("x-content-type-options", "nosniff".into());
+    set("referrer-policy", "same-origin".into());
+    if embeddable {
+        set(
+            "content-security-policy",
+            format!("{CSP_BASE}; frame-ancestors *"),
+        );
+    } else {
+        set("x-frame-options", "DENY".into());
+        set(
+            "content-security-policy",
+            format!("{CSP_BASE}; frame-ancestors 'none'"),
+        );
+    }
+    response
 }
