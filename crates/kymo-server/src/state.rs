@@ -35,14 +35,20 @@ impl AppState {
         })
     }
 
-    pub fn verify_password(&self, candidate: &str) -> bool {
-        PasswordHash::new(&self.admin_hash)
-            .map(|hash| {
-                Argon2::default()
-                    .verify_password(candidate.as_bytes(), &hash)
-                    .is_ok()
-            })
-            .unwrap_or(false)
+    /// Argon2 is deliberately slow, so it runs off the async workers.
+    pub async fn verify_password(&self, candidate: String) -> bool {
+        let hash = Arc::clone(&self.admin_hash);
+        tokio::task::spawn_blocking(move || {
+            PasswordHash::new(&hash)
+                .map(|parsed| {
+                    Argon2::default()
+                        .verify_password(candidate.as_bytes(), &parsed)
+                        .is_ok()
+                })
+                .unwrap_or(false)
+        })
+        .await
+        .unwrap_or(false)
     }
 
     pub fn open_session(&self) -> String {

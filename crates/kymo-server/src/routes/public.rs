@@ -26,7 +26,7 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginOut>, ApiError> {
-    if !state.verify_password(&body.password) {
+    if !state.verify_password(body.password).await {
         return Err(ApiError::Unauthorized);
     }
     Ok(Json(LoginOut {
