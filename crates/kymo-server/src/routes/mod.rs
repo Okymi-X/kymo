@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router {
             "/admin/tournaments/{id}/matches/{match_id}/result",
             delete(admin::clear_result),
         )
+        .route("/admin/tournaments/{id}/tiebreak", put(admin::set_tiebreak))
         .route(
             "/admin/tournaments/{id}/matches/{match_id}/schedule",
             put(admin::set_schedule),

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { api, session, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
@@ -14,23 +14,28 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const commands = useMemo<Command[]>(() => {
     const go = (path: string) => () => navigate(path)
-    const list: Command[] = [{ id: 'home', label: 'All tournaments', run: go('/') }]
-    for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, run: go(`/t/${t.slug}`) })
+    const list: Command[] = [{ id: 'home', label: 'All tournaments', group: 'Pages', run: go('/') }]
+    for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, group: 'Tournaments', run: go(`/t/${t.slug}`) })
     if (admin) {
-      list.push({ id: 'appearance', label: 'Appearance', run: go('/settings') })
-      list.push({ id: 'tokens', label: 'API tokens', run: go('/tokens') })
-      list.push({ id: 'out', label: 'Sign out', run: () => {
+      list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/settings') })
+      list.push({ id: 'tokens', label: 'API tokens', group: 'Pages', run: go('/tokens') })
+      list.push({ id: 'out', label: 'Sign out', group: 'Account', run: () => {
           void api.logout().catch(() => undefined)
           session.clear()
           navigate('/')
         } })
     } else {
-      list.push({ id: 'in', label: 'Organizer sign in', run: go('/login') })
+      list.push({ id: 'in', label: 'Organizer sign in', group: 'Account', run: go('/login') })
     }
-    return list
+    const order = ['Pages', 'Tournaments', 'Account']
+    return list.sort((a, b) => order.indexOf(a.group ?? '') - order.indexOf(b.group ?? ''))
   }, [data, admin, navigate])
 
   const results = useMemo(() => filterCommands(commands, query), [commands, query])
+
+  useEffect(() => {
+    document.getElementById(results[active] ? `palette-${results[active].id}` : '')?.scrollIntoView({ block: 'nearest' })
+  }, [active, results])
 
   useEffect(() => {
     const dialog = ref.current
@@ -85,23 +90,34 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         placeholder="Go to a tournament or page"
         className="w-full border-b border-line bg-transparent px-4 py-3 text-base placeholder:text-muted focus:outline-none"
       />
-      <ul id="palette-list" role="listbox" className="max-h-72 overflow-y-auto p-1.5">
-        {results.length === 0 && <li className="px-3 py-2 text-muted">No matches</li>}
+      <ul id="palette-list" role="listbox" className="max-h-[22rem] overflow-y-auto p-1.5">
+        {results.length === 0 && <li className="px-3 py-6 text-center text-muted">Nothing matches &ldquo;{query}&rdquo;</li>}
         {results.map((c, i) => (
-          <li
-            key={c.id}
-            id={`palette-${c.id}`}
-            role="option"
-            aria-selected={i === active}
-            onMouseMove={() => setActive(i)}
-            onClick={() => choose(c)}
-            className={`flex cursor-pointer items-center justify-between rounded-control px-3 py-2 ${i === active ? 'bg-line/60' : ''}`}
-          >
-            <span className="truncate">{c.label}</span>
-            {c.hint && <span className="text-xs text-muted">{c.hint}</span>}
-          </li>
+          <Fragment key={c.id}>
+            {c.group && c.group !== results[i - 1]?.group && (
+              <li role="presentation" className="px-3 pb-1 pt-2.5 text-xs font-medium uppercase tracking-wider text-muted first:pt-1">
+                {c.group}
+              </li>
+            )}
+            <li
+              id={`palette-${c.id}`}
+              role="option"
+              aria-selected={i === active}
+              onMouseMove={() => setActive(i)}
+              onClick={() => choose(c)}
+              className={`flex cursor-pointer items-center justify-between gap-3 rounded-control px-3 py-2 ${i === active ? 'bg-accent/10 text-ink' : ''}`}
+            >
+              <span className="truncate">{c.label}</span>
+              {c.hint && <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-xs text-muted">{c.hint}</span>}
+            </li>
+          </Fragment>
         ))}
       </ul>
+      <p className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-muted">
+        <span><kbd className="font-mono">Up</kbd> <kbd className="font-mono">Down</kbd> to move</span>
+        <span><kbd className="font-mono">Enter</kbd> to open</span>
+        <span><kbd className="font-mono">Esc</kbd> to close</span>
+      </p>
     </dialog>
   )
 }

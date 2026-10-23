@@ -99,6 +99,10 @@ impl Match {
 pub struct Bracket {
     pub format: Format,
     pub matches: Vec<Match>,
+    /// Organizer decided order for teams that tie on points, difference and goals. Teams
+    /// listed earlier rank higher; teams not listed rank after them, lowest id first.
+    #[serde(default)]
+    pub tiebreak: Vec<TeamId>,
 }
 
 /// One team's line in a round robin table. A win is worth 3 points, a draw 1.
@@ -132,6 +136,14 @@ fn row_index(table: &mut Vec<Standing>, team: TeamId) -> usize {
 }
 
 impl Bracket {
+    /// Position of a team in the organizer's tiebreak list, `usize::MAX` when it is not listed.
+    pub(crate) fn tie_rank(&self, team: TeamId) -> usize {
+        self.tiebreak
+            .iter()
+            .position(|&t| t == team)
+            .unwrap_or(usize::MAX)
+    }
+
     /// Round robin table, best first: points, then goal difference, then goals scored, then
     /// the lower team id (teams are numbered in seed order).
     pub fn standings(&self) -> Vec<Standing> {
@@ -187,6 +199,7 @@ impl Bracket {
                 std::cmp::Reverse(s.points),
                 std::cmp::Reverse(i64::from(s.points_for) - i64::from(s.points_against)),
                 std::cmp::Reverse(s.points_for),
+                self.tie_rank(s.team),
                 s.team,
             )
         });

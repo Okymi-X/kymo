@@ -2,6 +2,8 @@ export interface Command {
   id: string
   label: string
   hint?: string
+  /** Heading the command is listed under. */
+  group?: string
   run: () => void
 }
 

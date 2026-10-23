@@ -72,6 +72,31 @@ impl Bracket {
         Ok(())
     }
 
+    /// Sets the order that breaks ties between teams level on points, difference and goals.
+    /// Every id must belong to a team in this bracket. Qualifiers of a groups tournament are
+    /// re-seeded, which fails once a knockout match depends on the old order.
+    pub fn set_tiebreak(&mut self, order: Vec<TeamId>) -> Result<(), EngineError> {
+        let known: Vec<TeamId> = self
+            .matches
+            .iter()
+            .flat_map(|m| m.slots)
+            .filter_map(|s| if let Slot::Team(t) = s { Some(t) } else { None })
+            .collect();
+        for (i, team) in order.iter().enumerate() {
+            if !known.contains(team) {
+                return Err(EngineError::UnknownTeam(*team));
+            }
+            if order[..i].contains(team) {
+                return Err(EngineError::DuplicateTeam(*team));
+            }
+        }
+        let mut next = self.clone();
+        next.tiebreak = order;
+        next.refresh_knockout()?;
+        *self = next;
+        Ok(())
+    }
+
     /// Removes a recorded result. Fails if a later match was already played.
     pub fn clear_result(&mut self, id: MatchId) -> Result<(), EngineError> {
         let mut next = self.clone();
@@ -156,6 +181,7 @@ impl Bracket {
                 std::cmp::Reverse(line.points),
                 std::cmp::Reverse(i64::from(line.points_for) - i64::from(line.points_against)),
                 std::cmp::Reverse(line.points_for),
+                self.tie_rank(line.team),
                 line.team,
             )
         });

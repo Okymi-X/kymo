@@ -347,6 +347,34 @@ pub async fn set_forfeit(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct TiebreakBody {
+    order: Vec<u32>,
+}
+
+/// Decides the order of teams that tie, for tables and for who qualifies from a group.
+pub async fn set_tiebreak(
+    _: Admin,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<TiebreakBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    let _guard = state.write_lock.lock().await;
+    let t = db::get(&state.pool, id).await?;
+    let mut bracket = t
+        .bracket
+        .ok_or_else(|| ApiError::Conflict("tournament has not started".into()))?;
+    bracket.set_tiebreak(body.order)?;
+    let status = if bracket.champion().is_some() {
+        Status::Done
+    } else {
+        Status::Live
+    };
+    db::save_bracket(&state.pool, id, Some(&bracket), status).await?;
+    state.notify(&t.slug);
+    Ok(Json(db::get(&state.pool, id).await?))
+}
+
 pub async fn clear_result(
     _: Admin,
     State(state): State<AppState>,

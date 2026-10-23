@@ -241,3 +241,42 @@ dialog[open]::backdrop {
     zoom: 0.5;
   }
 }
+
+/* Styled select menus where the browser supports them (Chrome 135+); elsewhere the native menu is kept. */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  ::picker(select) {
+    margin-top: 4px;
+    padding: 4px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    box-shadow: var(--shadow-lift);
+  }
+
+  select::picker-icon {
+    color: var(--color-muted);
+  }
+
+  select option {
+    padding: 8px 10px;
+    border-radius: var(--radius-control);
+    font-size: 0.875rem;
+  }
+
+  select option:hover,
+  select option:focus-visible {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    outline: none;
+  }
+
+  select option:checked {
+    font-weight: 600;
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  }
+}

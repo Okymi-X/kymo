@@ -10,6 +10,8 @@ pub enum EngineError {
     TooManyTeams { max: usize },
     #[error("team {0} appears more than once")]
     DuplicateTeam(u32),
+    #[error("team {0} is not in this bracket")]
+    UnknownTeam(u32),
     #[error("match {0} does not exist")]
     UnknownMatch(MatchId),
     #[error("match {0} is waiting for its teams")]

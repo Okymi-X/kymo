@@ -49,10 +49,11 @@
 
 - [x] Public list trims rosters (team_count), drag announcements use team names, curved or square bracket lines, map fits under the header
 
+- [x] Organizer tiebreak order (engine, PUT /admin/tournaments/{id}/tiebreak, Decide ties dialog) that also decides group qualifiers; grouped command palette
+
 ## Todo
 - [ ] More customization: per tournament accent
 - [ ] Swiss format
-- [ ] Knockout entrants chosen by hand or by tiebreak play-offs when group ties decide who advances
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

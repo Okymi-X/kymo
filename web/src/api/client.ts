@@ -92,6 +92,7 @@ export const api = {
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),
   start: (id: number, seeding: Seeding) => request<Tournament>('POST', `${admin(id)}/start`, { seeding }),
+  setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),
   reset: (id: number) => request<Tournament>('POST', `${admin(id)}/reset`),
   setResult: (id: number, match: number, a: number, b: number) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/result`, { score_a: a, score_b: b }),

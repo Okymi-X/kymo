@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Match, Slot, Tournament } from '../api/types'
-import { computeGroupTables, computeTeamRows, matchState, resultsCsv, standingsCsv, teamHistory } from './stats'
+import { computeGroupTables, computeTeamRows, matchState, resultsCsv, standingsCsv, teamHistory, tiedSets } from './stats'
 
 const team = (id: number): Slot => ({ kind: 'team', team: id })
 const empty: Slot = { kind: 'empty' }
@@ -33,7 +33,7 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   created_at: '',
   teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),
   team_count: 4,
-  bracket: { format: 'single_elimination', matches },
+  bracket: { format: 'single_elimination', matches, tiebreak: [] },
   champion: null,
   progress: { played: 0, total: 0 },
   ...over,
@@ -103,7 +103,7 @@ describe('ranking after a third place match', () => {
 
 describe('round robin table', () => {
   const league = (matches: Match[]) =>
-    tournament(matches, { format: 'round_robin', bracket: { format: 'round_robin', matches } })
+    tournament(matches, { format: 'round_robin', bracket: { format: 'round_robin', matches, tiebreak: [] } })
   const lm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null) =>
     match(id, team(a), team(b), score, winner, { stage: 'league' })
 
@@ -119,6 +119,15 @@ describe('round robin table', () => {
     const rows = computeTeamRows(league([lm(0, 1, 2, [3, 0], 'A'), lm(1, 3, 4, [1, 0], 'A')]))
     expect(rows.map((r) => r.team.id).slice(0, 2)).toEqual([1, 3])
     expect(rows.every((r) => r.status !== 'out')).toBe(true)
+  })
+
+  it('finds teams that are level and applies the organizer tiebreak order', () => {
+    const draws = [lm(0, 1, 2, [1, 1], null), lm(1, 1, 3, [1, 1], null), lm(2, 2, 3, [1, 1], null)]
+    const plain = league(draws)
+    expect(computeTeamRows(plain).map((r) => r.team.id).slice(0, 3)).toEqual([1, 2, 3])
+    expect(tiedSets(computeTeamRows(plain))).toHaveLength(1)
+    const decided = { ...plain, bracket: { ...plain.bracket!, tiebreak: [3, 2] } }
+    expect(computeTeamRows(decided).map((r) => r.team.id).slice(0, 3)).toEqual([3, 2, 1])
   })
 
   it('ranks equal points by goal difference, not by games played', () => {
@@ -176,7 +185,7 @@ describe('groups then knockout', () => {
   const gm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null, group: number) =>
     match(id, team(a), team(b), score, winner, { stage: 'league', group })
   const build = (matches: Match[], over: Partial<Tournament> = {}) =>
-    tournament(matches, { format: 'group_knockout', bracket: { format: 'group_knockout', matches }, ...over })
+    tournament(matches, { format: 'group_knockout', bracket: { format: 'group_knockout', matches, tiebreak: [] }, ...over })
 
   it('keeps one table per group and counts only group matches', () => {
     const tables = computeGroupTables(

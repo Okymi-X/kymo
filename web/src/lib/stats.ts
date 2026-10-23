@@ -84,8 +84,26 @@ function tally(t: Tournament, keep: (m: Match) => boolean): Map<number, TeamRow>
 
 const diffOf = (r: TeamRow) => r.pointsFor - r.pointsAgainst
 
-const leagueOrder = (a: TeamRow, b: TeamRow) =>
-  b.points - a.points || diffOf(b) - diffOf(a) || b.pointsFor - a.pointsFor || a.team.id - b.team.id
+/** Same order as the engine: points, difference, goals, then the organizer's tiebreak list, then id. */
+const leagueOrderFor = (t: Tournament) => {
+  const rank = (id: number) => {
+    const i = (t.bracket?.tiebreak ?? []).indexOf(id)
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i
+  }
+  return (a: TeamRow, b: TeamRow) =>
+    b.points - a.points || diffOf(b) - diffOf(a) || b.pointsFor - a.pointsFor || rank(a.team.id) - rank(b.team.id) || a.team.id - b.team.id
+}
+
+/** Teams level on points, difference and goals, with at least one match played. Each set has two or more teams. */
+export function tiedSets(rows: TeamRow[]): TeamRow[][] {
+  const sets = new Map<string, TeamRow[]>()
+  for (const r of rows) {
+    if (r.played === 0) continue
+    const key = `${r.points}:${diffOf(r)}:${r.pointsFor}`
+    sets.set(key, [...(sets.get(key) ?? []), r])
+  }
+  return [...sets.values()].filter((set) => set.length > 1)
+}
 
 const knockoutOrder = (a: TeamRow, b: TeamRow) =>
   b.depth - a.depth ||
@@ -117,7 +135,7 @@ export function computeTeamRows(t: Tournament): TeamRow[] {
   const rows = tally(t, () => true)
   for (const row of rows.values()) row.status = statusOf(t, row)
   const order: Record<TeamStatus, number> = { champion: 0, active: 1, seeded: 1, out: 2 }
-  const compare = t.format === 'round_robin' ? leagueOrder : knockoutOrder
+  const compare = t.format === 'round_robin' ? leagueOrderFor(t) : knockoutOrder
   return [...rows.values()].sort((a, b) => order[a.status] - order[b.status] || compare(a, b))
 }
 
@@ -136,7 +154,7 @@ export function computeGroupTables(t: Tournament): GroupTable[] {
     row.status = overall.get(row.team.id) ?? 'active'
     groups.set(row.group, [...(groups.get(row.group) ?? []), row])
   }
-  return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([group, list]) => ({ group, rows: list.sort(leagueOrder) }))
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([group, list]) => ({ group, rows: list.sort(leagueOrderFor(t)) }))
 }
 
 export function teamHistory(t: Tournament, teamId: number): HistoryEntry[] {

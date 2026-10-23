@@ -29,6 +29,8 @@ export interface Match {
 export interface Bracket {
   format: Format
   matches: Match[]
+  /** Organizer decided order for teams level on points, difference and goals. */
+  tiebreak: number[]
 }
 
 export interface Team {

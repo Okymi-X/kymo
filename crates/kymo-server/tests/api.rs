@@ -1418,3 +1418,74 @@ async fn public_list_trims_rosters_but_reports_the_full_count() {
     let (_, full) = call(&app, "GET", "/api/v1/tournaments/big", None, None).await;
     assert_eq!(full["teams"].as_array().unwrap().len(), 9);
 }
+
+#[tokio::test]
+async fn organizer_can_break_a_tie_over_the_api() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "League", "format": "round_robin"})),
+    )
+    .await;
+    let teams = json!({"teams": [{"name": "A", "score": 0}, {"name": "B", "score": 0}, {"name": "C", "score": 0}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+    for m in 0..3 {
+        let path = format!("/api/v1/admin/tournaments/1/matches/{m}/result");
+        call(
+            &app,
+            "PUT",
+            &path,
+            t,
+            Some(json!({"score_a": 1, "score_b": 1})),
+        )
+        .await;
+    }
+    let (status, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/tiebreak",
+        t,
+        Some(json!({"order": [6]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    assert_eq!(out["bracket"]["tiebreak"], json!([6]));
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/tiebreak",
+        t,
+        Some(json!({"order": [99]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/tiebreak",
+        None,
+        Some(json!({"order": []})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

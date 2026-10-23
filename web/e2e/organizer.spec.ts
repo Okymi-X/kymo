@@ -569,3 +569,27 @@ test('a logo can be uploaded in appearance and shows in the header', async ({ pa
   await page.getByRole('button', { name: 'Save appearance' }).click()
   await expect(page.getByAltText('Current logo')).toHaveCount(0)
 })
+
+test('an organizer can decide a tie in a round robin table', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Tie League')
+  await page.getByLabel('Format').selectOption('round_robin')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await page.getByRole('tab', { name: 'Schedule' }).click()
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: /Edit result for/ }).nth(i).click()
+    await page.getByRole('dialog').getByLabel('Score').nth(0).fill('1')
+    await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  }
+  await page.getByRole('tab', { name: 'Standings' }).click()
+  await page.getByRole('button', { name: 'Decide ties' }).click()
+  await page.getByRole('button', { name: 'Move Charlie up' }).click()
+  await page.getByRole('button', { name: 'Move Charlie up' }).click()
+  await page.getByRole('button', { name: 'Save order' }).click()
+  await expect(page.getByRole('table').getByRole('row').nth(1)).toContainText('Charlie')
+})

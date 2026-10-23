@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import type { Tournament } from '../api/types'
 import { slicePage, usePagination } from '../lib/paginate'
-import { standingsCsv, type TeamRow } from '../lib/stats'
+import { standingsCsv, tiedSets, type TeamRow } from '../lib/stats'
+import { useIsAdmin } from '../api/client'
 import { Avatar } from './Avatar'
 import { ExportButton } from './ExportButton'
 import { Pager } from './Pager'
 import { StatusBadge } from './StatusBadge'
-import { SearchField } from './ui'
+import { TieDialog } from './TieDialog'
+import { Button, SearchField } from './ui'
 
 interface Props {
   tournament: Tournament
@@ -25,6 +27,9 @@ const PAGE_SIZE = 15
 
 export function StandingsTable({ tournament, rows, onSelect, league = tournament.format === 'round_robin', title, advancing = 0, hideExport = false }: Props) {
   const [query, setQuery] = useState('')
+  const admin = useIsAdmin()
+  const [deciding, setDeciding] = useState(false)
+  const ties = useMemo(() => (league && admin ? tiedSets(rows) : []), [league, admin, rows])
   const ranked = useMemo(() => rows.map((r, i) => ({ r, rank: i + 1 })), [rows])
   const needle = query.trim().toLowerCase()
   const filtered = useMemo(() => (needle ? ranked.filter((x) => x.r.team.name.toLowerCase().includes(needle)) : ranked), [ranked, needle])
@@ -32,6 +37,7 @@ export function StandingsTable({ tournament, rows, onSelect, league = tournament
   const shown = slicePage(filtered, paging.page, PAGE_SIZE)
   return (
     <div className="flex flex-col gap-4">
+      {deciding && <TieDialog tournament={tournament} sets={ties} onClose={() => setDeciding(false)} />}
       {rows.length > PAGE_SIZE && <SearchField label="Search teams" placeholder="Search teams" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />}
       <div className="flex items-center justify-between gap-3">
         {title ? (
@@ -41,6 +47,7 @@ export function StandingsTable({ tournament, rows, onSelect, league = tournament
         ) : (
           <p className="text-sm text-muted">{league ? 'Ranked by points (3 for a win, 1 for a draw), then goal difference, then goals scored.' : 'Active teams first, then by how far they went, wins and point difference.'}</p>
         )}
+        {ties.length > 0 && <Button onClick={() => setDeciding(true)}>Decide ties</Button>}
         {!hideExport && <ExportButton filename={`${tournament.slug}-standings.csv`} build={() => standingsCsv(rows)} />}
       </div>
       <div className="overflow-x-auto rounded-card border border-line bg-surface">

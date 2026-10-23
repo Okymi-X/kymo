@@ -67,7 +67,11 @@ pub fn generate_with(
         add_third_place(&mut matches, &winners, rounds);
     }
 
-    let mut bracket = Bracket { format, matches };
+    let mut bracket = Bracket {
+        format,
+        matches,
+        tiebreak: Vec::new(),
+    };
     for id in winners[1].clone() {
         bracket.settle(id)?;
     }
@@ -278,6 +282,7 @@ fn round_robin(teams: &[TeamId]) -> Bracket {
     Bracket {
         format: Format::RoundRobin,
         matches,
+        tiebreak: Vec::new(),
     }
 }
 
@@ -349,6 +354,7 @@ fn group_knockout(teams: &[TeamId], options: Options) -> Result<Bracket, EngineE
     let mut bracket = Bracket {
         format: Format::GroupKnockout,
         matches,
+        tiebreak: Vec::new(),
     };
     for id in winners[1].clone() {
         bracket.settle(id)?;

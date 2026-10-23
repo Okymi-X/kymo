@@ -608,3 +608,23 @@ fn old_stored_matches_without_schedule_fields_still_load() {
     }
     assert_eq!(serde_json::from_value::<Bracket>(value).unwrap(), b);
 }
+
+#[test]
+fn tiebreak_order_decides_teams_level_on_everything() {
+    let mut b = robin(3);
+    let ids: Vec<usize> = b.matches.iter().map(|m| m.id).collect();
+    for id in ids {
+        b.set_result(id, 0, 0).unwrap();
+    }
+    let order = |b: &Bracket| b.standings().iter().map(|s| s.team).collect::<Vec<_>>();
+    assert_eq!(order(&b), vec![1, 2, 3]);
+    b.set_tiebreak(vec![3, 1]).unwrap();
+    assert_eq!(order(&b), vec![3, 1, 2]);
+    assert_eq!(b.champion(), Some(3));
+    assert_eq!(b.set_tiebreak(vec![9]), Err(EngineError::UnknownTeam(9)));
+    assert_eq!(
+        b.set_tiebreak(vec![1, 1]),
+        Err(EngineError::DuplicateTeam(1))
+    );
+    assert_eq!(order(&b), vec![3, 1, 2]);
+}
