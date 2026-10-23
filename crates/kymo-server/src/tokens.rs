@@ -103,3 +103,12 @@ pub async fn revoke_api(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
         Ok(())
     }
 }
+
+/// Deletes one session token. API tokens are left alone, they are revoked by id.
+pub async fn end_session(pool: &SqlitePool, secret: &str) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM token WHERE hash = ? AND kind = 'session'")
+        .bind(hash(secret))
+        .execute(pool)
+        .await?;
+    Ok(())
+}

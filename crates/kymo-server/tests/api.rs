@@ -553,3 +553,175 @@ async fn list_reports_progress_without_sending_brackets() {
     assert_eq!(list[0]["progress"], json!({"played": 1, "total": 3}));
     assert!(list[0]["bracket"].is_null());
 }
+
+async fn raw(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: &str,
+) -> (StatusCode, String, String) {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json");
+    if let Some(t) = token {
+        req = req.header("authorization", format!("Bearer {t}"));
+    }
+    let res = app
+        .clone()
+        .oneshot(req.body(Body::from(body.to_owned())).unwrap())
+        .await
+        .unwrap();
+    let status = res.status();
+    let kind = res
+        .headers()
+        .get("content-type")
+        .map_or(String::new(), |v| v.to_str().unwrap().to_owned());
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (status, kind, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[tokio::test]
+async fn framework_errors_use_the_json_envelope_without_internals() {
+    let app = app().await;
+    let token = login(&app).await;
+    let cases = [
+        ("POST", "/api/v1/tournaments", r#"{"name":"#),
+        (
+            "POST",
+            "/api/v1/tournaments",
+            r#"{"name":12,"format":"single_elimination"}"#,
+        ),
+        ("PATCH", "/api/v1/admin/tokens", "{}"),
+        ("GET", "/api/v1/does-not-exist", ""),
+    ];
+    for (method, uri, body) in cases {
+        let (status, kind, text) = raw(&app, method, uri, Some(&token), body).await;
+        assert!(status.is_client_error(), "{method} {uri}");
+        assert!(
+            kind.starts_with("application/json"),
+            "{method} {uri} gave {kind}"
+        );
+        assert!(
+            !text.contains("deserialize") && !text.contains("serde"),
+            "{text}"
+        );
+        assert!(serde_json::from_str::<Value>(&text).unwrap()["error"].is_string());
+    }
+}
+
+#[tokio::test]
+async fn throttle_is_per_client_and_sends_retry_after() {
+    let pool = db::connect("sqlite::memory:").await.unwrap();
+    let state = AppState::new(pool, PASSWORD).unwrap();
+    let (attacker, organizer) = (
+        "203.0.113.9".parse().unwrap(),
+        "198.51.100.4".parse().unwrap(),
+    );
+    for _ in 0..5 {
+        state.record_login(attacker, false);
+    }
+    assert!(state.login_blocked(attacker));
+    assert!(!state.login_blocked(organizer));
+    state.record_login(attacker, true);
+    assert!(!state.login_blocked(attacker));
+
+    let app = router(state);
+    for _ in 0..5 {
+        raw(
+            &app,
+            "POST",
+            "/api/v1/auth/login",
+            None,
+            r#"{"password":"nope"}"#,
+        )
+        .await;
+    }
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"password":"nope"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(res.headers().get("retry-after").unwrap(), "60");
+}
+
+#[tokio::test]
+async fn names_scores_and_options_are_validated() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "東京大会", "format": "double_elimination", "third_place": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(made["slug"], "東京大会");
+    assert_eq!(made["third_place"], false);
+    let (status, _) = call(
+        &app,
+        "GET",
+        &format!(
+            "/api/v1/tournaments/{}",
+            "%E6%9D%B1%E4%BA%AC%E5%A4%A7%E4%BC%9A"
+        ),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    for bad in ["a\u{0}b", "x\u{202E}y", "\u{200B}"] {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/tournaments",
+            t,
+            Some(json!({"name": bad, "format": "single_elimination"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}");
+    }
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": [{"name": "a", "score": 1_000_001}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn unknown_slugs_and_files_return_404_and_logout_ends_the_session() {
+    let app = app().await;
+    let (status, _, _) = raw(&app, "GET", "/api/v1/tournaments/nope/events", None, "").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for path in ["/favicon.ico", "/.env", "/assets/missing.js"] {
+        let (status, _, _) = raw(&app, "GET", path, None, "").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+    let (status, _, _) = raw(&app, "GET", "/t/some-route", None, "").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let token = login(&app).await;
+    let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = raw(&app, "POST", "/api/v1/auth/logout", Some(&token), "").await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&token), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

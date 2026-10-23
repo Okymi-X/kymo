@@ -1,5 +1,6 @@
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use kymo_engine::EngineError;
 use serde_json::json;
@@ -27,7 +28,13 @@ impl IntoResponse for ApiError {
             ),
             ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
         };
-        (status, Json(json!({ "error": message }))).into_response()
+        let mut response = (status, Json(json!({ "error": message }))).into_response();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from_static("60"));
+        }
+        response
     }
 }
 

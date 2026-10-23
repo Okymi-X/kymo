@@ -2,12 +2,15 @@ use std::convert::Infallible;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use axum::http::header::AUTHORIZATION;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
+use crate::auth::ClientIp;
 use crate::db::{self, Tournament};
 use crate::error::ApiError;
 use crate::settings::{self, Appearance};
@@ -26,18 +29,34 @@ pub struct LoginOut {
 
 pub async fn login(
     State(state): State<AppState>,
+    ClientIp(client): ClientIp,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginOut>, ApiError> {
-    if state.login_blocked() {
+    if state.login_blocked(client) {
         return Err(ApiError::TooManyRequests);
     }
     let ok = state.verify_password(body.password).await;
-    state.record_login(ok);
+    state.record_login(client, ok);
     if !ok {
         return Err(ApiError::Unauthorized);
     }
     let token = tokens::issue(&state.pool, Kind::Session, "").await?;
     Ok(Json(LoginOut { token }))
+}
+
+/// Ends the caller's session on the server. Idempotent: unknown tokens still get 204.
+pub async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    if let Some(secret) = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+    {
+        tokens::end_session(&state.pool, secret).await?;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>, ApiError> {
@@ -58,14 +77,15 @@ pub async fn show(
 pub async fn events(
     State(state): State<AppState>,
     Path(slug): Path<String>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    db::get_by_slug(&state.pool, &slug).await?;
     let stream = BroadcastStream::new(state.events.subscribe()).filter_map(move |msg| match msg {
         Ok(changed) if changed == slug => {
             Some(Ok(Event::default().event("update").data("changed")))
         }
         _ => None,
     });
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 pub async fn appearance(State(state): State<AppState>) -> Result<Json<Appearance>, ApiError> {

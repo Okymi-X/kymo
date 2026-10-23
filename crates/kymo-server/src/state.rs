@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,6 +10,7 @@ use tokio::sync::broadcast;
 
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const MAX_FAILURES: usize = 5;
+const MAX_TRACKED_CLIENTS: usize = 10_000;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,7 +19,7 @@ pub struct AppState {
     /// Serializes read-modify-write cycles on a bracket.
     pub write_lock: Arc<tokio::sync::Mutex<()>>,
     admin_hash: Arc<String>,
-    failures: Arc<Mutex<VecDeque<Instant>>>,
+    failures: Arc<Mutex<HashMap<IpAddr, VecDeque<Instant>>>>,
 }
 
 impl AppState {
@@ -52,26 +54,37 @@ impl AppState {
         .unwrap_or(false)
     }
 
-    /// True while too many recent sign in attempts have failed. One shared budget keeps
-    /// the check independent of proxy headers, at the cost of a brief organizer lockout.
-    pub fn login_blocked(&self) -> bool {
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+    /// True while this client has too many recent failed sign ins. Each client address has
+    /// its own budget, so one caller cannot lock the organizer out. Behind a reverse proxy
+    /// every client shares the proxy address, which makes the budget global again.
+    pub fn login_blocked(&self, client: IpAddr) -> bool {
+        let mut all = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(failures) = all.get_mut(&client) else {
+            return false;
+        };
         while failures
             .front()
             .is_some_and(|at| at.elapsed() > FAILURE_WINDOW)
         {
             failures.pop_front();
         }
+        if failures.is_empty() {
+            all.remove(&client);
+            return false;
+        }
         failures.len() >= MAX_FAILURES
     }
 
-    pub fn record_login(&self, success: bool) {
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+    pub fn record_login(&self, client: IpAddr, success: bool) {
+        let mut all = self.failures.lock().unwrap_or_else(|e| e.into_inner());
         if success {
-            failures.clear();
-        } else {
-            failures.push_back(Instant::now());
+            all.remove(&client);
+            return;
         }
+        if all.len() >= MAX_TRACKED_CLIENTS && !all.contains_key(&client) {
+            all.clear();
+        }
+        all.entry(client).or_default().push_back(Instant::now());
     }
 
     pub fn notify(&self, slug: &str) {

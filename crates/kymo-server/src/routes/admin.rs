@@ -69,7 +69,18 @@ pub struct ResultBody {
     score_b: u32,
 }
 
+/// Invisible or direction changing characters let a name look like another one.
+fn is_hidden_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+}
+
 fn clean_name(raw: &str, max: usize) -> Result<String, ApiError> {
+    if raw.chars().any(is_hidden_char) {
+        return Err(ApiError::BadRequest(
+            "names cannot contain control or invisible characters".into(),
+        ));
+    }
     let name = raw.trim();
     if name.is_empty() || name.chars().count() > max {
         return Err(ApiError::BadRequest(format!(
@@ -82,7 +93,7 @@ fn clean_name(raw: &str, max: usize) -> Result<String, ApiError> {
 fn slugify(name: &str) -> String {
     let mut slug = String::new();
     for c in name.chars().flat_map(char::to_lowercase) {
-        if c.is_ascii_alphanumeric() {
+        if c.is_alphanumeric() {
             slug.push(c);
         } else if !slug.ends_with('-') && !slug.is_empty() {
             slug.push('-');
@@ -103,7 +114,14 @@ pub async fn create(
             "name needs at least one letter or digit".into(),
         ));
     }
-    let id = db::create(&state.pool, &name, &slug, body.format, body.third_place).await?;
+    let id = db::create(
+        &state.pool,
+        &name,
+        &slug,
+        body.format,
+        body.third_place && body.format == Format::SingleElimination,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(db::get(&state.pool, id).await?)))
 }
 
@@ -153,9 +171,14 @@ pub async fn set_teams(
         .teams
         .iter()
         .map(|t| {
+            if t.score > MAX_SCORE {
+                return Err(ApiError::BadRequest(format!(
+                    "qualifier scores must be at most {MAX_SCORE}"
+                )));
+            }
             Ok(NewTeam {
                 name: clean_name(&t.name, MAX_TEAM_NAME)?,
-                score: i64::from(t.score.min(MAX_SCORE)),
+                score: i64::from(t.score),
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;

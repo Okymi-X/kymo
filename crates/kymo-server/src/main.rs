@@ -39,10 +39,13 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
     tracing::info!("kymo listening on {addr}");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .map_err(|e| e.to_string())
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
+    .map_err(|e| e.to_string())
 }

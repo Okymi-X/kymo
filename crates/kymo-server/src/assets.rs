@@ -19,6 +19,7 @@ pub async fn serve(uri: Uri) -> Response {
     }
     match Dist::get(path) {
         Some(file) => respond(path, file, path.starts_with("assets/")),
+        None if has_extension(path) => StatusCode::NOT_FOUND.into_response(),
         None => match Dist::get("index.html") {
             Some(index) => respond("index.html", index, false),
             None => (StatusCode::NOT_FOUND, "web app is not built").into_response(),
@@ -47,4 +48,11 @@ fn mime_for(path: &str) -> &'static str {
         "woff2" => "font/woff2",
         _ => "application/octet-stream",
     }
+}
+
+/// A missing file such as /favicon.ico or /.env should 404, only app routes get index.html.
+fn has_extension(path: &str) -> bool {
+    path.rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.'))
 }

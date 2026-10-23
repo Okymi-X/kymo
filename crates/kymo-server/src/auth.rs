@@ -1,4 +1,6 @@
-use axum::extract::FromRequestParts;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 
@@ -24,5 +26,21 @@ impl FromRequestParts<AppState> for Admin {
         } else {
             Err(ApiError::Unauthorized)
         }
+    }
+}
+
+/// The peer address of the connection, or the unspecified address when it is not known
+/// (for example in tests that call the router directly).
+pub struct ClientIp(pub IpAddr);
+
+impl FromRequestParts<AppState> for ClientIp {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &AppState) -> Result<Self, ApiError> {
+        let ip = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |info| info.0.ip());
+        Ok(ClientIp(ip))
     }
 }

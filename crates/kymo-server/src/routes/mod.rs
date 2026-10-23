@@ -2,16 +2,23 @@ mod admin;
 mod public;
 
 use axum::Router;
+use axum::body::Body;
+use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderName, HeaderValue};
+use axum::middleware;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/auth/login", post(public::login))
+        .route("/auth/logout", post(public::logout))
         .route("/tournaments", get(public::list).post(admin::create))
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))
@@ -51,7 +58,7 @@ pub fn router(state: AppState) -> Router {
         )
     };
     Router::new()
-        .nest("/api/v1", api)
+        .nest("/api/v1", api.fallback(not_found).layer(middleware::map_response(json_errors)))
         .fallback(crate::assets::serve)
         .layer(header("x-content-type-options", "nosniff"))
         .layer(header("x-frame-options", "DENY"))
@@ -62,4 +69,33 @@ pub fn router(state: AppState) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn not_found() -> ApiError {
+    ApiError::NotFound
+}
+
+/// Framework rejections (bad JSON, wrong method, oversized body) come back as plain text or
+/// empty bodies. Replace them with the API's JSON envelope and a generic message, so clients
+/// get one error shape and no parser internals.
+async fn json_errors(response: Response<Body>) -> Response<Body> {
+    let status = response.status();
+    let is_error = status.is_client_error() || status.is_server_error();
+    let is_json = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/json"));
+    if !is_error || is_json {
+        return response;
+    }
+    let message = match status {
+        StatusCode::METHOD_NOT_ALLOWED => "method not allowed",
+        StatusCode::PAYLOAD_TOO_LARGE => "request body is too large",
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => "send the body as application/json",
+        StatusCode::NOT_FOUND => "not found",
+        s if s.is_server_error() => "internal error",
+        _ => "invalid request",
+    };
+    (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
 }
