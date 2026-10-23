@@ -4,5 +4,5 @@ mod model;
 mod play;
 
 pub use error::EngineError;
-pub use generate::{MAX_TEAMS, generate};
+pub use generate::{MAX_TEAMS, Options, generate, generate_with};
 pub use model::{Bracket, Dest, Format, Match, MatchId, Side, Slot, Stage, TeamId};

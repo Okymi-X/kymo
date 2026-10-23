@@ -4,10 +4,30 @@ use crate::error::EngineError;
 use crate::model::{Bracket, Dest, Format, Match, MatchId, Side, Slot, Stage, TeamId};
 
 pub const MAX_TEAMS: usize = 256;
+const MIN_THIRD_PLACE: usize = 4;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Options {
+    /// Single elimination only: the two semifinal losers play for third place.
+    pub third_place: bool,
+}
 
 /// `teams` is ordered by seed: index 0 is seed 1.
 pub fn generate(teams: &[TeamId], format: Format) -> Result<Bracket, EngineError> {
+    generate_with(teams, format, Options::default())
+}
+
+pub fn generate_with(
+    teams: &[TeamId],
+    format: Format,
+    options: Options,
+) -> Result<Bracket, EngineError> {
     validate(teams, format)?;
+    if options.third_place && format == Format::SingleElimination && teams.len() < MIN_THIRD_PLACE {
+        return Err(EngineError::TooFewTeams {
+            min: MIN_THIRD_PLACE,
+        });
+    }
     let size = teams.len().next_power_of_two();
     let rounds = size.trailing_zeros() as usize;
 
@@ -22,6 +42,8 @@ pub fn generate(teams: &[TeamId], format: Format) -> Result<Bracket, EngineError
 
     if format == Format::DoubleElimination {
         add_losers_bracket(&mut matches, &winners, size, rounds);
+    } else if options.third_place {
+        add_third_place(&mut matches, &winners, rounds);
     }
 
     let mut bracket = Bracket { format, matches };
@@ -174,4 +196,14 @@ fn add_losers_bracket(
         id: reset,
         side: Side::A,
     });
+}
+
+fn add_third_place(matches: &mut Vec<Match>, winners: &[Vec<MatchId>], rounds: usize) {
+    let third = add_round(matches, Stage::ThirdPlace, rounds, 1)[0];
+    for (i, &semi) in winners[rounds - 1].iter().enumerate() {
+        matches[semi].next_lose = Some(Dest {
+            id: third,
+            side: side_of(i),
+        });
+    }
 }

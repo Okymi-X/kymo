@@ -17,6 +17,7 @@ pub enum Stage {
     Losers,
     GrandFinal,
     GrandReset,
+    ThirdPlace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,7 +93,9 @@ impl Bracket {
     pub fn champion(&self) -> Option<TeamId> {
         let slot_of = |m: &Match| m.winner.map(|s| m.slots[s.index()]);
         let winner = match self.format {
-            Format::SingleElimination => slot_of(self.matches.last()?),
+            Format::SingleElimination => {
+                slot_of(self.matches.iter().rfind(|m| m.stage == Stage::Winners)?)
+            }
             Format::DoubleElimination => {
                 let n = self.matches.len();
                 let (grand, reset) = (&self.matches[n - 2], &self.matches[n - 1]);

@@ -1,4 +1,6 @@
-use kymo_engine::{Bracket, EngineError, Format, Side, Slot, Stage, generate};
+use kymo_engine::{
+    Bracket, EngineError, Format, Options, Side, Slot, Stage, generate, generate_with,
+};
 
 fn teams(n: u32) -> Vec<u32> {
     (1..=n).collect()
@@ -196,4 +198,74 @@ fn old_stored_matches_without_the_forfeit_field_still_load() {
         m.as_object_mut().unwrap().remove("forfeit");
     }
     assert_eq!(serde_json::from_value::<Bracket>(value).unwrap(), b);
+}
+
+fn with_third_place(n: u32) -> Bracket {
+    generate_with(
+        &teams(n),
+        Format::SingleElimination,
+        Options { third_place: true },
+    )
+    .unwrap()
+}
+
+#[test]
+fn third_place_match_receives_the_semifinal_losers() {
+    let mut b = with_third_place(4);
+    assert_eq!(b.matches.len(), 4);
+    b.set_result(0, 3, 1).unwrap();
+    b.set_result(1, 0, 2).unwrap();
+    let third = b.matches.last().unwrap();
+    assert_eq!(third.stage, Stage::ThirdPlace);
+    assert_eq!(third.slots, [Slot::Team(4), Slot::Team(2)]);
+}
+
+#[test]
+fn champion_ignores_the_third_place_match() {
+    let mut b = with_third_place(8);
+    play_all(&mut b, lower_team_wins);
+    assert_eq!(b.champion(), Some(1));
+    let third = b.matches.last().unwrap();
+    assert_eq!(
+        third.winner.map(|s| third.slots[s.index()]),
+        Some(Slot::Team(2))
+    );
+}
+
+#[test]
+fn champion_is_known_before_third_place_is_played() {
+    let mut b = with_third_place(4);
+    b.set_result(0, 1, 0).unwrap();
+    b.set_result(1, 1, 0).unwrap();
+    b.set_result(2, 1, 0).unwrap();
+    assert_eq!(b.champion(), Some(1));
+    assert!(b.matches[3].score.is_none());
+}
+
+#[test]
+fn third_place_needs_four_teams_and_is_ignored_for_double_elimination() {
+    assert_eq!(
+        generate_with(
+            &teams(3),
+            Format::SingleElimination,
+            Options { third_place: true }
+        )
+        .unwrap_err(),
+        EngineError::TooFewTeams { min: 4 }
+    );
+    let double = generate_with(
+        &teams(8),
+        Format::DoubleElimination,
+        Options { third_place: true },
+    )
+    .unwrap();
+    assert!(double.matches.iter().all(|m| m.stage != Stage::ThirdPlace));
+}
+
+#[test]
+fn changing_a_semifinal_result_updates_the_third_place_slots() {
+    let mut b = with_third_place(4);
+    b.set_result(0, 3, 1).unwrap();
+    b.set_result(0, 1, 3).unwrap();
+    assert_eq!(b.matches[3].slots[0], Slot::Team(1));
 }
