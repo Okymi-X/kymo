@@ -52,21 +52,21 @@ export function StandingsTable({ tournament, rows, onSelect, league = isLeagueFo
         {!hideExport && <ExportButton filename={`${tournament.slug}-standings.csv`} build={() => standingsCsv(rows)} />}
       </div>
       <div className="overflow-x-auto rounded-card border border-line bg-surface">
-        <table className="w-full min-w-[40rem] text-sm">
+        <table className="w-full min-w-[22rem] text-sm md:min-w-[40rem]">
           <caption className="sr-only">Standings for {tournament.name}</caption>
           <thead>
             <tr className="border-b border-line text-left text-xs text-muted">
-              <th scope="col" className="w-10 px-4 py-3 font-medium">#</th>
+              <th scope="col" className="w-8 px-2 py-3 font-medium md:w-10 md:px-4">#</th>
               <th scope="col" className="px-2 py-3 font-medium">Team</th>
-              <th scope="col" className={`px-3 py-3 font-medium ${num}`}>Seed</th>
-              <th scope="col" className={`px-3 py-3 font-medium ${num}`}>Qualifier</th>
+              <th scope="col" className={`hidden px-2 py-3 font-medium md:px-3 md:table-cell ${num}`}>Seed</th>
+              <th scope="col" className={`hidden px-2 py-3 font-medium md:px-3 md:table-cell ${num}`}>Qualifier</th>
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>P</th>
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>W</th>
               {league && <th scope="col" className={`px-3 py-3 font-medium ${num}`}>D</th>}
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>L</th>
-              <th scope="col" className={`px-3 py-3 font-medium ${num}`}>+/-</th>
+              <th scope="col" className={`hidden px-2 py-3 font-medium md:px-3 md:table-cell ${num}`}>+/-</th>
               {league && <th scope="col" className={`px-3 py-3 font-medium ${num}`}>Pts</th>}
-              <th scope="col" className="px-4 py-3 font-medium">Status</th>
+              <th scope="col" className="hidden px-4 py-3 font-medium md:table-cell">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -74,22 +74,22 @@ export function StandingsTable({ tournament, rows, onSelect, league = isLeagueFo
               const diff = r.pointsFor - r.pointsAgainst
               return (
                 <tr key={r.team.id} className={`border-b border-line last:border-0 hover:bg-line/30 ${rank <= advancing ? 'bg-accent/5' : ''}`}>
-                  <td className={`px-4 py-2.5 font-mono tabular-nums ${rank <= advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{rank}</td>
+                  <td className={`px-2 py-2.5 md:px-4 font-mono tabular-nums ${rank <= advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{rank}</td>
                   <td className="px-2 py-1.5">
                     <button type="button" onClick={() => onSelect(r.team.id)} className="flex items-center gap-2.5 rounded-control px-1.5 py-1 text-left font-medium hover:text-accent">
                       <Avatar name={r.team.name} size={24} />
-                      <span className="max-w-[16rem] truncate">{r.team.name}</span>
+                      <span className="max-w-[6.5rem] truncate md:max-w-[16rem]">{r.team.name}</span>
                     </button>
                   </td>
-                  <td className={`px-3 py-2.5 text-muted ${num}`}>{r.team.seed}</td>
-                  <td className={`px-3 py-2.5 text-muted ${num}`}>{r.team.score}</td>
+                  <td className={`hidden px-2 py-2.5 md:px-3 text-muted md:table-cell ${num}`}>{r.team.seed}</td>
+                  <td className={`hidden px-2 py-2.5 md:px-3 text-muted md:table-cell ${num}`}>{r.team.score}</td>
                   <td className={`px-3 py-2.5 ${num}`}>{r.played}</td>
                   <td className={`px-3 py-2.5 ${num}`}>{r.wins}</td>
                   {league && <td className={`px-3 py-2.5 ${num}`}>{r.draws}</td>}
                   <td className={`px-3 py-2.5 ${num}`}>{r.losses}</td>
-                  <td className={`px-3 py-2.5 ${num} ${diff > 0 ? 'text-win' : diff < 0 ? 'text-danger' : 'text-muted'}`}>{diff > 0 ? `+${diff}` : diff}</td>
+                  <td className={`hidden px-2 py-2.5 md:px-3 md:table-cell ${num} ${diff > 0 ? 'text-win' : diff < 0 ? 'text-danger' : 'text-muted'}`}>{diff > 0 ? `+${diff}` : diff}</td>
                   {league && <td className={`px-3 py-2.5 font-semibold ${num}`}>{r.points}</td>}
-                  <td className="px-4 py-2.5">
+                  <td className="hidden px-4 py-2.5 md:table-cell">
                     <StatusBadge status={r.status} />
                   </td>
                 </tr>
