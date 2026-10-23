@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Seeding by qualifier score (team score column, roster editor, API), confirm dialog replaces window.confirm
 - [x] Server: login throttle (5 failures per minute shared budget, 429), test added
 - [x] Web: bracket layout with SVG connectors and zoom (buttons, ctrl+wheel), layout unit tests (4)
 - [x] Web embedded in the server binary (rust-embed), security headers, Dockerfile and compose (image builds and serves UI and API)
@@ -12,7 +13,6 @@
 ## In progress
 
 ## Todo
-- [ ] Engine: seeding strategies (random with seed, by score)
 - [ ] Web: command palette, cross-section links into the grand final
 - [ ] Web: component and e2e tests
 - [ ] Server: API tokens, persistent sessions

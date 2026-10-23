@@ -5,6 +5,7 @@ import { api, useIsAdmin } from '../api/client'
 import { useLiveUpdates, useTournament } from '../api/hooks'
 import type { Match, Slot, Tournament } from '../api/types'
 import { BracketView } from '../components/BracketView'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { RosterEditor } from '../components/RosterEditor'
 import { ScoreDialog } from '../components/ScoreDialog'
 import { Button, ErrorText, StatusPill } from '../components/ui'
@@ -27,12 +28,18 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
   )
 }
 
+type Pending = 'reset' | 'delete' | null
+
 function AdminActions({ t }: { t: Tournament }) {
   const client = useQueryClient()
   const navigate = useNavigate()
+  const [asking, setAsking] = useState<Pending>(null)
   const reset = useMutation({
     mutationFn: () => api.reset(t.id),
-    onSuccess: (next) => client.setQueryData(['tournament', next.slug], next),
+    onSuccess: (next) => {
+      client.setQueryData(['tournament', next.slug], next)
+      setAsking(null)
+    },
   })
   const remove = useMutation({
     mutationFn: () => api.remove(t.id),
@@ -43,22 +50,33 @@ function AdminActions({ t }: { t: Tournament }) {
   })
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {t.status !== 'draft' && (
-        <Button
-          onClick={() => window.confirm('Reset the bracket? All results are lost, the roster stays.') && reset.mutate()}
-          disabled={reset.isPending}
-        >
-          Reset bracket
-        </Button>
-      )}
-      <Button
-        variant="danger"
-        onClick={() => window.confirm(`Delete ${t.name}? This cannot be undone.`) && remove.mutate()}
-        disabled={remove.isPending}
-      >
+      {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
+      <Button variant="danger" onClick={() => setAsking('delete')}>
         Delete
       </Button>
       <ErrorText error={reset.error ?? remove.error} />
+      {asking === 'reset' && (
+        <ConfirmDialog
+          title="Reset the bracket?"
+          message="All results are removed. The roster stays so you can start again."
+          confirmLabel="Reset bracket"
+          danger
+          pending={reset.isPending}
+          onConfirm={() => reset.mutate()}
+          onClose={() => setAsking(null)}
+        />
+      )}
+      {asking === 'delete' && (
+        <ConfirmDialog
+          title={`Delete ${t.name}?`}
+          message="The tournament, its teams and its bracket are removed. This cannot be undone."
+          confirmLabel="Delete"
+          danger
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate()}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </div>
   )
 }
