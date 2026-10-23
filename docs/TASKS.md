@@ -1,6 +1,8 @@
 # Tasks
 
 ## Done
+- [x] Web: command palette (Ctrl/Cmd K, filter, arrows, enter), 4 unit tests and 1 e2e test
+- [x] Repo published at github.com/Okymi-X/kymo, MIT license added
 - [x] Playwright e2e (system Chrome): organizer plays a 4 team knockout to a champion, public view is read only, bad password rejected
 - [x] API test plays a 7 team double elimination tournament to a champion over HTTP (7 API tests total)
 - [x] Web: single canvas layout with links from winners and losers into the grand final (9 layout tests), verified in browser
@@ -18,5 +20,4 @@
 ## In progress
 
 ## Todo
-- [ ] Web: command palette
 - [ ] README with quickstart

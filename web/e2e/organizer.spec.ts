@@ -47,3 +47,16 @@ test('wrong password is rejected', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('alert')).toBeVisible()
 })
+
+test('command palette jumps to a tournament from the keyboard', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Palette Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await expect(page.getByRole('heading', { name: 'Palette Cup' })).toBeVisible()
+
+  await page.goto('/')
+  await page.keyboard.press('Control+k')
+  await page.getByRole('dialog', { name: 'Command palette' }).getByRole('combobox').fill('palette')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/t\/palette-cup$/)
+})
