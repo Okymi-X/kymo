@@ -41,6 +41,9 @@ Organizer action -> API handler -> repository loads matches -> engine applies ch
 ## Round robin
 `Format::RoundRobin` builds `Stage::League` matches with the circle method (an odd team count rests one team per round and creates no bye match). No advancement pointers. A scored tie is a draw (winner none); knockout stages still reject ties. `Bracket::standings()` ranks by points (3 win, 1 draw), goal difference, goals scored, then team id (ids follow seed order). The champion is the table leader once every match is played. Capped at 32 teams (496 matches). The web app swaps the Bracket tab for a Schedule board grouped by round.
 
+## Groups then knockout
+`Format::GroupKnockout` deals teams into 2 to 8 groups in a snake over the seeds, each group plays a round robin (`Match.group`), and a single elimination bracket of `groups * advance` qualifiers follows. The knockout is generated at start with empty first round slots (byes for missing seeds). `refresh_knockout` runs after every group result change: once every group match is played it seeds the qualifiers by group placement, then points, goal difference, goals scored and team id, swaps same group first round pairs apart when possible, and writes the slots through `set_slot`, so a played knockout match refuses a group edit that would change its teams. Ties on the last qualifying place are broken by the same ordering, not by a play-off. Options `groups` and `advance` live on the tournament row (migration 0006).
+
 ## Customization
 Appearance (site name, accent per color scheme, corner radius, typeface) lives in the `setting` table and is served at GET /settings. The web app injects it as a CSS variable override on load; every value is validated on the server (hex colors, radius 0 to 20, fixed font list) and again before it reaches CSS. New options extend the JSON, no migration. Contrast against the page background is shown while editing.
 

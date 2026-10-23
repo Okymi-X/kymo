@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Match, Slot, Tournament } from '../api/types'
-import { computeTeamRows, matchState, resultsCsv, standingsCsv, teamHistory } from './stats'
+import { computeGroupTables, computeTeamRows, matchState, resultsCsv, standingsCsv, teamHistory } from './stats'
 
 const team = (id: number): Slot => ({ kind: 'team', team: id })
 const empty: Slot = { kind: 'empty' }
@@ -14,6 +14,7 @@ const match = (id: number, a: Slot, b: Slot, score: [number, number] | null, win
   score,
   winner,
   forfeit: false,
+  group: null,
   next_win: null,
   ...extra,
 })
@@ -24,6 +25,8 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   slug: 't',
   format: 'single_elimination',
   third_place: false,
+  groups: 2,
+  advance: 2,
   status: 'live',
   created_at: '',
   teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),
@@ -163,5 +166,44 @@ describe('csv export', () => {
     const lines = resultsCsv(t, () => 'Round 1').split('\n')
     expect(lines).toHaveLength(2)
     expect(lines[1]).toBe('Round 1,Team 1,Team 2,2,1,Team 1,')
+  })
+})
+
+describe('groups then knockout', () => {
+  const gm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null, group: number) =>
+    match(id, team(a), team(b), score, winner, { stage: 'league', group })
+  const build = (matches: Match[], over: Partial<Tournament> = {}) =>
+    tournament(matches, { format: 'group_knockout', bracket: { format: 'group_knockout', matches }, ...over })
+
+  it('keeps one table per group and counts only group matches', () => {
+    const tables = computeGroupTables(
+      build([
+        gm(0, 1, 2, [2, 0], 'A', 0),
+        gm(1, 3, 4, [1, 1], null, 1),
+        match(2, team(1), team(3), [5, 0], 'A', { stage: 'winners' }),
+      ]),
+    )
+    expect(tables.map((x) => x.group)).toEqual([0, 1])
+    expect(tables[0].rows[0]).toMatchObject({ points: 3, played: 1 })
+    expect(tables[1].rows.map((r) => r.points)).toEqual([1, 1])
+    expect(tables[0].rows[0].pointsFor).toBe(2)
+  })
+
+  it('marks teams that missed the knockout as out once the groups are done', () => {
+    const t = build([
+      gm(0, 1, 2, [2, 0], 'A', 0),
+      gm(1, 3, 4, [1, 0], 'A', 1),
+      match(2, team(1), team(3), null, null, { stage: 'winners' }),
+    ])
+    const status = (id: number) => computeTeamRows(t).find((r) => r.team.id === id)!.status
+    expect(status(1)).toBe('active')
+    expect(status(3)).toBe('active')
+    expect(status(2)).toBe('out')
+    expect(status(4)).toBe('out')
+  })
+
+  it('does not eliminate anyone while group matches are still open', () => {
+    const t = build([gm(0, 1, 2, [2, 0], 'A', 0), gm(1, 1, 3, null, null, 0), match(2, empty, empty, null, null, { stage: 'winners' })])
+    expect(computeTeamRows(t).every((r) => r.status !== 'out')).toBe(true)
   })
 })

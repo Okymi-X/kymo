@@ -32,7 +32,7 @@ export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
   const label = tournament.bracket ? roundNamer(tournament.bracket) : () => ''
   const opponent = (id: number | null) => teamName(id === null ? { kind: 'empty' } : { kind: 'team', team: id })
   const diff = row.pointsFor - row.pointsAgainst
-  const league = tournament.format === 'round_robin'
+  const league = tournament.format !== 'single_elimination' && tournament.format !== 'double_elimination'
   return (
     <Modal label={`${row.team.name} details`} onClose={onClose} width="32rem">
       <div className="flex flex-col gap-5 p-6">

@@ -12,10 +12,12 @@ function CreateForm() {
   const [name, setName] = useState('')
   const [format, setFormat] = useState<Format>('single_elimination')
   const [thirdPlace, setThirdPlace] = useState(false)
+  const [groups, setGroups] = useState(2)
+  const [advance, setAdvance] = useState(2)
   const client = useQueryClient()
   const navigate = useNavigate()
   const create = useMutation({
-    mutationFn: () => api.create(name, format, format === 'single_elimination' && thirdPlace),
+    mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance }),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
       navigate(`/t/${t.slug}`)
@@ -35,8 +37,31 @@ function CreateForm() {
           <option value="single_elimination">{formatLabel.single_elimination}</option>
           <option value="double_elimination">{formatLabel.double_elimination}</option>
           <option value="round_robin">{formatLabel.round_robin}</option>
+          <option value="group_knockout">{formatLabel.group_knockout}</option>
         </Select>
       </Field>
+      {format === 'group_knockout' && (
+        <>
+          <Field label="Groups">
+            <Select value={groups} onChange={(e) => setGroups(Number(e.target.value))}>
+              {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Advance per group">
+            <Select value={advance} onChange={(e) => setAdvance(Number(e.target.value))}>
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </>
+      )}
       {format === 'single_elimination' && (
         <label className="flex h-10 items-center gap-2 text-sm">
           <input type="checkbox" checked={thirdPlace} onChange={(e) => setThirdPlace(e.target.checked)} className="size-4 accent-accent" />

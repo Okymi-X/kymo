@@ -7,6 +7,7 @@ import type { Match, Slot, Tournament } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { GroupsView } from '../components/GroupsView'
 import { MatchList } from '../components/MatchList'
 import { ScheduleBoard } from '../components/ScheduleBoard'
 import { RosterEditor } from '../components/RosterEditor'
@@ -91,11 +92,18 @@ function AdminActions({ t }: { t: Tournament }) {
   )
 }
 
-type View = 'bracket' | 'schedule' | 'standings' | 'matches' | 'teams'
+type View = 'bracket' | 'schedule' | 'standings' | 'groups' | 'matches' | 'teams'
 
 const KNOCKOUT_VIEWS: TabItem<View>[] = [
   { id: 'bracket', label: 'Bracket' },
   { id: 'standings', label: 'Standings' },
+  { id: 'matches', label: 'Matches' },
+  { id: 'teams', label: 'Teams' },
+]
+
+const GROUP_VIEWS: TabItem<View>[] = [
+  { id: 'groups', label: 'Groups' },
+  { id: 'bracket', label: 'Knockout' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
 ]
@@ -116,9 +124,12 @@ export function TournamentPage() {
   const [teamId, setTeamId] = useState<number | null>(null)
   const [params, setParams] = useSearchParams()
   const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
-  const views = t?.format === 'round_robin' ? LEAGUE_VIEWS : KNOCKOUT_VIEWS
+  const views = t?.format === 'round_robin' ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
+  const groupsDone = (t?.bracket?.matches ?? []).filter((m) => m.stage === 'league').every((m) => m.score !== null || m.forfeit)
+  const fallback = t?.format === 'group_knockout' && groupsDone ? 'bracket' : views[0].id
   const requested = params.get('view')
-  const view: View = views.find((v) => v.id === requested)?.id ?? views[0].id
+  const view: View = views.find((v) => v.id === requested)?.id ?? fallback
+  const knockout = useMemo(() => (t?.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null), [t?.bracket])
   useLiveUpdates(slug)
 
   if (isPending) return <p className="text-muted">Loading</p>
@@ -146,8 +157,9 @@ export function TournamentPage() {
       </div>
       <Champion t={t} teamName={teamName} />
       {t.bracket ? (
-        <Tabs items={views} value={view} onChange={(v) => setParams(v === views[0].id ? {} : { view: v }, { replace: true })} label="Tournament views">
-          {view === 'bracket' && <BracketView bracket={t.bracket} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+        <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
+          {view === 'bracket' && knockout && <BracketView bracket={knockout} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={admin ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
           {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}

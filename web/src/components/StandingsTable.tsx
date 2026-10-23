@@ -8,17 +8,28 @@ interface Props {
   tournament: Tournament
   rows: TeamRow[]
   onSelect: (teamId: number) => void
+  /** Show draws and league points. Defaults to true for round robin. */
+  league?: boolean
+  title?: string
+  /** The first N rows qualify and are marked. */
+  advancing?: number
+  hideExport?: boolean
 }
 
 const num = 'text-right font-mono tabular-nums'
 
-export function StandingsTable({ tournament, rows, onSelect }: Props) {
-  const league = tournament.format === 'round_robin'
+export function StandingsTable({ tournament, rows, onSelect, league = tournament.format === 'round_robin', title, advancing = 0, hideExport = false }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted">{league ? 'Ranked by points (3 for a win, 1 for a draw), then goal difference, then goals scored.' : 'Active teams first, then by how far they went, wins and point difference.'}</p>
-        <ExportButton filename={`${tournament.slug}-standings.csv`} build={() => standingsCsv(rows)} />
+        {title ? (
+          <h2 className="text-sm font-medium">
+            {title} {advancing > 0 && <span className="font-normal text-muted">top {advancing} advance</span>}
+          </h2>
+        ) : (
+          <p className="text-sm text-muted">{league ? 'Ranked by points (3 for a win, 1 for a draw), then goal difference, then goals scored.' : 'Active teams first, then by how far they went, wins and point difference.'}</p>
+        )}
+        {!hideExport && <ExportButton filename={`${tournament.slug}-standings.csv`} build={() => standingsCsv(rows)} />}
       </div>
       <div className="overflow-x-auto rounded-card border border-line bg-surface">
         <table className="w-full min-w-[40rem] text-sm">
@@ -42,8 +53,8 @@ export function StandingsTable({ tournament, rows, onSelect }: Props) {
             {rows.map((r, i) => {
               const diff = r.pointsFor - r.pointsAgainst
               return (
-                <tr key={r.team.id} className="border-b border-line last:border-0 hover:bg-line/30">
-                  <td className="px-4 py-2.5 font-mono tabular-nums text-muted">{i + 1}</td>
+                <tr key={r.team.id} className={`border-b border-line last:border-0 hover:bg-line/30 ${i < advancing ? 'bg-accent/5' : ''}`}>
+                  <td className={`px-4 py-2.5 font-mono tabular-nums ${i < advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{i + 1}</td>
                   <td className="px-2 py-1.5">
                     <button type="button" onClick={() => onSelect(r.team.id)} className="flex items-center gap-2.5 rounded-control px-1.5 py-1 text-left font-medium hover:text-accent">
                       <Avatar name={r.team.name} size={24} />

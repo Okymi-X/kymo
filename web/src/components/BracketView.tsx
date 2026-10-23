@@ -72,8 +72,10 @@ function Canvas({
 export function BracketView({ bracket, teamName, onEdit }: Props) {
   const [manual, setManual] = useState<number | null>(null)
   const [available, setAvailable] = useState(0)
+  const [column, setColumn] = useState(0)
   const [hovered, setHovered] = useState<number | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
+  const columnRef = useRef<HTMLDivElement>(null)
   const clamp = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 10) / 10))
 
   const layout = useMemo(() => layoutBracket(bracket.matches.filter((m) => !isVoidReset(m))), [bracket])
@@ -81,13 +83,19 @@ export function BracketView({ bracket, teamName, onEdit }: Props) {
   useLayoutEffect(() => {
     const host = hostRef.current
     if (!host) return
-    const measure = () => setAvailable(host.clientWidth)
+    const column = columnRef.current
+    const measure = () => {
+      setAvailable(host.clientWidth)
+      setColumn(column?.clientWidth ?? 0)
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(host)
+    if (column) observer.observe(column)
     return () => observer.disconnect()
   }, [])
 
+  const wide = column > 0 && layout.width > column
   const fit = available > 0 && layout.width > available ? Math.max(MIN_FIT, Math.floor((available / layout.width) * 100) / 100) : 1
   const zoom = manual ?? fit
 
@@ -115,7 +123,8 @@ export function BracketView({ bracket, teamName, onEdit }: Props) {
           <Plus size={16} />
         </Button>
       </div>
-      <div ref={hostRef} className="relative left-1/2 w-[min(calc(100vw-3rem),1680px)] -translate-x-1/2">
+      <div ref={columnRef} aria-hidden="true" className="h-0" />
+      <div ref={hostRef} className={wide ? 'relative left-1/2 w-[min(calc(100vw-3rem),1680px)] -translate-x-1/2' : ''}>
         <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} highlight={hovered} onHoverTeam={setHovered} />
       </div>
     </div>

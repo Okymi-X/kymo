@@ -6,15 +6,20 @@ interface Props {
   tournament: Tournament
   teamName: (slot: Slot) => string
   onEdit?: (match: Match) => void
+  /** Only this group's fixtures. */
+  group?: number
 }
 
 /** Round robin fixtures grouped by round. Every team plays once per round or rests. */
-export function ScheduleBoard({ tournament, teamName, onEdit }: Props) {
+export function ScheduleBoard({ tournament, teamName, onEdit, group }: Props) {
   const rounds = useMemo(() => {
     const grouped = new Map<number, Match[]>()
-    for (const m of tournament.bracket?.matches ?? []) grouped.set(m.round, [...(grouped.get(m.round) ?? []), m])
+    for (const m of tournament.bracket?.matches ?? []) {
+      if (m.stage !== 'league' || (group !== undefined && m.group !== group)) continue
+      grouped.set(m.round, [...(grouped.get(m.round) ?? []), m])
+    }
     return [...grouped.entries()].sort((a, b) => a[0] - b[0])
-  }, [tournament.bracket])
+  }, [tournament.bracket, group])
   return (
     <div className="flex flex-col gap-8">
       {rounds.map(([round, matches]) => {

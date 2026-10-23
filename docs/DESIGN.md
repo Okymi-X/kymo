@@ -50,3 +50,6 @@ Tournament page tabs (URL `?view=`): Bracket, Standings, Matches, Teams. Standin
 
 ## Round robin views
 Standings first (P, W, D, L, +/-, Pts), then Schedule (cards grouped by round, no accent ring because every match is open), Matches, Teams. Ranking explanation sits above the table.
+
+## Groups then knockout views
+Groups tab: one standings table per group (top N advancing rows tinted with an accent rank) and a folded Fixtures panel. Knockout tab shows only the elimination bracket and keeps the wide area only when the bracket is wider than the page column. After the groups finish the page opens on Knockout.

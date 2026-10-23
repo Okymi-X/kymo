@@ -19,7 +19,7 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 
 ## Non goals (v1)
 - Hosting CTF challenges or flag submission.
-- Swiss and group stage into knockout (planned v2). Round robin is built.
+- Swiss (planned). Round robin and groups then knockout are built.
 - Multi tenant SaaS, payments.
 
 ## Acceptance criteria

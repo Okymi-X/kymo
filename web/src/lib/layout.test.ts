@@ -11,6 +11,7 @@ const match = (id: number, round: number, position: number, next: number | null,
   score: null,
   winner: null,
   forfeit: false,
+  group: null,
   next_win: next === null ? null : { id: next, side: 'A' },
 })
 

@@ -4,6 +4,8 @@ export type TeamStatus = 'champion' | 'active' | 'out' | 'seeded'
 
 export interface TeamRow {
   team: Team
+  /** Group index for groups then knockout, otherwise null. */
+  group: number | null
   played: number
   wins: number
   draws: number
@@ -44,12 +46,12 @@ export function matchState(m: Match): MatchState {
 
 const decisive = (m: Match) => m.slots.every((s) => s.kind === 'team') && (m.score !== null || m.forfeit)
 
-export function computeTeamRows(t: Tournament): TeamRow[] {
-  const rows = new Map<number, TeamRow>(
-    t.teams.map((team) => [team.id, { team, played: 0, wins: 0, draws: 0, losses: 0, points: 0, pointsFor: 0, pointsAgainst: 0, status: 'seeded' as TeamStatus, depth: 0, thirdPlaceWin: false }]),
-  )
-  const matches = t.bracket?.matches ?? []
-  for (const m of matches.filter(decisive)) {
+function tally(t: Tournament, keep: (m: Match) => boolean): Map<number, TeamRow> {
+  const rows = new Map<number, TeamRow>()
+  for (const team of t.teams) {
+    rows.set(team.id, { team, group: null, played: 0, wins: 0, draws: 0, losses: 0, points: 0, pointsFor: 0, pointsAgainst: 0, status: 'seeded', depth: 0, thirdPlaceWin: false })
+  }
+  for (const m of (t.bracket?.matches ?? []).filter((x) => decisive(x) && keep(x))) {
     const winner = m.winner
     const ids = [teamOf(m.slots[0]), teamOf(m.slots[1])]
     ids.forEach((id, i) => {
@@ -63,38 +65,78 @@ export function computeTeamRows(t: Tournament): TeamRow[] {
       row.wins += won ? 1 : 0
       row.draws += drew ? 1 : 0
       row.losses += won || drew ? 0 : 1
-      if (t.format === 'round_robin') row.points += won ? 3 : drew ? 1 : 0
+      if (m.stage === 'league') row.points += won ? 3 : drew ? 1 : 0
       if (m.score) {
         row.pointsFor += m.score[i]
         row.pointsAgainst += m.score[1 - i]
       }
     })
   }
-  const lossesToExit = t.format === 'double_elimination' ? 2 : 1
-  for (const row of rows.values()) {
-    const lostInBracket = matches
-      .filter((m) => decisive(m) && m.winner !== null && m.stage !== 'third_place' && m.stage !== 'league')
-      .filter((m) => {
-        const loser = teamOf(m.slots[sideIndex(m.winner as Side) === 0 ? 1 : 0])
-        return loser === row.team.id
-      }).length
-    if (t.bracket === null) row.status = 'seeded'
-    else if (t.champion === row.team.id) row.status = 'champion'
-    else if (lostInBracket >= lossesToExit) row.status = 'out'
-    else row.status = 'active'
+  for (const m of t.bracket?.matches ?? []) {
+    if (m.stage !== 'league' || m.group === null) continue
+    for (const slot of m.slots) {
+      const row = slot.kind === 'team' ? rows.get(slot.team) : undefined
+      if (row) row.group = m.group
+    }
   }
+  return rows
+}
+
+const diffOf = (r: TeamRow) => r.pointsFor - r.pointsAgainst
+
+const leagueOrder = (a: TeamRow, b: TeamRow) =>
+  b.points - a.points || diffOf(b) - diffOf(a) || b.pointsFor - a.pointsFor || a.team.id - b.team.id
+
+const knockoutOrder = (a: TeamRow, b: TeamRow) =>
+  b.depth - a.depth ||
+  b.wins - a.wins ||
+  Number(b.thirdPlaceWin) - Number(a.thirdPlaceWin) ||
+  diffOf(b) - diffOf(a) ||
+  a.team.seed - b.team.seed
+
+function statusOf(t: Tournament, row: TeamRow): TeamStatus {
+  const matches = t.bracket?.matches ?? []
+  if (t.bracket === null) return 'seeded'
+  if (t.champion === row.team.id) return 'champion'
+  const knockout = matches.filter((m) => m.stage !== 'league')
+  if (t.format === 'group_knockout') {
+    const groupsDone = matches.filter((m) => m.stage === 'league').every((m) => m.score !== null || m.forfeit)
+    const qualified = knockout.some((m) => m.slots.some((s) => s.kind === 'team' && s.team === row.team.id))
+    if (groupsDone && !qualified) return 'out'
+  }
+  const lossesToExit = t.format === 'double_elimination' ? 2 : 1
+  const lost = knockout.filter((m) => decisive(m) && m.winner !== null && m.stage !== 'third_place').filter((m) => {
+    const loser = teamOf(m.slots[sideIndex(m.winner as Side) === 0 ? 1 : 0])
+    return loser === row.team.id
+  }).length
+  if (t.format !== 'round_robin' && lost >= lossesToExit) return 'out'
+  return 'active'
+}
+
+export function computeTeamRows(t: Tournament): TeamRow[] {
+  const rows = tally(t, () => true)
+  for (const row of rows.values()) row.status = statusOf(t, row)
   const order: Record<TeamStatus, number> = { champion: 0, active: 1, seeded: 1, out: 2 }
-  const diff = (r: TeamRow) => r.pointsFor - r.pointsAgainst
-  const compare =
-    t.format === 'round_robin'
-      ? (a: TeamRow, b: TeamRow) => b.points - a.points || diff(b) - diff(a) || b.pointsFor - a.pointsFor || a.team.id - b.team.id
-      : (a: TeamRow, b: TeamRow) =>
-          b.depth - a.depth ||
-          b.wins - a.wins ||
-          Number(b.thirdPlaceWin) - Number(a.thirdPlaceWin) ||
-          diff(b) - diff(a) ||
-          a.team.seed - b.team.seed
+  const compare = t.format === 'round_robin' ? leagueOrder : knockoutOrder
   return [...rows.values()].sort((a, b) => order[a.status] - order[b.status] || compare(a, b))
+}
+
+export interface GroupTable {
+  group: number
+  rows: TeamRow[]
+}
+
+/** Group stage tables, counting only league matches inside each group. */
+export function computeGroupTables(t: Tournament): GroupTable[] {
+  const overall = new Map(computeTeamRows(t).map((r) => [r.team.id, r.status]))
+  const rows = tally(t, (m) => m.stage === 'league')
+  const groups = new Map<number, TeamRow[]>()
+  for (const row of rows.values()) {
+    if (row.group === null) continue
+    row.status = overall.get(row.team.id) ?? 'active'
+    groups.set(row.group, [...(groups.get(row.group) ?? []), row])
+  }
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([group, list]) => ({ group, rows: list.sort(leagueOrder) }))
 }
 
 export function teamHistory(t: Tournament, teamId: number): HistoryEntry[] {

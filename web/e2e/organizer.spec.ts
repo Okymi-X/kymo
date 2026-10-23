@@ -218,3 +218,34 @@ test('round robin plays with a draw and crowns the table leader', async ({ page 
   await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Finished')).toBeVisible()
 })
+
+test('groups then knockout plays the groups, fills the knockout and crowns a champion', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Worlds')
+  await page.getByLabel('Format').selectOption('group_knockout')
+  await page.getByLabel(/^Groups/).selectOption('2')
+  await page.getByLabel(/^Advance per group/).selectOption('1')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('A1\nB1\nC1\nD1\nE1\nF1')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  await expect(page.getByRole('tab', { name: 'Groups' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Group A' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Group B' })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'Matches' }).click()
+  for (let i = 0; i < 7; i++) {
+    const next = page.getByRole('button', { name: /Group|Final/ }).first()
+    await expect(next).toBeVisible()
+    await next.click()
+    await page.getByRole('dialog').getByLabel('Score').nth(0).fill('2')
+    await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  }
+  await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Finished')).toBeVisible()
+  await page.getByRole('tab', { name: 'Knockout' }).click()
+  await expect(page.getByText('Final', { exact: true }).first()).toBeVisible()
+})

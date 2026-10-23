@@ -1,4 +1,4 @@
-export type Format = 'single_elimination' | 'double_elimination' | 'round_robin'
+export type Format = 'single_elimination' | 'double_elimination' | 'round_robin' | 'group_knockout'
 export type Status = 'draft' | 'live' | 'done'
 export type Stage = 'winners' | 'losers' | 'grand_final' | 'grand_reset' | 'third_place' | 'league'
 export type Side = 'A' | 'B'
@@ -20,6 +20,7 @@ export interface Match {
   score: [number, number] | null
   winner: Side | null
   forfeit: boolean
+  group: number | null
   next_win: Dest | null
 }
 
@@ -41,6 +42,8 @@ export interface Tournament {
   slug: string
   format: Format
   third_place: boolean
+  groups: number
+  advance: number
   status: Status
   created_at: string
   teams: Team[]
