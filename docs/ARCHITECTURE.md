@@ -21,12 +21,13 @@ docs/
 
 ## Data model
 tournament(id, name, slug unique, format, status draft|live|done, bracket JSON, created_at)
-team(id, tournament_id, name, seed)
+team(id, tournament_id, name, seed, score)
+token(id, hash sha256, kind session|api, label, created_at, expires_at)
 The bracket is one JSON document owned by the engine, saved whole after each edit. A process wide write lock serializes read-modify-write cycles.
 
 ## API (/api/v1)
 Public: GET /tournaments, GET /tournaments/{slug}, GET /tournaments/{slug}/events (SSE), POST /auth/login.
-Admin (Bearer token): POST /tournaments, PUT|DELETE /admin/tournaments/{id}, PUT .../teams, POST .../start, POST .../reset, PUT|DELETE .../matches/{match_id}/result.
+Admin (Bearer token, session or API token): GET|POST /admin/tokens, DELETE /admin/tokens/{id}, POST /tournaments, PUT|DELETE /admin/tournaments/{id}, PUT .../teams, POST .../start, POST .../reset, PUT|DELETE .../matches/{match_id}/result.
 
 ## Data flow
 Organizer action -> API handler -> repository loads matches -> engine applies change -> repository saves in a transaction -> SSE event -> public clients refetch.

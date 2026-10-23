@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Server: sessions and API tokens stored hashed (sha256) in SQLite, survive restarts; /admin/tokens list, create, revoke; test added
 - [x] Seeding by qualifier score (team score column, roster editor, API), confirm dialog replaces window.confirm
 - [x] Server: login throttle (5 failures per minute shared budget, 429), test added
 - [x] Web: bracket layout with SVG connectors and zoom (buttons, ctrl+wheel), layout unit tests (4)
@@ -15,5 +16,5 @@
 ## Todo
 - [ ] Web: command palette, cross-section links into the grand final
 - [ ] Web: component and e2e tests
-- [ ] Server: API tokens, persistent sessions
+- [ ] Web: API token management panel
 - [ ] README with quickstart

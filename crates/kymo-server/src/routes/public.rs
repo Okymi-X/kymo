@@ -11,6 +11,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::db::{self, Tournament};
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::tokens::{self, Kind};
 
 #[derive(Deserialize)]
 pub struct LoginBody {
@@ -34,9 +35,8 @@ pub async fn login(
     if !ok {
         return Err(ApiError::Unauthorized);
     }
-    Ok(Json(LoginOut {
-        token: state.open_session(),
-    }))
+    let token = tokens::issue(&state.pool, Kind::Session, "").await?;
+    Ok(Json(LoginOut { token }))
 }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>, ApiError> {

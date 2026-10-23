@@ -266,3 +266,58 @@ async fn score_seeding_orders_teams_by_points() {
         .collect();
     assert_eq!(order, ["top", "mid", "low"]);
 }
+
+#[tokio::test]
+async fn api_tokens_authenticate_until_revoked_and_sessions_survive_restart() {
+    let pool = db::connect("sqlite::memory:").await.unwrap();
+    let app = router(AppState::new(pool.clone(), PASSWORD).unwrap());
+    let session = login(&app).await;
+
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        Some(&session),
+        Some(json!({"label": "ci"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let secret = made["token"].as_str().unwrap().to_owned();
+
+    let new_tournament = json!({"name": "Via token", "format": "single_elimination"});
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        Some(&secret),
+        Some(new_tournament),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (_, listed) = call(&app, "GET", "/api/v1/admin/tokens", Some(&session), None).await;
+    assert!(listed[0].get("token").is_none());
+    let id = listed[0]["id"].as_i64().unwrap();
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        &format!("/api/v1/admin/tokens/{id}"),
+        Some(&session),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&secret), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let restarted = router(AppState::new(pool, PASSWORD).unwrap());
+    let (status, _) = call(
+        &restarted,
+        "GET",
+        "/api/v1/admin/tokens",
+        Some(&session),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -7,7 +7,6 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
-const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const MAX_FAILURES: usize = 5;
 
@@ -18,7 +17,6 @@ pub struct AppState {
     /// Serializes read-modify-write cycles on a bracket.
     pub write_lock: Arc<tokio::sync::Mutex<()>>,
     admin_hash: Arc<String>,
-    sessions: Arc<Mutex<HashMap<String, Instant>>>,
     failures: Arc<Mutex<VecDeque<Instant>>>,
 }
 
@@ -34,7 +32,6 @@ impl AppState {
             events: broadcast::channel(64).0,
             write_lock: Arc::default(),
             admin_hash: Arc::new(hash.to_string()),
-            sessions: Arc::default(),
             failures: Arc::default(),
         })
     }
@@ -75,24 +72,6 @@ impl AppState {
         } else {
             failures.push_back(Instant::now());
         }
-    }
-
-    pub fn open_session(&self) -> String {
-        let token: String = rand::random::<[u8; 32]>()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.retain(|_, born| born.elapsed() < SESSION_TTL);
-        sessions.insert(token.clone(), Instant::now());
-        token
-    }
-
-    pub fn session_is_valid(&self, token: &str) -> bool {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions
-            .get(token)
-            .is_some_and(|born| born.elapsed() < SESSION_TTL)
     }
 
     pub fn notify(&self, slug: &str) {

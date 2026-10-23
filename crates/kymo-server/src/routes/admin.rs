@@ -11,6 +11,7 @@ use crate::auth::Admin;
 use crate::db::{self, NewTeam, Status, Tournament};
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::tokens::{self, ApiToken, Kind};
 
 const MAX_NAME: usize = 80;
 const MAX_TEAM_NAME: usize = 64;
@@ -254,4 +255,39 @@ pub async fn clear_result(
     Ok(Json(
         edit_bracket(&state, id, |b| b.clear_result(match_id)).await?,
     ))
+}
+
+#[derive(Deserialize)]
+pub struct TokenBody {
+    label: String,
+}
+
+pub async fn list_tokens(
+    _: Admin,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ApiToken>>, ApiError> {
+    Ok(Json(tokens::list_api(&state.pool).await?))
+}
+
+/// The secret appears only in this response; the server keeps its hash.
+pub async fn create_token(
+    _: Admin,
+    State(state): State<AppState>,
+    Json(body): Json<TokenBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let label = clean_name(&body.label, MAX_NAME)?;
+    let secret = tokens::issue(&state.pool, Kind::Api, &label).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "label": label, "token": secret })),
+    ))
+}
+
+pub async fn revoke_token(
+    _: Admin,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    tokens::revoke_api(&state.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
