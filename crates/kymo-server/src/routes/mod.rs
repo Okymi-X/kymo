@@ -2,7 +2,9 @@ mod admin;
 mod public;
 
 use axum::Router;
+use axum::http::{HeaderName, HeaderValue};
 use axum::routing::{delete, get, post, put};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
@@ -28,8 +30,22 @@ pub fn router(state: AppState) -> Router {
             "/admin/tournaments/{id}/matches/{match_id}/result",
             delete(admin::clear_result),
         );
+    let header = |name: &'static str, value: &'static str| {
+        SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        )
+    };
     Router::new()
         .nest("/api/v1", api)
+        .fallback(crate::assets::serve)
+        .layer(header("x-content-type-options", "nosniff"))
+        .layer(header("x-frame-options", "DENY"))
+        .layer(header("referrer-policy", "same-origin"))
+        .layer(header(
+            "content-security-policy",
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
