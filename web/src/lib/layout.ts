@@ -55,6 +55,7 @@ const GROUPS: { title: string; stages: Stage[] }[] = [
   { title: 'Winners bracket', stages: ['winners', 'third_place'] },
   { title: 'Losers bracket', stages: ['losers'] },
   { title: 'Finals', stages: ['grand_final', 'grand_reset'] },
+  { title: 'Rounds', stages: ['league'] },
 ]
 
 /**

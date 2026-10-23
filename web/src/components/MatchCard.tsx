@@ -77,7 +77,7 @@ export function MatchCard({ match, teamName, onEdit, style, highlight = null, qu
       <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} lit={highlight !== null && match.slots[1].kind === 'team' && (match.slots[1] as { team: number }).team === highlight} onHover={onHoverTeam} />
     </>
   )
-  const frame = `relative flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
+  const frame = `relative flex h-[76px] ${quiet ? 'w-full' : 'w-56'} flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
   if (onEdit && ready) {
     return (
       <button

@@ -124,7 +124,9 @@ function Preview({ look }: { look: Appearance }) {
           <span className="font-mono text-xs tabular-nums text-muted">4/6</span>
         </div>
       </div>
-      <MatchCard match={SAMPLE_MATCH} teamName={sampleName} quiet />
+      <div className="w-56">
+        <MatchCard match={SAMPLE_MATCH} teamName={sampleName} quiet />
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" type="button">Start tournament</Button>
         <Button type="button">Export CSV</Button>

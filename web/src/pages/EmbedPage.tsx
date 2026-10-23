@@ -46,7 +46,7 @@ export function EmbedPage() {
 
   const requested = params.get('view')
   const view: EmbedView = requested === 'bracket' || requested === 'standings' || requested === 'groups' ? requested : defaultEmbedView(t.format)
-  const knockout = t.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null
+  const knockout = t.bracket ? (isLeagueFormat(t.format) ? t.bracket : { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') }) : null
 
   return (
     <div className="flex h-screen flex-col gap-4 p-4" {...accentProps(t.accent)}>

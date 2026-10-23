@@ -44,7 +44,7 @@ export function EmbedDialog({ tournament, onClose }: { tournament: Tournament; o
   }
   const views: { value: EmbedView; label: string }[] =
     isLeagueFormat(tournament.format)
-      ? [{ value: 'standings', label: 'Standings' }]
+      ? [{ value: 'standings', label: 'Standings' }, { value: 'bracket', label: 'Rounds' }]
       : tournament.format === 'group_knockout'
         ? [{ value: 'groups', label: 'Groups' }, { value: 'bracket', label: 'Knockout' }, { value: 'standings', label: 'Standings' }]
         : [{ value: 'bracket', label: 'Bracket' }, { value: 'standings', label: 'Standings' }]

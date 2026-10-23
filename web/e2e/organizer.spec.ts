@@ -8,6 +8,13 @@ async function signIn(page: Page) {
   await expect(page.getByRole('heading', { name: 'Tournaments' })).toBeVisible()
 }
 
+/** The schedule shows one round at a time; this reveals every round when there are several. */
+async function showAllRounds(page: Page) {
+  const all = page.getByRole('button', { name: 'All rounds' })
+  // A single round has no chips, so a short wait that may time out is the signal.
+  if (await all.waitFor({ timeout: 1500 }).then(() => true, () => false)) await all.click()
+}
+
 async function record(page: Page, match: string, a: string, b: string) {
   await page.getByRole('button', { name: match }).click()
   const scores = page.getByRole('dialog').getByLabel('Score')
@@ -196,8 +203,10 @@ test('round robin plays with a draw and crowns the table leader', async ({ page 
   await page.getByRole('button', { name: 'Start tournament' }).click()
 
   await expect(page.getByRole('tab', { name: 'Schedule' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Bracket' })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Bracket' }).click()
+  await expect(page.getByRole('region', { name: 'Bracket map' }).getByRole('button', { name: /Edit result for/ })).toHaveCount(3)
   await page.getByRole('tab', { name: 'Schedule' }).click()
+  await showAllRounds(page)
 
   const cards = page.getByRole('button', { name: /Edit result for/ })
   await expect(cards).toHaveCount(3)
@@ -579,6 +588,7 @@ test('an organizer can decide a tie in a round robin table', async ({ page }) =>
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
   await page.getByRole('tab', { name: 'Schedule' }).click()
+  await showAllRounds(page)
   for (let i = 0; i < 3; i++) {
     await page.getByRole('button', { name: /Edit result for/ }).nth(i).click()
     await page.getByRole('dialog').getByLabel('Score').nth(0).fill('1')
@@ -604,6 +614,7 @@ test('a Swiss tournament plans the next round once a round is played', async ({ 
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
   await page.getByRole('tab', { name: 'Schedule' }).click()
+  await showAllRounds(page)
   const edits = page.getByRole('button', { name: /Edit result for/ })
   await expect(edits).toHaveCount(2)
   for (let i = 0; i < 2; i++) {
@@ -613,6 +624,7 @@ test('a Swiss tournament plans the next round once a round is played', async ({ 
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeHidden()
   }
+  await showAllRounds(page)
   await expect(edits).toHaveCount(4)
   await expect(page.getByText('Round 2').first()).toBeVisible()
 })

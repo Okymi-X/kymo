@@ -267,6 +267,7 @@ const GROUP_VIEWS: TabItem<View>[] = [
 
 const LEAGUE_VIEWS: TabItem<View>[] = [
   { id: 'standings', label: 'Standings' },
+  { id: 'bracket', label: 'Bracket' },
   { id: 'schedule', label: 'Schedule' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
@@ -290,6 +291,8 @@ export function TournamentPage() {
   const requested = params.get('view')
   const view: View = views.find((v) => v.id === requested)?.id ?? fallback
   const knockout = useMemo(() => (t?.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null), [t?.bracket])
+  // Round robin and Swiss draw their rounds as columns; other formats leave the group stage out of the map.
+  const mapBracket = t && isLeagueFormat(t.format) ? (t.bracket ?? null) : knockout
   const [followed, follow] = useFollowedTeam(slug)
   const titleRef = useRef<HTMLDivElement>(null)
   const [titleHidden, setTitleHidden] = useState(false)
@@ -367,7 +370,7 @@ export function TournamentPage() {
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}
       {t.bracket ? (
         <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
-          {view === 'bracket' && knockout && <BracketView bracket={knockout} teamName={teamName} onEdit={admin ? setEditing : undefined} pinned={followed} />}
+          {view === 'bracket' && mapBracket && <BracketView bracket={mapBracket} teamName={teamName} onEdit={admin ? setEditing : undefined} pinned={followed} />}
           {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={admin ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
