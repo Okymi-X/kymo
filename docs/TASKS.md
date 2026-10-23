@@ -45,10 +45,11 @@
 
 - [x] Logo upload (PNG, JPEG, WebP data URI under 60 KB, validated server side) and a tidier match result dialog
 
+- [x] API tokens expire (7 days to 1 year or never) and API tokens cannot mint tokens
+
 ## Todo
 - [ ] Swiss format
 - [ ] Knockout entrants chosen by hand or by tiebreak play-offs when group ties decide who advances
-- [ ] API tokens: expiry and a rule that API tokens cannot mint tokens
 - [ ] Roster drag and drop announcements use team names
 - [ ] Public list endpoint pages or trims rosters
 - [ ] More customization: per tournament accent, bracket line style

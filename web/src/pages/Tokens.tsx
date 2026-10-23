@@ -5,7 +5,7 @@ import { api, useIsAdmin } from '../api/client'
 import type { ApiToken } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { BackLink } from '../components/BackLink'
-import { Button, ErrorText, Field, Input, PageTitle } from '../components/ui'
+import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
 
 function NewSecret({ secret, onDone }: { secret: string; onDone: () => void }) {
   const [copied, setCopied] = useState(false)
@@ -31,17 +31,26 @@ function NewSecret({ secret, onDone }: { secret: string; onDone: () => void }) {
   )
 }
 
+const EXPIRY: [string, string][] = [
+  ['7', '7 days'],
+  ['30', '30 days'],
+  ['90', '90 days'],
+  ['365', '1 year'],
+  ['never', 'Never'],
+]
+
 export function Tokens() {
   const admin = useIsAdmin()
   const client = useQueryClient()
   const [label, setLabel] = useState('')
+  const [days, setDays] = useState('30')
   const [secret, setSecret] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<ApiToken | null>(null)
   const tokens = useQuery({ queryKey: ['tokens'], queryFn: api.listTokens, enabled: admin })
   const refresh = () => client.invalidateQueries({ queryKey: ['tokens'] })
 
   const create = useMutation({
-    mutationFn: () => api.createToken(label),
+    mutationFn: () => api.createToken(label, days === 'never' ? null : Number(days)),
     onSuccess: (made) => {
       setSecret(made.token)
       setLabel('')
@@ -74,6 +83,15 @@ export function Tokens() {
         <Field label="Label">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Score importer" className="w-64" maxLength={80} />
         </Field>
+        <Field label="Expires">
+          <Select value={days} onChange={(e) => setDays(e.target.value)} className="w-40">
+            {EXPIRY.map(([value, text]) => (
+              <option key={value} value={value}>
+                {text}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Button type="submit" variant="primary" disabled={!label.trim() || create.isPending}>
           Create token
         </Button>
@@ -86,7 +104,7 @@ export function Tokens() {
           <li key={t.id} className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3">
             <div className="min-w-0">
               <p className="truncate font-medium">{t.label}</p>
-              <p className="text-xs text-muted">Created {new Date(t.created_at * 1000).toLocaleDateString()}</p>
+              <p className="text-xs text-muted">Created {new Date(t.created_at * 1000).toLocaleDateString()}. {t.expires_at === null ? 'Never expires' : `Expires ${new Date(t.expires_at * 1000).toLocaleDateString()}`}</p>
             </div>
             <Button variant="danger" onClick={() => setRevoking(t)}>
               Revoke

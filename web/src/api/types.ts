@@ -58,6 +58,7 @@ export interface ApiToken {
   id: number
   label: string
   created_at: number
+  expires_at: number | null
 }
 
 export type FontChoice = 'sans' | 'serif' | 'mono'

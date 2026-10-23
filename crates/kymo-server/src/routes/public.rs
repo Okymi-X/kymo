@@ -42,7 +42,7 @@ pub async fn login(
     if !ok {
         return Err(ApiError::Unauthorized);
     }
-    let token = tokens::issue(&state.pool, Kind::Session, "").await?;
+    let token = tokens::issue(&state.pool, Kind::Session, "", None).await?;
     Ok(Json(LoginOut { token }))
 }
 

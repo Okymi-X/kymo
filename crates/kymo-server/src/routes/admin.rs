@@ -7,7 +7,7 @@ use kymo_engine::{Format, Options, Side, generate_with};
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 
-use crate::auth::Admin;
+use crate::auth::{Admin, SessionAdmin};
 use crate::db::{self, NewTeam, NewTournament, Status, Tournament};
 use crate::error::ApiError;
 use crate::events;
@@ -363,6 +363,9 @@ pub async fn clear_result(
 #[derive(Deserialize)]
 pub struct TokenBody {
     label: String,
+    /// Days until the token stops working, 1 to 365. Missing means it never expires.
+    #[serde(default)]
+    expires_days: Option<u32>,
 }
 
 pub async fn list_tokens(
@@ -374,12 +377,15 @@ pub async fn list_tokens(
 
 /// The secret appears only in this response; the server keeps its hash.
 pub async fn create_token(
-    _: Admin,
+    _: SessionAdmin,
     State(state): State<AppState>,
     Json(body): Json<TokenBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let label = clean_name(&body.label, MAX_NAME)?;
-    let secret = tokens::issue(&state.pool, Kind::Api, &label).await?;
+    if body.expires_days.is_some_and(|d| !(1..=365).contains(&d)) {
+        return Err(ApiError::BadRequest("expiry must be 1 to 365 days".into()));
+    }
+    let secret = tokens::issue(&state.pool, Kind::Api, &label, body.expires_days).await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "label": label, "token": secret })),

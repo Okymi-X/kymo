@@ -99,7 +99,8 @@ export const api = {
   saveAppearance: (a: Appearance) => request<Appearance>('PUT', '/admin/settings', a),
   resetAppearance: () => request<Appearance>('DELETE', '/admin/settings'),
   listTokens: () => request<ApiToken[]>('GET', '/admin/tokens'),
-  createToken: (label: string) => request<{ label: string; token: string }>('POST', '/admin/tokens', { label }),
+  createToken: (label: string, expiresDays: number | null) =>
+    request<{ label: string; token: string }>('POST', '/admin/tokens', { label, expires_days: expiresDays }),
   revokeToken: (id: number) => request<void>('DELETE', `/admin/tokens/${id}`),
   setForfeit: (id: number, match: number, winner: Side) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/forfeit`, { winner }),

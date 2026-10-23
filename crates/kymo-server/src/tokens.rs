@@ -28,6 +28,7 @@ pub struct ApiToken {
     pub id: i64,
     pub label: String,
     pub created_at: i64,
+    pub expires_at: Option<i64>,
 }
 
 pub fn now() -> i64 {
@@ -52,10 +53,19 @@ pub fn hash(secret: &str) -> String {
 }
 
 /// Creates a token and returns its secret, which is shown to the caller exactly once.
-pub async fn issue(pool: &SqlitePool, kind: Kind, label: &str) -> Result<String, ApiError> {
+/// `api_days` limits an API token's life; sessions always use `SESSION_SECONDS`.
+pub async fn issue(
+    pool: &SqlitePool,
+    kind: Kind,
+    label: &str,
+    api_days: Option<u32>,
+) -> Result<String, ApiError> {
     let secret = fresh_secret();
     let created = now();
-    let expires = (kind == Kind::Session).then_some(created + SESSION_SECONDS);
+    let expires = match kind {
+        Kind::Session => Some(created + SESSION_SECONDS),
+        Kind::Api => api_days.map(|d| created + i64::from(d) * 24 * 3600),
+    };
     sqlx::query(
         "INSERT INTO token (hash, kind, label, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
     )
@@ -84,10 +94,23 @@ pub async fn is_valid(pool: &SqlitePool, secret: &str) -> Result<bool, ApiError>
     Ok(found.is_some())
 }
 
+/// True when the secret is a live organizer session, as opposed to an API token.
+pub async fn is_session(pool: &SqlitePool, secret: &str) -> Result<bool, ApiError> {
+    let found: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM token WHERE hash = ? AND kind = 'session' AND expires_at > ?",
+    )
+    .bind(hash(secret))
+    .bind(now())
+    .fetch_optional(pool)
+    .await?;
+    Ok(found.is_some())
+}
+
 pub async fn list_api(pool: &SqlitePool) -> Result<Vec<ApiToken>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT id, label, created_at FROM token WHERE kind = 'api' ORDER BY id DESC",
+        "SELECT id, label, created_at, expires_at FROM token WHERE kind = 'api' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id DESC",
     )
+    .bind(now())
     .fetch_all(pool)
     .await?)
 }

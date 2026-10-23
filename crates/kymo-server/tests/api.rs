@@ -1343,3 +1343,46 @@ async fn logo_accepts_small_raster_data_uris_only() {
         assert_eq!(status, expected);
     }
 }
+
+#[tokio::test]
+async fn api_tokens_can_expire_and_cannot_mint_tokens() {
+    let app = app().await;
+    let session = login(&app).await;
+
+    let (status, bad) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        Some(&session),
+        Some(json!({ "label": "x", "expires_days": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        Some(&session),
+        Some(json!({ "label": "ci", "expires_days": 30 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let api = made["token"].as_str().unwrap().to_owned();
+
+    let (_, list) = call(&app, "GET", "/api/v1/admin/tokens", Some(&session), None).await;
+    assert!(list[0]["expires_at"].as_i64().unwrap() > list[0]["created_at"].as_i64().unwrap());
+
+    // The API token works for normal admin calls but cannot create another token.
+    let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&api), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        Some(&api),
+        Some(json!({ "label": "child" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
