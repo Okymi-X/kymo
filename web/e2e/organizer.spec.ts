@@ -369,12 +369,13 @@ test('stage mode shows what is next, live results and the champion', async ({ pa
   await expect(screen.getByRole('heading', { name: 'Stage Cup' })).toBeVisible()
   await expect(screen.getByRole('region', { name: 'Up next' })).toContainText('Bravo')
   await expect(screen.getByRole('region', { name: 'Latest' })).toContainText('beat')
-  await expect(screen.getByRole('tab', { name: 'Bracket' })).toHaveAttribute('aria-selected', 'true')
+  await expect(screen.getByRole('tab').first()).toHaveAttribute('aria-selected', 'true')
+  await expect(screen.getByRole('list').filter({ hasText: 'Bravo' }).first()).toBeVisible()
 
   await screen.getByRole('button', { name: 'Pause rotation' }).click()
   await expect(screen.getByRole('button', { name: 'Resume rotation' })).toBeVisible()
   await screen.keyboard.press('ArrowRight')
-  await expect(screen.getByRole('tab', { name: 'Standings' })).toHaveAttribute('aria-selected', 'true')
+  await expect(screen.getByRole('tab', { name: 'Bracket' })).toHaveAttribute('aria-selected', 'true')
 
   await record(page, 'Edit result for Bravo versus Charlie', '0', '2')
   await record(page, 'Edit result for Alpha versus Charlie', '5', '4')

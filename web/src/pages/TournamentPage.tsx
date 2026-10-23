@@ -257,7 +257,7 @@ export function TournamentPage() {
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
           {view === 'activity' && (
             <div className="max-w-2xl">
-              <ActivityFeed tournament={t} teamName={teamName} />
+              <ActivityFeed tournament={t} teamName={teamName} paged />
             </div>
           )}
         </Tabs>

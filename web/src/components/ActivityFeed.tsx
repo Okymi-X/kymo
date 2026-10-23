@@ -4,8 +4,12 @@ import type { EventKind, LogEvent, Slot, Tournament } from '../api/types'
 import { useActivity } from '../api/hooks'
 import { roundNamer } from '../lib/labels'
 import { formatSlot } from '../lib/schedule'
+import { slicePage, usePagination } from '../lib/paginate'
 import { timeAgo } from '../lib/time'
+import { Pager } from './Pager'
 import { Avatar } from './Avatar'
+
+const ACTIVITY_PAGE = 12
 
 const ICONS: Record<EventKind, ReactNode> = {
   started: <Play size={16} />,
@@ -23,6 +27,8 @@ interface Props {
   /** Show only the newest entries, for the stage screen. */
   limit?: number
   large?: boolean
+  /** Split into pages instead of one long list. */
+  paged?: boolean
 }
 
 export function describeEvent(e: LogEvent, name: (id: number | null | undefined) => string): { headline: ReactNode; detail?: string } {
@@ -58,11 +64,13 @@ export function describeEvent(e: LogEvent, name: (id: number | null | undefined)
   }
 }
 
-export function ActivityFeed({ tournament, teamName, limit, large = false }: Props) {
+export function ActivityFeed({ tournament, teamName, limit, large = false, paged = false }: Props) {
   const { data, isPending, error } = useActivity(tournament.slug)
   const label = tournament.bracket ? roundNamer(tournament.bracket) : null
   const nameOf = (id: number | null | undefined) => (id == null ? 'TBD' : teamName({ kind: 'team', team: id }))
-  const events = (data ?? []).slice(0, limit)
+  const all = (data ?? []).slice(0, limit)
+  const paging = usePagination(all.length, ACTIVITY_PAGE)
+  const events = paged ? slicePage(all, paging.page, ACTIVITY_PAGE) : all
 
   if (isPending) return <p className="text-muted">Loading activity</p>
   if (error) return <p role="alert" className="text-danger">Activity could not be loaded.</p>
@@ -76,6 +84,7 @@ export function ActivityFeed({ tournament, teamName, limit, large = false }: Pro
     )
 
   return (
+    <>
     <ol className="flex flex-col" aria-label="Activity">
       {events.map((e, i) => {
         const { headline, detail } = describeEvent(e, nameOf)
@@ -113,5 +122,7 @@ export function ActivityFeed({ tournament, teamName, limit, large = false }: Pro
         )
       })}
     </ol>
+      {paged && <Pager {...paging} total={all.length} onChange={paging.setPage} noun="events" />}
+    </>
   )
 }

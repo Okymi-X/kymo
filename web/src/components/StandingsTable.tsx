@@ -1,8 +1,12 @@
+import { useMemo, useState } from 'react'
 import type { Tournament } from '../api/types'
+import { slicePage, usePagination } from '../lib/paginate'
 import { standingsCsv, type TeamRow } from '../lib/stats'
 import { Avatar } from './Avatar'
 import { ExportButton } from './ExportButton'
+import { Pager } from './Pager'
 import { StatusBadge } from './StatusBadge'
+import { SearchField } from './ui'
 
 interface Props {
   tournament: Tournament
@@ -17,10 +21,18 @@ interface Props {
 }
 
 const num = 'text-right font-mono tabular-nums'
+const PAGE_SIZE = 15
 
 export function StandingsTable({ tournament, rows, onSelect, league = tournament.format === 'round_robin', title, advancing = 0, hideExport = false }: Props) {
+  const [query, setQuery] = useState('')
+  const ranked = useMemo(() => rows.map((r, i) => ({ r, rank: i + 1 })), [rows])
+  const needle = query.trim().toLowerCase()
+  const filtered = useMemo(() => (needle ? ranked.filter((x) => x.r.team.name.toLowerCase().includes(needle)) : ranked), [ranked, needle])
+  const paging = usePagination(filtered.length, PAGE_SIZE, needle)
+  const shown = slicePage(filtered, paging.page, PAGE_SIZE)
   return (
     <div className="flex flex-col gap-4">
+      {rows.length > PAGE_SIZE && <SearchField label="Search teams" placeholder="Search teams" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />}
       <div className="flex items-center justify-between gap-3">
         {title ? (
           <h2 className="text-sm font-medium">
@@ -50,11 +62,11 @@ export function StandingsTable({ tournament, rows, onSelect, league = tournament
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => {
+            {shown.map(({ r, rank }) => {
               const diff = r.pointsFor - r.pointsAgainst
               return (
-                <tr key={r.team.id} className={`border-b border-line last:border-0 hover:bg-line/30 ${i < advancing ? 'bg-accent/5' : ''}`}>
-                  <td className={`px-4 py-2.5 font-mono tabular-nums ${i < advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{i + 1}</td>
+                <tr key={r.team.id} className={`border-b border-line last:border-0 hover:bg-line/30 ${rank <= advancing ? 'bg-accent/5' : ''}`}>
+                  <td className={`px-4 py-2.5 font-mono tabular-nums ${rank <= advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{rank}</td>
                   <td className="px-2 py-1.5">
                     <button type="button" onClick={() => onSelect(r.team.id)} className="flex items-center gap-2.5 rounded-control px-1.5 py-1 text-left font-medium hover:text-accent">
                       <Avatar name={r.team.name} size={24} />
@@ -75,9 +87,17 @@ export function StandingsTable({ tournament, rows, onSelect, league = tournament
                 </tr>
               )
             })}
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={league ? 11 : 9} className="px-4 py-8 text-center text-muted">
+                  No team matches that search.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+      <Pager {...paging} total={filtered.length} onChange={paging.setPage} noun="teams" />
     </div>
   )
 }

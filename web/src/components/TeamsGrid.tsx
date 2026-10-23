@@ -1,11 +1,24 @@
+import { useMemo, useState } from 'react'
+import { slicePage, usePagination } from '../lib/paginate'
 import type { TeamRow } from '../lib/stats'
 import { Avatar } from './Avatar'
+import { Pager } from './Pager'
 import { StatusBadge } from './StatusBadge'
+import { SearchField } from './ui'
+
+const PAGE_SIZE = 24
 
 export function TeamsGrid({ rows, onSelect }: { rows: TeamRow[]; onSelect: (teamId: number) => void }) {
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  const filtered = useMemo(() => (needle ? rows.filter((r) => r.team.name.toLowerCase().includes(needle)) : rows), [rows, needle])
+  const paging = usePagination(filtered.length, PAGE_SIZE, needle)
   return (
+    <div className="flex flex-col gap-4">
+      {rows.length > 12 && <SearchField label="Search teams" placeholder="Search teams" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />}
+      {filtered.length === 0 && <p className="text-muted">No team matches that search.</p>}
     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map((r) => (
+      {slicePage(filtered, paging.page, PAGE_SIZE).map((r) => (
         <li key={r.team.id} className="min-w-0">
           <button
             type="button"
@@ -24,5 +37,7 @@ export function TeamsGrid({ rows, onSelect }: { rows: TeamRow[]; onSelect: (team
         </li>
       ))}
     </ul>
+      <Pager {...paging} total={filtered.length} onChange={paging.setPage} noun="teams" />
+    </div>
   )
 }
