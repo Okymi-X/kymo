@@ -55,6 +55,8 @@
 
 - [x] Per tournament accent color (Color button, scoped CSS), tournament import with schema, README quickstart
 
+- [x] Duplicate tournament, import setup file, undo newest result, page titles, skip link
+
 ## Todo
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
