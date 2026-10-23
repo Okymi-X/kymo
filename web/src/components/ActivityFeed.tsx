@@ -11,7 +11,7 @@ import { timeAgo } from '../lib/time'
 import { api, useIsAdmin } from '../api/client'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Pager } from './Pager'
-import { Button, ErrorText } from './ui'
+import { Button, ErrorText, SearchField } from './ui'
 import { Avatar } from './Avatar'
 
 const ACTIVITY_PAGE = 12
@@ -75,8 +75,12 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
   const { data, isPending, error } = useActivity(tournament.slug)
   const label = tournament.bracket ? roundNamer(tournament.bracket) : null
   const nameOf = (id: number | null | undefined) => (id == null ? 'TBD' : teamName({ kind: 'team', team: id }))
-  const all = (data ?? []).slice(0, limit)
-  const paging = usePagination(all.length, ACTIVITY_PAGE)
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  const matches = (e: LogEvent) =>
+    `${e.kind} ${nameOf(e.data.team_a)} ${nameOf(e.data.team_b)} ${label && e.match_id !== null ? label(tournament.bracket!.matches[e.match_id]) : ''}`.toLowerCase().includes(needle)
+  const all = (data ?? []).slice(0, limit).filter((e) => !needle || matches(e))
+  const paging = usePagination(all.length, ACTIVITY_PAGE, needle)
   const events = paged ? slicePage(all, paging.page, ACTIVITY_PAGE) : all
   const admin = useIsAdmin()
   const client = useQueryClient()
@@ -98,7 +102,7 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
       : null
 
   if (error) return <p role="alert" className="text-danger">Activity could not be loaded.</p>
-  if (events.length === 0)
+  if ((data ?? []).length === 0)
     return (
       <div className="rounded-card border border-dashed border-field-line p-10 text-center">
         <History className="mx-auto mb-2 text-muted" size={20} aria-hidden="true" />
@@ -109,6 +113,8 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
 
   return (
     <>
+      {paged && (data?.length ?? 0) > ACTIVITY_PAGE && <SearchField label="Search activity" placeholder="Search by team or round" value={query} onChange={(e) => setQuery(e.target.value)} className="mb-4 max-w-xs" />}
+    {events.length === 0 && <p className="text-muted">No event matches that search.</p>}
     <ol className="flex flex-col" aria-label="Activity">
       {events.map((e, i) => {
         const { headline, detail } = describeEvent(e, nameOf)
@@ -119,7 +125,7 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
             {i < events.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%-1.5rem)] w-px bg-line" aria-hidden="true" />}
             <span className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface ${e.kind === 'corrected' ? 'text-danger' : 'text-muted'}`}>{ICONS[e.kind]}</span>
             <div className="min-w-0 flex-1">
-              <p className={large ? 'text-lg' : ''}>{headline}</p>
+              <p className={large ? 'text-base' : ''}>{headline}</p>
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
                 <time dateTime={new Date(e.at * 1000).toISOString()} title={new Date(e.at * 1000).toLocaleString()}>
                   {timeAgo(e.at)}

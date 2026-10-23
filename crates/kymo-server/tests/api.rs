@@ -1580,6 +1580,13 @@ async fn import_creates_a_tournament_with_roster_and_can_start_it() {
     assert_eq!(made["teams"].as_array().unwrap().len(), 4);
     assert_eq!(made["teams"][0]["name"], "A");
 
+    let unknown = json!({"name": "Probe", "format": "single_elimination", "unexpected": true, "teams": [{"name": "A", "mystery": 1}]});
+    let (status, _) = call(&app, "POST", "/api/v1/admin/import", t, Some(unknown)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "unknown fields are refused like the schema says"
+    );
     let bad = json!({"name": "Broken", "format": "single_elimination", "teams": [{"name": "X"}, {"name": "x"}]});
     let (status, _) = call(&app, "POST", "/api/v1/admin/import", t, Some(bad)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

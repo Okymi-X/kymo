@@ -53,6 +53,7 @@ pub struct TeamsBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TeamInput {
     name: String,
     #[serde(default)]
@@ -260,6 +261,7 @@ pub async fn set_teams(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ImportBody {
     name: String,
     format: Format,

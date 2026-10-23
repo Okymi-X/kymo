@@ -10,6 +10,13 @@ import { Button, ErrorText, Field, Input, PageTitle, Select } from '../component
 import { formatLabel } from '../lib/labels'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 
+/** Keeps only the setup fields, so a full backup file can be used as a setup file too. */
+function toSetup(raw: unknown) {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const teams = Array.isArray(o.teams) ? (o.teams as Record<string, unknown>[]).map((t) => ({ name: t.name, score: t.score ?? 0 })) : []
+  return { name: o.name, format: o.format, third_place: o.third_place, groups: o.groups, advance: o.advance, rounds: o.rounds, teams }
+}
+
 function CreateForm() {
   const [name, setName] = useState('')
   const [format, setFormat] = useState<Format>('single_elimination')
@@ -108,7 +115,7 @@ function CreateForm() {
             e.target.value = ''
             if (!file) return
             try {
-              importSetup.mutate(JSON.parse(await file.text()))
+              importSetup.mutate(toSetup(JSON.parse(await file.text())))
             } catch {
               importSetup.reset()
               setImportError('That file is not valid JSON.')

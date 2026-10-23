@@ -90,7 +90,7 @@ function useNames(t: Tournament | undefined) {
 
 function UpNext({ t, name }: { t: Tournament; name: (s: Slot) => string }) {
   const label = t.bracket ? roundNamer(t.bracket) : () => ''
-  const next = bySchedule((t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready')).slice(0, 4)
+  const next = bySchedule((t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready')).slice(0, 3)
   return (
     <section aria-label="Up next" className="flex flex-col gap-3">
       <h2 className="text-sm font-medium uppercase tracking-wider text-muted">Up next</h2>
@@ -211,7 +211,7 @@ export function StagePage() {
   const knockout = t.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null
 
   return (
-    <div className="flex min-h-screen flex-col gap-6 p-6 lg:p-10" {...accentProps(t.accent)}>
+    <div className="flex min-h-screen flex-col gap-6 p-6 lg:p-10 xl:h-screen xl:overflow-hidden" {...accentProps(t.accent)}>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <h1 className="truncate text-4xl font-semibold leading-none tracking-[-0.03em] lg:text-5xl">{t.name}</h1>
@@ -255,8 +255,8 @@ export function StagePage() {
       {t.bracket === null ? (
         <div className="flex flex-1 items-center justify-center text-2xl text-muted">The bracket appears here once the tournament starts.</div>
       ) : (
-        <div className="grid flex-1 gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <main className="min-w-0 overflow-auto">
+        <div className="grid min-h-0 flex-1 gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <main className="min-h-0 min-w-0 overflow-auto">
             {champion ? (
               <Champion t={t} name={champion} />
             ) : (
@@ -281,11 +281,11 @@ export function StagePage() {
               </div>
             )}
           </main>
-          <aside className="flex flex-col gap-8">
+          <aside className="flex min-h-0 flex-col gap-6 xl:overflow-hidden">
             {!champion && <UpNext t={t} name={name} />}
             <section aria-label="Latest" className="flex flex-col gap-3">
               <h2 className="text-sm font-medium uppercase tracking-wider text-muted">Latest</h2>
-              <ActivityFeed tournament={t} teamName={name} limit={6} large />
+              <ActivityFeed tournament={t} teamName={name} limit={4} large />
             </section>
           </aside>
         </div>

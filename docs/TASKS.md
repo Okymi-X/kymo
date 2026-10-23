@@ -57,6 +57,8 @@
 
 - [x] Duplicate tournament, import setup file, undo newest result, page titles, skip link
 
+- [x] Codex QA round 2 fixes: strict import fields, activity search; stage screen fits one screen. Double elimination keeps a 3 team minimum on purpose (two teams is a single final)
+
 ## Todo
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
