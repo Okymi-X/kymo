@@ -1,6 +1,7 @@
 mod assets;
 pub mod auth;
 pub mod db;
+pub mod demo;
 pub mod error;
 pub mod events;
 pub mod routes;

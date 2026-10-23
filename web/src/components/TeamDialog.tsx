@@ -1,3 +1,4 @@
+import { Star } from 'lucide-react'
 import type { Slot, Tournament } from '../api/types'
 import { roundNamer } from '../lib/labels'
 import { computeTeamRows, teamHistory } from '../lib/stats'
@@ -11,6 +12,8 @@ interface Props {
   teamId: number
   teamName: (slot: Slot) => string
   onClose: () => void
+  followed?: boolean
+  onToggleFollow?: () => void
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -25,7 +28,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
 const resultLabel = { win: 'Won', loss: 'Lost', draw: 'Drew', next: 'Up next', waiting: 'Waiting' } as const
 const resultStyle = { win: 'text-win', loss: 'text-danger', draw: 'text-muted', next: 'text-accent', waiting: 'text-muted' } as const
 
-export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
+export function TeamDialog({ tournament, teamId, teamName, onClose, followed = false, onToggleFollow }: Props) {
   const row = computeTeamRows(tournament).find((r) => r.team.id === teamId)
   if (!row) return null
   const history = teamHistory(tournament, teamId)
@@ -70,7 +73,15 @@ export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
             </ol>
           )}
         </div>
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-2">
+          {onToggleFollow ? (
+            <Button onClick={onToggleFollow} aria-pressed={followed}>
+              <Star size={16} aria-hidden="true" className={followed ? 'fill-current text-accent' : ''} />
+              {followed ? 'Following' : 'Follow this team'}
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button variant="primary" onClick={onClose}>
             Close
           </Button>

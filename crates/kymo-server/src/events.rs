@@ -23,6 +23,7 @@ pub struct Event {
 async fn insert(
     pool: &SqlitePool,
     tournament_id: i64,
+    at: i64,
     kind: &str,
     match_id: Option<usize>,
     data: Value,
@@ -31,7 +32,7 @@ async fn insert(
         "INSERT INTO event (tournament_id, at, kind, match_id, data) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(tournament_id)
-    .bind(now())
+    .bind(at)
     .bind(kind)
     .bind(match_id.map(|m| m as i64))
     .bind(data.to_string())
@@ -46,7 +47,7 @@ pub async fn record_tournament(
     kind: &str,
     data: Value,
 ) -> Result<(), ApiError> {
-    insert(pool, tournament_id, kind, None, data).await
+    insert(pool, tournament_id, now(), kind, None, data).await
 }
 
 /// Records a change to one match using its state after the change.
@@ -56,6 +57,18 @@ pub async fn record_match(
     kind: &str,
     bracket: &Bracket,
     match_id: usize,
+) -> Result<(), ApiError> {
+    record_match_at(pool, tournament_id, kind, bracket, match_id, now()).await
+}
+
+/// Same as `record_match` with an explicit time, used to lay out demo data over a few hours.
+pub async fn record_match_at(
+    pool: &SqlitePool,
+    tournament_id: i64,
+    kind: &str,
+    bracket: &Bracket,
+    match_id: usize,
+    at: i64,
 ) -> Result<(), ApiError> {
     let Some(m) = bracket.matches.get(match_id) else {
         return Ok(());
@@ -72,7 +85,17 @@ pub async fn record_match(
         "winner": m.winner.map(|s| if s == Side::A { "A" } else { "B" }),
         "forfeit": m.forfeit,
     });
-    insert(pool, tournament_id, kind, Some(match_id), data).await
+    insert(pool, tournament_id, at, kind, Some(match_id), data).await
+}
+
+pub async fn record_tournament_at(
+    pool: &SqlitePool,
+    tournament_id: i64,
+    kind: &str,
+    data: Value,
+    at: i64,
+) -> Result<(), ApiError> {
+    insert(pool, tournament_id, at, kind, None, data).await
 }
 
 /// Newest first.

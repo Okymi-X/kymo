@@ -21,6 +21,7 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), String> {
+    let seed_only = env::args().nth(1).as_deref() == Some("seed-demo");
     let password =
         env::var("KYMO_ADMIN_PASSWORD").map_err(|_| "KYMO_ADMIN_PASSWORD is required")?;
     if password.chars().count() < MIN_PASSWORD {
@@ -34,6 +35,13 @@ async fn run() -> Result<(), String> {
     let pool = db::connect(&db_url)
         .await
         .map_err(|e| format!("database: {e}"))?;
+    if seed_only {
+        let added = kymo_server::demo::seed(&pool)
+            .await
+            .map_err(|_| "could not add demo data".to_owned())?;
+        tracing::info!("added {added} demo tournaments");
+        return Ok(());
+    }
     let state = AppState::new(pool, &password).map_err(|e| format!("password hashing: {e}"))?;
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

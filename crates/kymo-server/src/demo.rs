@@ -1,0 +1,252 @@
+use kymo_engine::{Bracket, Format, Options, Side, Slot, Stage, TeamId, generate_with};
+use serde_json::json;
+use sqlx::SqlitePool;
+
+use crate::db::{self, NewTeam, NewTournament, Status};
+use crate::error::ApiError;
+use crate::events;
+use crate::tokens::now;
+
+const NAMES: [&str; 32] = [
+    "Null Pointers",
+    "Stack Smashers",
+    "Zero Day Club",
+    "Root Shell",
+    "Heap Spray",
+    "Format String",
+    "Ret2libc",
+    "Sudo Su",
+    "Packet Pirates",
+    "Byte Bandits",
+    "Cipher Punks",
+    "Kernel Panic",
+    "Bit Flippers",
+    "Rop Chain",
+    "Race Condition",
+    "Fuzz Lords",
+    "Buffer Overlords",
+    "Shellcode Sages",
+    "Syscall Squad",
+    "Pwn Stars",
+    "Hash Collision",
+    "Salt and Pepper",
+    "Rainbow Tables",
+    "Dead Drop",
+    "Open Redirect",
+    "Blind Sqli",
+    "Type Juggling",
+    "Use After Free",
+    "Off By One",
+    "Magic Bytes",
+    "Stego Saurus",
+    "Reverse Engineers",
+];
+
+struct Plan {
+    name: &'static str,
+    format: Format,
+    teams: usize,
+    third_place: bool,
+    groups: u8,
+    advance: u8,
+    /// How many matches to play: `None` plays everything, `Some(0)` leaves the roster only.
+    play: Option<usize>,
+    started: bool,
+    story: bool,
+}
+
+const PLANS: [Plan; 6] = [
+    Plan {
+        name: "Spring Cup 2026",
+        format: Format::DoubleElimination,
+        teams: 8,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        play: Some(7),
+        started: true,
+        story: false,
+    },
+    Plan {
+        name: "Winter Finals",
+        format: Format::SingleElimination,
+        teams: 8,
+        third_place: true,
+        groups: 2,
+        advance: 2,
+        play: None,
+        started: true,
+        story: false,
+    },
+    Plan {
+        name: "Summer Qualifier",
+        format: Format::RoundRobin,
+        teams: 6,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        play: Some(11),
+        started: true,
+        story: false,
+    },
+    Plan {
+        name: "Worlds 2026",
+        format: Format::GroupKnockout,
+        teams: 12,
+        third_place: false,
+        groups: 3,
+        advance: 2,
+        play: Some(20),
+        started: true,
+        story: false,
+    },
+    Plan {
+        name: "Autumn Open",
+        format: Format::SingleElimination,
+        teams: 16,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        play: Some(0),
+        started: false,
+        story: false,
+    },
+    Plan {
+        name: "Night Owls Invitational",
+        format: Format::SingleElimination,
+        teams: 5,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        play: Some(2),
+        started: true,
+        story: true,
+    },
+];
+
+fn slugify(name: &str) -> String {
+    name.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Stronger (lower numbered) team wins; every fifth league match is a draw and scores vary a little.
+fn demo_score(bracket: &Bracket, id: usize) -> (u32, u32) {
+    let [Slot::Team(a), Slot::Team(b)] = bracket.matches[id].slots else {
+        return (1, 0);
+    };
+    let margin = 1 + (id as u32 * 7 + a + b) % 3;
+    if bracket.matches[id].stage == Stage::League && id % 5 == 4 {
+        let goals = id as u32 % 3;
+        return (goals, goals);
+    }
+    if a < b {
+        (margin + 1, margin - 1)
+    } else {
+        (margin - 1, margin + 1)
+    }
+}
+
+fn next_ready(bracket: &Bracket) -> Option<usize> {
+    bracket
+        .matches
+        .iter()
+        .find(|m| m.is_ready() && !m.is_played())
+        .map(|m| m.id)
+}
+
+async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
+    let slug = slugify(plan.name);
+    if db::get_by_slug(pool, &slug).await.is_ok() {
+        return Ok(());
+    }
+    let id = db::create(
+        pool,
+        NewTournament {
+            name: plan.name,
+            slug: &slug,
+            format: plan.format,
+            third_place: plan.third_place,
+            groups: plan.groups,
+            advance: plan.advance,
+        },
+    )
+    .await?;
+    let roster: Vec<NewTeam> = NAMES
+        .iter()
+        .take(plan.teams)
+        .enumerate()
+        .map(|(i, name)| NewTeam {
+            name: (*name).to_owned(),
+            score: 1000 - 55 * i as i64,
+        })
+        .collect();
+    db::replace_teams(pool, id, &roster).await?;
+    if !plan.started {
+        return Ok(());
+    }
+    let ids: Vec<TeamId> = db::get(pool, id)
+        .await?
+        .teams
+        .iter()
+        .map(|t| t.id as TeamId)
+        .collect();
+    let options = Options {
+        third_place: plan.third_place,
+        groups: plan.groups,
+        advance: plan.advance,
+    };
+    let mut bracket = generate_with(&ids, plan.format, options)?;
+
+    let hours_ago = 5 * 3600;
+    let mut at = now() - hours_ago;
+    events::record_tournament_at(
+        pool,
+        id,
+        "started",
+        json!({ "teams": ids.len(), "format": plan.format }),
+        at,
+    )
+    .await?;
+    let limit = plan.play.unwrap_or(usize::MAX);
+    for played in 0..limit {
+        let Some(match_id) = next_ready(&bracket) else {
+            break;
+        };
+        let (a, b) = demo_score(&bracket, match_id);
+        bracket.set_result(match_id, a, b)?;
+        at += 240;
+        events::record_match_at(pool, id, "result", &bracket, match_id, at).await?;
+        if plan.story && played == 0 {
+            // A correction and a forfeit make the activity log worth reading.
+            bracket.set_result(match_id, b, a + 1)?;
+            at += 90;
+            events::record_match_at(pool, id, "corrected", &bracket, match_id, at).await?;
+        }
+    }
+    if let (true, Some(match_id)) = (plan.story, next_ready(&bracket)) {
+        bracket.set_forfeit(match_id, Side::B)?;
+        at += 300;
+        events::record_match_at(pool, id, "forfeit", &bracket, match_id, at).await?;
+    }
+    let status = if bracket.champion().is_some() {
+        Status::Done
+    } else {
+        Status::Live
+    };
+    db::save_bracket(pool, id, Some(&bracket), status).await
+}
+
+/// Creates the sample tournaments that do not exist yet and returns how many were added.
+pub async fn seed(pool: &SqlitePool) -> Result<usize, ApiError> {
+    let mut added = 0;
+    for plan in &PLANS {
+        if db::get_by_slug(pool, &slugify(plan.name)).await.is_err() {
+            create_one(pool, plan).await?;
+            added += 1;
+        }
+    }
+    Ok(added)
+}

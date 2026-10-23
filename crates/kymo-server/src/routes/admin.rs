@@ -406,3 +406,13 @@ pub async fn reset_appearance(
     settings::reset(&state.pool).await?;
     Ok(Json(Appearance::default()))
 }
+
+/// Adds the sample tournaments that are missing. Safe to call repeatedly.
+pub async fn load_demo(
+    _: Admin,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _guard = state.write_lock.lock().await;
+    let added = crate::demo::seed(&state.pool).await?;
+    Ok(Json(serde_json::json!({ "added": added })))
+}

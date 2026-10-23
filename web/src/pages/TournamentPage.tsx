@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
@@ -8,6 +8,8 @@ import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { GroupsView } from '../components/GroupsView'
+import { ActivityFeed } from '../components/ActivityFeed'
+import { usePublishHeader } from '../components/HeaderContext'
 import { MatchList } from '../components/MatchList'
 import { ScheduleBoard } from '../components/ScheduleBoard'
 import { RosterEditor } from '../components/RosterEditor'
@@ -17,8 +19,10 @@ import { Tabs, type TabItem } from '../components/Tabs'
 import { TeamDialog } from '../components/TeamDialog'
 import { TeamsGrid } from '../components/TeamsGrid'
 import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
-import { formatLabel } from '../lib/labels'
-import { computeTeamRows } from '../lib/stats'
+import { formatLabel, roundNamer } from '../lib/labels'
+import { useFollowedTeam } from '../lib/follow'
+import { computeTeamRows, teamHistory } from '../lib/stats'
+import { X } from 'lucide-react'
 
 function useTeamName(t: Tournament | undefined) {
   return useMemo(() => {
@@ -40,6 +44,36 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
 }
 
 type Pending = 'reset' | 'delete' | null
+
+function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; teamId: number; teamName: (s: Slot) => string; onOpen: () => void; onStop: () => void }) {
+  const row = computeTeamRows(t).find((r) => r.team.id === teamId)
+  if (!row) return null
+  const label = t.bracket ? roundNamer(t.bracket) : () => ''
+  const next = teamHistory(t, teamId).find((h) => h.result === 'next' || h.result === 'waiting')
+  const opponent = next?.opponent == null ? 'an opponent to be decided' : teamName({ kind: 'team', team: next.opponent })
+  const message =
+    row.status === 'champion'
+      ? 'Champion'
+      : row.status === 'out'
+        ? 'Eliminated'
+        : next
+          ? `${next.result === 'next' ? 'Up next' : 'Next'}: ${label(next.match)}, versus ${opponent}`
+          : t.bracket
+            ? 'No match left'
+            : 'Waiting for the start'
+  return (
+    <div className="flex items-center gap-3 rounded-card border border-accent/40 bg-accent/5 px-4 py-3" role="status">
+      <Avatar name={row.team.name} size={32} />
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+        <span className="block truncate font-medium">Following {row.team.name}</span>
+        <span className="block truncate text-sm text-muted">{message}</span>
+      </button>
+      <button type="button" onClick={onStop} aria-label={`Stop following ${row.team.name}`} className="rounded-control p-2 text-muted hover:text-ink">
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
 
 function AdminActions({ t }: { t: Tournament }) {
   const client = useQueryClient()
@@ -92,13 +126,14 @@ function AdminActions({ t }: { t: Tournament }) {
   )
 }
 
-type View = 'bracket' | 'schedule' | 'standings' | 'groups' | 'matches' | 'teams'
+type View = 'bracket' | 'schedule' | 'standings' | 'groups' | 'matches' | 'teams' | 'activity'
 
 const KNOCKOUT_VIEWS: TabItem<View>[] = [
   { id: 'bracket', label: 'Bracket' },
   { id: 'standings', label: 'Standings' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
+  { id: 'activity', label: 'Activity' },
 ]
 
 const GROUP_VIEWS: TabItem<View>[] = [
@@ -106,6 +141,7 @@ const GROUP_VIEWS: TabItem<View>[] = [
   { id: 'bracket', label: 'Knockout' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
+  { id: 'activity', label: 'Activity' },
 ]
 
 const LEAGUE_VIEWS: TabItem<View>[] = [
@@ -113,6 +149,7 @@ const LEAGUE_VIEWS: TabItem<View>[] = [
   { id: 'schedule', label: 'Schedule' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
+  { id: 'activity', label: 'Activity' },
 ]
 
 export function TournamentPage() {
@@ -130,7 +167,19 @@ export function TournamentPage() {
   const requested = params.get('view')
   const view: View = views.find((v) => v.id === requested)?.id ?? fallback
   const knockout = useMemo(() => (t?.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null), [t?.bracket])
+  const [followed, follow] = useFollowedTeam(slug)
+  const titleRef = useRef<HTMLDivElement>(null)
+  const [titleHidden, setTitleHidden] = useState(false)
   useLiveUpdates(slug)
+
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(([entry]) => setTitleHidden(!entry.isIntersecting), { rootMargin: '-56px 0px 0px 0px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [t?.id])
+  usePublishHeader(t && titleHidden ? { title: t.name, status: t.status, progress: t.progress } : null)
 
   if (isPending) return <p className="text-muted">Loading</p>
   if (error || !t) return <ErrorText error={error ?? new Error('Tournament not found')} />
@@ -138,7 +187,7 @@ export function TournamentPage() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div ref={titleRef}>
           <PageTitle>{t.name}</PageTitle>
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
             <span>
@@ -156,14 +205,20 @@ export function TournamentPage() {
         {admin && <AdminActions t={t} />}
       </div>
       <Champion t={t} teamName={teamName} />
+      {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}
       {t.bracket ? (
         <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
-          {view === 'bracket' && knockout && <BracketView bracket={knockout} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'bracket' && knockout && <BracketView bracket={knockout} teamName={teamName} onEdit={admin ? setEditing : undefined} pinned={followed} />}
           {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={admin ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
           {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
+          {view === 'activity' && (
+            <div className="max-w-2xl">
+              <ActivityFeed tournament={t} teamName={teamName} />
+            </div>
+          )}
         </Tabs>
       ) : admin ? (
         <RosterEditor key={`${t.id}-draft`} tournament={t} />
@@ -173,7 +228,16 @@ export function TournamentPage() {
           <p className="mt-1 text-muted">It appears here once the organizer starts the tournament.</p>
         </div>
       )}
-      {teamId !== null && <TeamDialog tournament={t} teamId={teamId} teamName={teamName} onClose={() => setTeamId(null)} />}
+      {teamId !== null && (
+        <TeamDialog
+          tournament={t}
+          teamId={teamId}
+          teamName={teamName}
+          onClose={() => setTeamId(null)}
+          followed={followed === teamId}
+          onToggleFollow={() => follow(followed === teamId ? null : teamId)}
+        />
+      )}
       {editing && (
         <ScoreDialog
           key={editing.id}

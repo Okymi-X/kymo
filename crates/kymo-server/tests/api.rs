@@ -1043,3 +1043,50 @@ async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
     );
     assert!(!html.contains("<script>x</script>"));
 }
+
+#[tokio::test]
+async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
+    let app = app().await;
+    let token = login(&app).await;
+    let (status, _) = call(&app, "POST", "/api/v1/admin/demo", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(first["added"], 6);
+    let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
+    assert_eq!(again["added"], 0);
+
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), 6);
+    let formats: std::collections::HashSet<_> =
+        list.iter().map(|t| t["format"].as_str().unwrap()).collect();
+    assert_eq!(formats.len(), 4);
+    let statuses: std::collections::HashSet<_> =
+        list.iter().map(|t| t["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, ["draft", "live", "done"].into_iter().collect());
+
+    let (_, winter) = call(&app, "GET", "/api/v1/tournaments/winter-finals", None, None).await;
+    assert!(winter["champion"].is_number());
+    let (_, owls) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/night-owls-invitational/activity",
+        None,
+        None,
+    )
+    .await;
+    let kinds: Vec<_> = owls
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert!(
+        kinds.contains(&"corrected") && kinds.contains(&"forfeit"),
+        "{kinds:?}"
+    );
+    let (_, worlds) = call(&app, "GET", "/api/v1/tournaments/worlds-2026", None, None).await;
+    assert!(worlds["progress"]["played"].as_u64().unwrap() >= 18);
+}

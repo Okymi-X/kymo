@@ -32,15 +32,15 @@ createRoot(document.getElementById('root')!).render(
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
           <ThemeLoader />
-          <Shell>
-            <Routes>
+          <Routes>
+            <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />
-            </Routes>
-          </Shell>
+            </Route>
+          </Routes>
         </BrowserRouter>
       </MotionConfig>
     </QueryClientProvider>

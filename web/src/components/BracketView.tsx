@@ -8,6 +8,10 @@ import { MatchCard } from './MatchCard'
 
 interface Props {
   bracket: Bracket
+  /** A team to keep highlighted, for example the one a visitor follows. */
+  pinned?: number | null
+  /** Stay inside the page column instead of using the full window width. */
+  contained?: boolean
   teamName: (slot: Slot) => string
   onEdit?: (match: Match) => void
 }
@@ -69,7 +73,7 @@ function Canvas({
   )
 }
 
-export function BracketView({ bracket, teamName, onEdit }: Props) {
+export function BracketView({ bracket, teamName, onEdit, pinned = null, contained = false }: Props) {
   const [manual, setManual] = useState<number | null>(null)
   const [available, setAvailable] = useState(0)
   const [column, setColumn] = useState(0)
@@ -95,7 +99,7 @@ export function BracketView({ bracket, teamName, onEdit }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  const wide = column > 0 && layout.width > column
+  const wide = !contained && column > 0 && layout.width > column
   const fit = available > 0 && layout.width > available ? Math.max(MIN_FIT, Math.floor((available / layout.width) * 100) / 100) : 1
   const zoom = manual ?? fit
 
@@ -125,7 +129,7 @@ export function BracketView({ bracket, teamName, onEdit }: Props) {
       </div>
       <div ref={columnRef} aria-hidden="true" className="h-0" />
       <div ref={hostRef} className={wide ? 'relative left-1/2 w-[min(calc(100vw-3rem),1680px)] -translate-x-1/2' : ''}>
-        <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} highlight={hovered} onHoverTeam={setHovered} />
+        <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} highlight={hovered ?? pinned} onHoverTeam={setHovered} />
       </div>
     </div>
   )

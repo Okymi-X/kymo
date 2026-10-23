@@ -24,6 +24,7 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments/{slug}/events", get(public::events))
         .route("/tournaments/{slug}/activity", get(public::activity))
         .route("/settings", get(public::appearance))
+        .route("/admin/demo", post(admin::load_demo))
         .route(
             "/admin/settings",
             put(admin::save_appearance).delete(admin::reset_appearance),
