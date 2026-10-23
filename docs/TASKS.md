@@ -1,7 +1,7 @@
 # Tasks
 
 ## Done
-- [x] Web embedded in the server binary (rust-embed), security headers, Dockerfile and compose (image build not run, docker unavailable check below)
+- [x] Web embedded in the server binary (rust-embed), security headers, Dockerfile and compose (image builds and serves UI and API)
 - [x] Web: tokens, shell, home, login, live bracket view (SSE), score dialog, drag and drop roster, start/reset/delete. Builds clean, bracket rendering checked in a browser screenshot
 - [x] Server: SQLite, tournament/team/match endpoints, admin session auth, SSE (3 integration tests)
 - [x] Docs initialized
