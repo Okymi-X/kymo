@@ -26,7 +26,12 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginOut>, ApiError> {
-    if !state.verify_password(body.password).await {
+    if state.login_blocked() {
+        return Err(ApiError::TooManyRequests);
+    }
+    let ok = state.verify_password(body.password).await;
+    state.record_login(ok);
+    if !ok {
         return Err(ApiError::Unauthorized);
     }
     Ok(Json(LoginOut {

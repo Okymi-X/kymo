@@ -6,3 +6,4 @@
 - Server: env KYMO_ADMIN_PASSWORD (min 12 chars, required), KYMO_DATABASE_URL, KYMO_ADDR. Sessions are in memory (restart logs out). Login has no rate limit yet. sqlx used without compile time macros so no DATABASE_URL is needed to build.
 - Dev: port 8080 is taken on this host, run the server with KYMO_ADDR=127.0.0.1:8787 and the web dev server with KYMO_API=http://127.0.0.1:8787 pnpm dev. Do not use pkill -f with the binary path inside the same command line, it kills the shell.
 - Web uses window.confirm for reset and delete; replace with a dialog component.
+- Login throttle is one shared budget, not per IP: an attacker can lock the organizer out for a minute. Revisit with per IP limits once a trusted proxy header is configured.

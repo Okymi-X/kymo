@@ -201,3 +201,28 @@ async fn duplicate_tournament_names_conflict_and_unknown_slug_is_404() {
     let (status, _) = call(&app, "GET", "/api/v1/tournaments/nope", None, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn repeated_bad_passwords_are_throttled() {
+    let app = app().await;
+    for _ in 0..5 {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/auth/login",
+            None,
+            Some(json!({ "password": "nope" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(json!({ "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}

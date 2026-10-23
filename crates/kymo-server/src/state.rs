@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -8,6 +8,8 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
+const FAILURE_WINDOW: Duration = Duration::from_secs(60);
+const MAX_FAILURES: usize = 5;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,6 +19,7 @@ pub struct AppState {
     pub write_lock: Arc<tokio::sync::Mutex<()>>,
     admin_hash: Arc<String>,
     sessions: Arc<Mutex<HashMap<String, Instant>>>,
+    failures: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl AppState {
@@ -32,6 +35,7 @@ impl AppState {
             write_lock: Arc::default(),
             admin_hash: Arc::new(hash.to_string()),
             sessions: Arc::default(),
+            failures: Arc::default(),
         })
     }
 
@@ -49,6 +53,28 @@ impl AppState {
         })
         .await
         .unwrap_or(false)
+    }
+
+    /// True while too many recent sign in attempts have failed. One shared budget keeps
+    /// the check independent of proxy headers, at the cost of a brief organizer lockout.
+    pub fn login_blocked(&self) -> bool {
+        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        while failures
+            .front()
+            .is_some_and(|at| at.elapsed() > FAILURE_WINDOW)
+        {
+            failures.pop_front();
+        }
+        failures.len() >= MAX_FAILURES
+    }
+
+    pub fn record_login(&self, success: bool) {
+        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        if success {
+            failures.clear();
+        } else {
+            failures.push_back(Instant::now());
+        }
     }
 
     pub fn open_session(&self) -> String {

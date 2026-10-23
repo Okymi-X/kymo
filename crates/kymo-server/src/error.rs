@@ -10,6 +10,7 @@ pub enum ApiError {
     Unauthorized,
     NotFound,
     Conflict(String),
+    TooManyRequests,
     Internal,
 }
 
@@ -20,6 +21,10 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "authentication required".into()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m),
+            ApiError::TooManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many failed sign ins, try again in a minute".into(),
+            ),
             ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
         };
         (status, Json(json!({ "error": message }))).into_response()
