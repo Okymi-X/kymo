@@ -6,6 +6,11 @@ export type Seeding = 'manual' | 'random'
 
 export type Slot = { kind: 'empty' } | { kind: 'bye' } | { kind: 'team'; team: number }
 
+export interface Dest {
+  id: number
+  side: Side
+}
+
 export interface Match {
   id: number
   stage: Stage
@@ -14,6 +19,7 @@ export interface Match {
   slots: [Slot, Slot]
   score: [number, number] | null
   winner: Side | null
+  next_win: Dest | null
 }
 
 export interface Bracket {
