@@ -228,7 +228,7 @@ fn champion_ignores_the_third_place_match() {
     let third = b.matches.last().unwrap();
     assert_eq!(
         third.winner.map(|s| third.slots[s.index()]),
-        Some(Slot::Team(2))
+        Some(Slot::Team(3))
     );
 }
 
