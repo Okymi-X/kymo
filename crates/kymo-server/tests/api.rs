@@ -725,3 +725,99 @@ async fn unknown_slugs_and_files_return_404_and_logout_ends_the_session() {
     let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&token), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn round_robin_plays_with_draws_to_a_champion_and_caps_the_roster() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "League", "format": "round_robin", "third_place": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(made["third_place"], false);
+
+    let too_many: Vec<_> = (0..33).map(|n| json!({"name": format!("t{n}")})).collect();
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": too_many})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let teams: Vec<_> = (1..=4)
+        .map(|n| json!({"name": format!("team {n}")}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": teams})),
+    )
+    .await;
+    let (_, started) = call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    assert_eq!(started["bracket"]["matches"].as_array().unwrap().len(), 6);
+
+    let uri = |m: usize| format!("/api/v1/admin/tournaments/1/matches/{m}/result");
+    let (status, _) = call(
+        &app,
+        "PUT",
+        &uri(0),
+        t,
+        Some(json!({"score_a": 1, "score_b": 1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for m in 1..6 {
+        call(
+            &app,
+            "PUT",
+            &uri(m),
+            t,
+            Some(json!({"score_a": 2, "score_b": 0})),
+        )
+        .await;
+    }
+    let (_, done) = call(&app, "GET", "/api/v1/tournaments/league", None, None).await;
+    assert_eq!(done["status"], "done");
+    assert!(done["champion"].is_number());
+    assert_eq!(done["progress"], json!({"played": 6, "total": 6}));
+
+    // Knockout formats still reject a draw.
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Knock", "format": "single_elimination"})),
+    )
+    .await;
+    let four: Vec<_> = (1..=4).map(|n| json!({"name": format!("k{n}")})).collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/2/teams",
+        t,
+        Some(json!({"teams": four})),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/2/start", t, None).await;
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/2/matches/0/result",
+        t,
+        Some(json!({"score_a": 1, "score_b": 1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

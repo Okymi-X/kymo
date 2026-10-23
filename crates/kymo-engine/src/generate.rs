@@ -4,6 +4,8 @@ use crate::error::EngineError;
 use crate::model::{Bracket, Dest, Format, Match, MatchId, Side, Slot, Stage, TeamId};
 
 pub const MAX_TEAMS: usize = 256;
+/// Every pair plays, so the match count grows with the square of the team count.
+pub const MAX_ROUND_ROBIN_TEAMS: usize = 32;
 const MIN_THIRD_PLACE: usize = 4;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,6 +29,9 @@ pub fn generate_with(
         return Err(EngineError::TooFewTeams {
             min: MIN_THIRD_PLACE,
         });
+    }
+    if format == Format::RoundRobin {
+        return Ok(round_robin(teams));
     }
     let size = teams.len().next_power_of_two();
     let rounds = size.trailing_zeros() as usize;
@@ -56,13 +61,18 @@ pub fn generate_with(
 fn validate(teams: &[TeamId], format: Format) -> Result<(), EngineError> {
     let min = match format {
         Format::SingleElimination => 2,
-        Format::DoubleElimination => 3,
+        Format::DoubleElimination | Format::RoundRobin => 3,
     };
     if teams.len() < min {
         return Err(EngineError::TooFewTeams { min });
     }
-    if teams.len() > MAX_TEAMS {
-        return Err(EngineError::TooManyTeams { max: MAX_TEAMS });
+    let max = if format == Format::RoundRobin {
+        MAX_ROUND_ROBIN_TEAMS
+    } else {
+        MAX_TEAMS
+    };
+    if teams.len() > max {
+        return Err(EngineError::TooManyTeams { max });
     }
     let mut seen = HashSet::new();
     match teams.iter().find(|t| !seen.insert(**t)) {
@@ -205,5 +215,42 @@ fn add_third_place(matches: &mut Vec<Match>, winners: &[Vec<MatchId>], rounds: u
             id: third,
             side: side_of(i),
         });
+    }
+}
+
+/// Circle method: one team stays put and the rest rotate, so every pair meets exactly once.
+/// With an odd number of teams one team rests each round and no match is created for it.
+fn round_robin(teams: &[TeamId]) -> Bracket {
+    let mut ring: Vec<Option<TeamId>> = teams.iter().copied().map(Some).collect();
+    if ring.len() % 2 == 1 {
+        ring.push(None);
+    }
+    let n = ring.len();
+    let mut matches = Vec::new();
+    for round in 1..n {
+        let mut position = 0;
+        for i in 0..n / 2 {
+            if let (Some(a), Some(b)) = (ring[i], ring[n - 1 - i]) {
+                let id = matches.len();
+                matches.push(Match {
+                    id,
+                    stage: Stage::League,
+                    round: round as u32,
+                    position,
+                    slots: [Slot::Team(a), Slot::Team(b)],
+                    score: None,
+                    winner: None,
+                    forfeit: false,
+                    next_win: None,
+                    next_lose: None,
+                });
+                position += 1;
+            }
+        }
+        ring[1..].rotate_right(1);
+    }
+    Bracket {
+        format: Format::RoundRobin,
+        matches,
     }
 }

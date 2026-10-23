@@ -20,12 +20,16 @@ impl Bracket {
         if !m.is_ready() {
             return Err(EngineError::NotReady(id));
         }
-        if a == b {
+        if a == b && m.stage != Stage::League {
             return Err(EngineError::Tie);
         }
         m.score = Some([a, b]);
         m.forfeit = false;
-        m.winner = Some(if a > b { Side::A } else { Side::B });
+        m.winner = match a.cmp(&b) {
+            std::cmp::Ordering::Greater => Some(Side::A),
+            std::cmp::Ordering::Less => Some(Side::B),
+            std::cmp::Ordering::Equal => None,
+        };
         next.settle(id)?;
         *self = next;
         Ok(())

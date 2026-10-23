@@ -161,10 +161,14 @@ pub async fn set_teams(
             "teams can only change before the tournament starts".into(),
         ));
     }
-    if body.teams.len() > kymo_engine::MAX_TEAMS {
+    let max_teams = if t.format == Format::RoundRobin {
+        kymo_engine::MAX_ROUND_ROBIN_TEAMS
+    } else {
+        kymo_engine::MAX_TEAMS
+    };
+    if body.teams.len() > max_teams {
         return Err(ApiError::BadRequest(format!(
-            "at most {} teams",
-            kymo_engine::MAX_TEAMS
+            "at most {max_teams} teams for this format"
         )));
     }
     let teams = body

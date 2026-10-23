@@ -8,6 +8,7 @@ pub type MatchId = usize;
 pub enum Format {
     SingleElimination,
     DoubleElimination,
+    RoundRobin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +19,7 @@ pub enum Stage {
     GrandFinal,
     GrandReset,
     ThirdPlace,
+    League,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,7 +91,80 @@ pub struct Bracket {
     pub matches: Vec<Match>,
 }
 
+/// One team's line in a round robin table. A win is worth 3 points, a draw 1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Standing {
+    pub team: TeamId,
+    pub played: u32,
+    pub wins: u32,
+    pub draws: u32,
+    pub losses: u32,
+    pub points_for: u32,
+    pub points_against: u32,
+    pub points: u32,
+}
+
+fn row_index(table: &mut Vec<Standing>, team: TeamId) -> usize {
+    if let Some(i) = table.iter().position(|s| s.team == team) {
+        return i;
+    }
+    table.push(Standing {
+        team,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        points_for: 0,
+        points_against: 0,
+        points: 0,
+    });
+    table.len() - 1
+}
+
 impl Bracket {
+    /// Round robin table, best first: points, then goal difference, then goals scored, then
+    /// the lower team id (teams are numbered in seed order).
+    pub fn standings(&self) -> Vec<Standing> {
+        let mut table: Vec<Standing> = Vec::new();
+        for m in self.matches.iter().filter(|m| m.stage == Stage::League) {
+            let [Slot::Team(a), Slot::Team(b)] = m.slots else {
+                continue;
+            };
+            let (ia, ib) = (row_index(&mut table, a), row_index(&mut table, b));
+            if !m.is_played() {
+                continue;
+            }
+            let [sa, sb] = m.score.unwrap_or([0, 0]);
+            for (index, own, other) in [(ia, sa, sb), (ib, sb, sa)] {
+                let side = if index == ia { Side::A } else { Side::B };
+                let row = &mut table[index];
+                row.played += 1;
+                row.points_for += own;
+                row.points_against += other;
+                match m.winner {
+                    Some(w) if w == side => {
+                        row.wins += 1;
+                        row.points += 3;
+                    }
+                    Some(_) => row.losses += 1,
+                    None => {
+                        row.draws += 1;
+                        row.points += 1;
+                    }
+                }
+            }
+        }
+        table.sort_by_key(|s| {
+            (
+                std::cmp::Reverse(s.points),
+                std::cmp::Reverse(i64::from(s.points_for) - i64::from(s.points_against)),
+                std::cmp::Reverse(s.points_for),
+                s.team,
+            )
+        });
+        table
+    }
+
     /// (played, total) over matches people actually play: byes and a void reset are skipped.
     pub fn progress(&self) -> (usize, usize) {
         let real = self
@@ -103,10 +178,17 @@ impl Bracket {
 
     pub fn champion(&self) -> Option<TeamId> {
         let slot_of = |m: &Match| m.winner.map(|s| m.slots[s.index()]);
+        if self.format == Format::RoundRobin {
+            let all_played = !self.matches.is_empty() && self.matches.iter().all(Match::is_played);
+            return all_played
+                .then(|| self.standings().first().map(|s| s.team))
+                .flatten();
+        }
         let winner = match self.format {
             Format::SingleElimination => {
                 slot_of(self.matches.iter().rfind(|m| m.stage == Stage::Winners)?)
             }
+            Format::RoundRobin => None,
             Format::DoubleElimination => {
                 let n = self.matches.len();
                 let (grand, reset) = (&self.matches[n - 2], &self.matches[n - 1]);

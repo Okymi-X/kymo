@@ -285,3 +285,103 @@ fn progress_ignores_a_void_grand_final_reset() {
     let (played, total) = b.progress();
     assert_eq!(played, total);
 }
+
+fn robin(n: u32) -> Bracket {
+    generate(&teams(n), Format::RoundRobin).unwrap()
+}
+
+#[test]
+fn round_robin_schedules_every_pair_exactly_once() {
+    for n in 3..=12u32 {
+        let b = robin(n);
+        assert_eq!(b.matches.len() as u32, n * (n - 1) / 2, "n={n}");
+        let mut pairs = std::collections::HashSet::new();
+        for m in &b.matches {
+            let [Slot::Team(x), Slot::Team(y)] = m.slots else {
+                panic!("slot")
+            };
+            assert!(pairs.insert((x.min(y), x.max(y))), "repeat in n={n}");
+            assert_eq!(m.stage, Stage::League);
+        }
+    }
+}
+
+#[test]
+fn round_robin_never_plays_a_team_twice_in_one_round() {
+    for n in [4u32, 5, 8, 9] {
+        let b = robin(n);
+        let rounds = b.matches.iter().map(|m| m.round).max().unwrap();
+        for r in 1..=rounds {
+            let mut seen = std::collections::HashSet::new();
+            for m in b.matches.iter().filter(|m| m.round == r) {
+                let [Slot::Team(x), Slot::Team(y)] = m.slots else {
+                    panic!("slot")
+                };
+                assert!(seen.insert(x) && seen.insert(y), "n={n} round {r}");
+            }
+        }
+    }
+}
+
+#[test]
+fn round_robin_allows_draws_and_scores_points() {
+    let mut b = robin(3);
+    let (first, second, third) = (0, 1, 2);
+    b.set_result(first, 2, 2).unwrap();
+    b.set_result(second, 3, 0).unwrap();
+    let table = b.standings();
+    assert_eq!(table.iter().map(|s| s.points).sum::<u32>(), 5);
+    assert!(table.iter().any(|s| s.draws == 1));
+    assert_eq!(b.champion(), None);
+    b.set_result(third, 1, 0).unwrap();
+    assert!(b.champion().is_some());
+}
+
+#[test]
+fn round_robin_champion_is_the_table_leader_after_every_match() {
+    let mut b = robin(4);
+    assert_eq!(b.champion(), None);
+    play_all(&mut b, lower_team_wins);
+    assert_eq!(b.champion(), Some(1));
+    let top = &b.standings()[0];
+    assert_eq!((top.team, top.wins, top.points), (1, 3, 9));
+}
+
+#[test]
+fn round_robin_results_can_be_edited_and_cleared_at_any_time() {
+    let mut b = robin(3);
+    play_all(&mut b, lower_team_wins);
+    b.set_result(0, 0, 5).unwrap();
+    b.clear_result(1).unwrap();
+    assert_eq!(b.champion(), None);
+    assert_eq!(b.progress(), (2, 3));
+}
+
+#[test]
+fn round_robin_forfeit_gives_three_points_and_no_goals() {
+    let mut b = robin(3);
+    b.set_forfeit(0, Side::B).unwrap();
+    let [Slot::Team(_), Slot::Team(winner)] = b.matches[0].slots else {
+        panic!("slot")
+    };
+    let row = b
+        .standings()
+        .into_iter()
+        .find(|s| s.team == winner)
+        .unwrap();
+    assert_eq!((row.wins, row.points, row.points_for), (1, 3, 0));
+}
+
+#[test]
+fn round_robin_limits_team_count_and_still_forbids_knockout_ties() {
+    assert_eq!(
+        generate(&teams(2), Format::RoundRobin).unwrap_err(),
+        EngineError::TooFewTeams { min: 3 }
+    );
+    assert_eq!(
+        generate(&teams(33), Format::RoundRobin).unwrap_err(),
+        EngineError::TooManyTeams { max: 32 }
+    );
+    let mut single = generate(&teams(4), Format::SingleElimination).unwrap();
+    assert_eq!(single.set_result(0, 1, 1), Err(EngineError::Tie));
+}

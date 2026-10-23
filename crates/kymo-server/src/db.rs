@@ -74,6 +74,7 @@ fn format_to_text(format: Format) -> &'static str {
     match format {
         Format::SingleElimination => "single_elimination",
         Format::DoubleElimination => "double_elimination",
+        Format::RoundRobin => "round_robin",
     }
 }
 
