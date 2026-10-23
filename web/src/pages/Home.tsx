@@ -26,6 +26,15 @@ function CreateForm() {
       navigate(`/t/${t.slug}`)
     },
   })
+  const [importError, setImportError] = useState<string | null>(null)
+  const importSetup = useMutation({
+    mutationFn: (setup: unknown) => api.importSetup(setup),
+    onSuccess: (t) => {
+      void client.invalidateQueries({ queryKey: ['tournaments'] })
+      navigate(`/t/${t.slug}`)
+    },
+    onMutate: () => setImportError(null),
+  })
   const submit = (e: FormEvent) => {
     e.preventDefault()
     create.mutate()
@@ -87,7 +96,28 @@ function CreateForm() {
       <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
         Create
       </Button>
-      <ErrorText error={create.error} />
+      <label className="inline-flex h-10 cursor-pointer items-center rounded-control border border-line px-3.5 text-sm font-medium text-muted transition-colors hover:text-ink focus-within:outline focus-within:outline-2 focus-within:outline-accent">
+        Import setup
+        <input
+          type="file"
+          accept="application/json,.json"
+          aria-label="Import a tournament setup file"
+          className="sr-only"
+          onChange={async (e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''
+            if (!file) return
+            try {
+              importSetup.mutate(JSON.parse(await file.text()))
+            } catch {
+              importSetup.reset()
+              setImportError('That file is not valid JSON.')
+            }
+          }}
+        />
+      </label>
+      <ErrorText error={create.error ?? importSetup.error} />
+      {importError && <p role="alert" className="w-full text-sm text-danger">{importError}</p>}
     </form>
   )
 }

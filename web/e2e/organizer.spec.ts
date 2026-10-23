@@ -631,3 +631,21 @@ test('a tournament can get its own color and drop it again', async ({ page }) =>
   await page.getByRole('button', { name: 'Use site color' }).click()
   await expect(page.locator('[data-tournament-accent]')).toHaveCount(0)
 })
+
+test('a tournament can be duplicated and a setup file imported', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Original Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Save roster' }).click()
+  await expect(page.getByRole('button', { name: 'Save roster' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Duplicate' }).click()
+  await expect(page.getByRole('heading', { name: 'Original Cup copy' })).toBeVisible()
+  await expect(page.getByText(/4 teams/)).toBeVisible()
+
+  await page.goto('/')
+  const setup = JSON.stringify({ name: 'From File', format: 'swiss', teams: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }] })
+  await page.getByLabel('Import a tournament setup file').setInputFiles({ name: 'setup.json', mimeType: 'application/json', buffer: Buffer.from(setup) })
+  await expect(page.getByRole('heading', { name: 'From File' })).toBeVisible()
+})

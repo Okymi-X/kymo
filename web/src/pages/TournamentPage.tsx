@@ -94,6 +94,22 @@ function AdminActions({ t }: { t: Tournament }) {
     },
   })
   const [name, setName] = useState(t.name)
+  const duplicate = useMutation({
+    mutationFn: () =>
+      api.importSetup({
+        name: `${t.name} copy`.slice(0, 80),
+        format: t.format,
+        third_place: t.third_place,
+        groups: t.groups,
+        advance: t.advance,
+        rounds: t.rounds,
+        teams: t.teams.map((team) => ({ name: team.name, score: team.score })),
+      }),
+    onSuccess: (copy) => {
+      void client.invalidateQueries({ queryKey: ['tournaments'] })
+      navigate(`/t/${copy.slug}`)
+    },
+  })
   const [color, setColor] = useState(t.accent ?? '#0a6fe0')
   const recolor = useMutation({
     mutationFn: (accent: string | null) => api.setAccent(t.id, accent),
@@ -135,12 +151,15 @@ function AdminActions({ t }: { t: Tournament }) {
       >
         Color
       </Button>
+      <Button onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>
+        Duplicate
+      </Button>
       <ExportButton filename={`${t.slug}-backup.json`} build={() => JSON.stringify(t, null, 2)} label="Backup JSON" type="application/json" />
       {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
       <Button variant="danger" onClick={() => setAsking('delete')}>
         Delete
       </Button>
-      <ErrorText error={reset.error ?? remove.error} />
+      <ErrorText error={reset.error ?? remove.error ?? duplicate.error} />
       {asking === 'color' && (
         <Modal label="Tournament color" onClose={() => setAsking(null)}>
           <form

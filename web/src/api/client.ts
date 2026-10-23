@@ -93,6 +93,7 @@ export const api = {
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),
   start: (id: number, seeding: Seeding) => request<Tournament>('POST', `${admin(id)}/start`, { seeding }),
+  importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),
   reset: (id: number) => request<Tournament>('POST', `${admin(id)}/reset`),
