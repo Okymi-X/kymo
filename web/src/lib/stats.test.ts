@@ -1,0 +1,116 @@
+import { describe, expect, it } from 'vitest'
+import type { Match, Slot, Tournament } from '../api/types'
+import { computeTeamRows, matchState, resultsCsv, standingsCsv, teamHistory } from './stats'
+
+const team = (id: number): Slot => ({ kind: 'team', team: id })
+const empty: Slot = { kind: 'empty' }
+
+const match = (id: number, a: Slot, b: Slot, score: [number, number] | null, winner: 'A' | 'B' | null, extra: Partial<Match> = {}): Match => ({
+  id,
+  stage: 'winners',
+  round: 1,
+  position: id,
+  slots: [a, b],
+  score,
+  winner,
+  forfeit: false,
+  next_win: null,
+  ...extra,
+})
+
+const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournament => ({
+  id: 1,
+  name: 'T',
+  slug: 't',
+  format: 'single_elimination',
+  third_place: false,
+  status: 'live',
+  created_at: '',
+  teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),
+  bracket: { format: 'single_elimination', matches },
+  champion: null,
+  progress: { played: 0, total: 0 },
+  ...over,
+})
+
+describe('computeTeamRows', () => {
+  const t = tournament([
+    match(0, team(1), team(4), [3, 1], 'A'),
+    match(1, team(2), team(3), [0, 2], 'B'),
+    match(2, team(1), team(3), null, null),
+  ])
+  const rows = computeTeamRows(t)
+  const row = (id: number) => rows.find((r) => r.team.id === id)!
+
+  it('counts wins, losses and points', () => {
+    expect(row(1)).toMatchObject({ played: 1, wins: 1, losses: 0, pointsFor: 3, pointsAgainst: 1 })
+    expect(row(2)).toMatchObject({ played: 1, wins: 0, losses: 1, pointsFor: 0, pointsAgainst: 2 })
+  })
+
+  it('marks single elimination losers as out and winners as active', () => {
+    expect(row(4).status).toBe('out')
+    expect(row(2).status).toBe('out')
+    expect(row(1).status).toBe('active')
+  })
+
+  it('lists active teams before eliminated ones', () => {
+    expect(rows.map((r) => r.status).slice(0, 2)).toEqual(['active', 'active'])
+    expect(rows.at(-1)!.status).toBe('out')
+  })
+
+  it('needs two losses in double elimination', () => {
+    const d = tournament([match(0, team(1), team(2), [0, 1], 'B')], { format: 'double_elimination' })
+    expect(computeTeamRows(d).find((r) => r.team.id === 1)!.status).toBe('active')
+  })
+
+  it('does not eliminate a team for losing the third place match', () => {
+    const third = match(0, team(3), team(4), [0, 1], 'B', { stage: 'third_place' })
+    expect(computeTeamRows(tournament([third])).find((r) => r.team.id === 3)!.status).toBe('active')
+  })
+
+  it('marks the champion and ignores forfeits for points', () => {
+    const f = tournament([match(0, team(1), team(2), null, 'A', { forfeit: true })], { champion: 1 })
+    const r = computeTeamRows(f)
+    expect(r[0]).toMatchObject({ status: 'champion', wins: 1, pointsFor: 0 })
+  })
+
+  it('shows seeded before a tournament starts', () => {
+    const draft = tournament([], { bracket: null })
+    expect(computeTeamRows(draft).every((r) => r.status === 'seeded')).toBe(true)
+  })
+})
+
+describe('matchState and teamHistory', () => {
+  it('distinguishes ready, waiting and played', () => {
+    expect(matchState(match(0, team(1), team(2), null, null))).toBe('ready')
+    expect(matchState(match(0, team(1), empty, null, null))).toBe('waiting')
+    expect(matchState(match(0, team(1), team(2), [1, 0], 'A'))).toBe('played')
+  })
+
+  it('builds a team path with opponents and results', () => {
+    const t = tournament([match(0, team(1), team(4), [3, 1], 'A'), match(2, team(1), empty, null, null)])
+    const history = teamHistory(t, 1)
+    expect(history.map((h) => h.result)).toEqual(['win', 'waiting'])
+    expect(history[0]).toMatchObject({ opponent: 4, own: 3, other: 1 })
+  })
+
+  it('skips byes', () => {
+    const t = tournament([match(0, team(1), { kind: 'bye' }, null, 'A')])
+    expect(teamHistory(t, 1)).toEqual([])
+  })
+})
+
+describe('csv export', () => {
+  it('quotes commas and neutralizes spreadsheet formulas', () => {
+    const t = tournament([], { teams: [{ id: 1, name: '=cmd, "x"', seed: 1, score: 5 }] })
+    const csv = standingsCsv(computeTeamRows(t))
+    expect(csv.split('\n')[1]).toContain('"\'=cmd, ""x"""')
+  })
+
+  it('writes one line per real match', () => {
+    const t = tournament([match(0, team(1), team(2), [2, 1], 'A'), match(1, team(3), { kind: 'bye' }, null, 'A')])
+    const lines = resultsCsv(t, () => 'Round 1').split('\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toBe('Round 1,Team 1,Team 2,2,1,Team 1,')
+  })
+})

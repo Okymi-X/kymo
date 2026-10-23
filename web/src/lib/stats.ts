@@ -1,0 +1,141 @@
+import type { Match, Side, Slot, Stage, Team, Tournament } from '../api/types'
+
+export type TeamStatus = 'champion' | 'active' | 'out' | 'seeded'
+
+export interface TeamRow {
+  team: Team
+  played: number
+  wins: number
+  losses: number
+  pointsFor: number
+  pointsAgainst: number
+  status: TeamStatus
+}
+
+export interface HistoryEntry {
+  match: Match
+  opponent: number | null
+  result: 'win' | 'loss' | 'next' | 'waiting'
+  own: number | null
+  other: number | null
+  forfeit: boolean
+}
+
+export type MatchState = 'ready' | 'waiting' | 'played'
+
+const teamOf = (slot: Slot): number | null => (slot.kind === 'team' ? slot.team : null)
+const sideIndex = (side: Side) => (side === 'A' ? 0 : 1)
+
+/** A match people play: no bye, and not a reset that was never needed. */
+export function isRealMatch(m: Match): boolean {
+  return !m.slots.some((s) => s.kind === 'bye')
+}
+
+export function matchState(m: Match): MatchState {
+  if (m.winner !== null && (m.score !== null || m.forfeit)) return 'played'
+  return m.slots.every((s) => s.kind === 'team') ? 'ready' : 'waiting'
+}
+
+const decisive = (m: Match) => m.winner !== null && m.slots.every((s) => s.kind === 'team') && (m.score !== null || m.forfeit)
+
+export function computeTeamRows(t: Tournament): TeamRow[] {
+  const rows = new Map<number, TeamRow>(
+    t.teams.map((team) => [team.id, { team, played: 0, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0, status: 'seeded' as TeamStatus }]),
+  )
+  const matches = t.bracket?.matches ?? []
+  for (const m of matches.filter(decisive)) {
+    const winner = m.winner as Side
+    const ids = [teamOf(m.slots[0]), teamOf(m.slots[1])]
+    ids.forEach((id, i) => {
+      const row = id === null ? undefined : rows.get(id)
+      if (!row) return
+      const won = sideIndex(winner) === i
+      row.played += 1
+      row.wins += won ? 1 : 0
+      row.losses += won ? 0 : 1
+      if (m.score) {
+        row.pointsFor += m.score[i]
+        row.pointsAgainst += m.score[1 - i]
+      }
+    })
+  }
+  const lossesToExit = t.format === 'double_elimination' ? 2 : 1
+  for (const row of rows.values()) {
+    const lostInBracket = matches
+      .filter((m) => decisive(m) && m.stage !== 'third_place')
+      .filter((m) => {
+        const loser = teamOf(m.slots[sideIndex(m.winner as Side) === 0 ? 1 : 0])
+        return loser === row.team.id
+      }).length
+    if (t.bracket === null) row.status = 'seeded'
+    else if (t.champion === row.team.id) row.status = 'champion'
+    else if (lostInBracket >= lossesToExit) row.status = 'out'
+    else row.status = 'active'
+  }
+  const order: Record<TeamStatus, number> = { champion: 0, active: 1, seeded: 1, out: 2 }
+  return [...rows.values()].sort(
+    (a, b) =>
+      order[a.status] - order[b.status] ||
+      b.wins - a.wins ||
+      b.pointsFor - b.pointsAgainst - (a.pointsFor - a.pointsAgainst) ||
+      a.team.seed - b.team.seed,
+  )
+}
+
+export function teamHistory(t: Tournament, teamId: number): HistoryEntry[] {
+  const out: HistoryEntry[] = []
+  for (const m of t.bracket?.matches ?? []) {
+    if (!isRealMatch(m)) continue
+    const index = m.slots.findIndex((s) => teamOf(s) === teamId)
+    if (index === -1) continue
+    const opponent = teamOf(m.slots[1 - index])
+    const state = matchState(m)
+    const won = m.winner !== null && sideIndex(m.winner) === index
+    out.push({
+      match: m,
+      opponent,
+      result: state === 'played' ? (won ? 'win' : 'loss') : state === 'ready' ? 'next' : 'waiting',
+      own: m.score ? m.score[index] : null,
+      other: m.score ? m.score[1 - index] : null,
+      forfeit: m.forfeit,
+    })
+  }
+  return out
+}
+
+const csvCell = (value: string | number) => {
+  const text = String(value)
+  // Leading = + - @ would run as a formula in spreadsheets.
+  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
+}
+
+export function standingsCsv(rows: TeamRow[]): string {
+  const head = ['Rank', 'Team', 'Seed', 'Qualifier score', 'Played', 'Wins', 'Losses', 'Points for', 'Points against', 'Status']
+  const lines = rows.map((r, i) =>
+    [i + 1, r.team.name, r.team.seed, r.team.score, r.played, r.wins, r.losses, r.pointsFor, r.pointsAgainst, r.status].map(csvCell).join(','),
+  )
+  return [head.join(','), ...lines].join('\n')
+}
+
+export function resultsCsv(t: Tournament, label: (m: Match) => string): string {
+  const names = new Map(t.teams.map((x) => [x.id, x.name]))
+  const name = (s: Slot) => (s.kind === 'team' ? (names.get(s.team) ?? '') : s.kind === 'bye' ? 'Bye' : 'TBD')
+  const head = ['Round', 'Team A', 'Team B', 'Score A', 'Score B', 'Winner', 'Forfeit']
+  const lines = (t.bracket?.matches ?? []).filter(isRealMatch).map((m) =>
+    [
+      label(m),
+      name(m.slots[0]),
+      name(m.slots[1]),
+      m.score?.[0] ?? '',
+      m.score?.[1] ?? '',
+      m.winner === null ? '' : name(m.slots[sideIndex(m.winner)]),
+      m.forfeit ? 'yes' : '',
+    ]
+      .map(csvCell)
+      .join(','),
+  )
+  return [head.join(','), ...lines].join('\n')
+}
+
+export const stageOrder: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2, grand_reset: 3, third_place: 4 }
