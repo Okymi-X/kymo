@@ -353,3 +353,31 @@ test('activity log, following a team and the remembered choice', async ({ page }
   await page.getByRole('button', { name: 'Stop following Delta' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Following Delta' })).toHaveCount(0)
 })
+
+test('stage mode shows what is next, live results and the champion', async ({ page, browser }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Stage Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await record(page, 'Edit result for Alpha versus Delta', '3', '1')
+
+  const screen = await browser.newPage({ viewport: { width: 1600, height: 900 } })
+  await screen.goto('/t/stage-cup/stage')
+  await expect(screen.getByRole('heading', { name: 'Stage Cup' })).toBeVisible()
+  await expect(screen.getByRole('region', { name: 'Up next' })).toContainText('Bravo')
+  await expect(screen.getByRole('region', { name: 'Latest' })).toContainText('beat')
+  await expect(screen.getByRole('tab', { name: 'Bracket' })).toHaveAttribute('aria-selected', 'true')
+
+  await screen.getByRole('button', { name: 'Pause rotation' }).click()
+  await expect(screen.getByRole('button', { name: 'Resume rotation' })).toBeVisible()
+  await screen.keyboard.press('ArrowRight')
+  await expect(screen.getByRole('tab', { name: 'Standings' })).toHaveAttribute('aria-selected', 'true')
+
+  await record(page, 'Edit result for Bravo versus Charlie', '0', '2')
+  await record(page, 'Edit result for Alpha versus Charlie', '5', '4')
+  await expect(screen.getByText('Champion', { exact: true })).toBeVisible()
+  await expect(screen.getByRole('region', { name: 'Up next' })).toHaveCount(0)
+  await screen.close()
+})

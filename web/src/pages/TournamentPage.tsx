@@ -22,7 +22,8 @@ import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { computeTeamRows, teamHistory } from '../lib/stats'
-import { X } from 'lucide-react'
+import { Monitor, X } from 'lucide-react'
+import { Link } from 'react-router'
 
 function useTeamName(t: Tournament | undefined) {
   return useMemo(() => {
@@ -202,7 +203,14 @@ export function TournamentPage() {
             <StatusPill status={t.status} />
           </p>
         </div>
-        {admin && <AdminActions t={t} />}
+        <div className="flex flex-wrap items-center gap-2">
+          {t.bracket && (
+            <Link to={`/t/${t.slug}/stage`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
+              <Monitor size={16} aria-hidden="true" /> Stage mode
+            </Link>
+          )}
+          {admin && <AdminActions t={t} />}
+        </div>
       </div>
       <Champion t={t} teamName={teamName} />
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}

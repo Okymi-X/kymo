@@ -15,3 +15,5 @@
 - References for challenge integration: GZCTF (AGPLv3, jeopardy plus A&D and KotH, Docker or Kubernetes) and ForcAD (GPLv3, A&D, rounds and flags). Integrate over HTTP only, never copy code.
 - QA workflow: run a throwaway server (own port and db) in tmux, give testers the plan in scratchpad/qa/prompt.md. Codex reported a hover highlight bug that did not reproduce (4 rows lit on hover), check findings before fixing. Two testers on one server interfere through the login throttle and shared data.
 - Framework rejections (bad JSON, 405, 413) are rewritten to {error} by the json_errors layer in routes/mod.rs.
+- Idea chosen on 2026-10-23: the recurring pain at live CTF events is trust and wayfinding (disputed scores, where do we play, screen sharing the admin page). Built the activity log, stage mode and follow a team for it.
+- `kymo-server seed-demo` fills the database with six sample tournaments (idempotent by slug). The Appearance saved look in the local kymo.db was customized by the owner (monospace), do not reset it.

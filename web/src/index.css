@@ -170,3 +170,25 @@ dialog[open]::backdrop {
     transform: scale(0.96);
   }
 }
+
+.stage-fade {
+  animation: stage-fade 500ms var(--ease-out) both;
+}
+
+.stage-pop {
+  animation: stage-pop 700ms var(--ease-out) both;
+}
+
+@keyframes stage-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes stage-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}

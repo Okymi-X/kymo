@@ -59,3 +59,6 @@ Header: logo, primary link (Tournaments, accent underline when active), a center
 
 ## Activity and following
 Activity tab: a vertical timeline with an icon per kind, relative time with the exact time on hover, the round, and a red icon for corrections. Following a team is stored in localStorage per tournament and shown as an accent tinted chip with the team's next match; the team is highlighted in the bracket.
+
+## Stage mode
+Route `/t/{slug}/stage`, outside the normal shell. Large title with status and progress, a rotating main panel (bracket then standings, or groups then knockout), a side column with the next four ready matches and the latest six results. Keys: space pauses, arrows switch, F toggles full screen. When a champion exists the panel becomes a full height champion screen with a large avatar and the up next list is hidden. Updates arrive over the same live event stream as the normal page.

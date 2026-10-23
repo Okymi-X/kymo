@@ -12,6 +12,8 @@ interface Props {
   pinned?: number | null
   /** Stay inside the page column instead of using the full window width. */
   contained?: boolean
+  /** Hide the zoom buttons, for the projector screen. */
+  hideControls?: boolean
   teamName: (slot: Slot) => string
   onEdit?: (match: Match) => void
 }
@@ -73,7 +75,7 @@ function Canvas({
   )
 }
 
-export function BracketView({ bracket, teamName, onEdit, pinned = null, contained = false }: Props) {
+export function BracketView({ bracket, teamName, onEdit, pinned = null, contained = false, hideControls = false }: Props) {
   const [manual, setManual] = useState<number | null>(null)
   const [available, setAvailable] = useState(0)
   const [column, setColumn] = useState(0)
@@ -110,6 +112,7 @@ export function BracketView({ bracket, teamName, onEdit, pinned = null, containe
 
   return (
     <div className="flex flex-col gap-6" onWheel={onWheel}>
+      {!hideControls && (
       <div className="flex items-center gap-1" role="group" aria-label="Zoom">
         <Button variant="ghost" aria-label="Zoom out" onClick={() => setManual(clamp(zoom - STEP))} disabled={zoom <= MIN_ZOOM}>
           <Minus size={16} />
@@ -127,6 +130,7 @@ export function BracketView({ bracket, teamName, onEdit, pinned = null, containe
           <Plus size={16} />
         </Button>
       </div>
+      )}
       <div ref={columnRef} aria-hidden="true" className="h-0" />
       <div ref={hostRef} className={wide ? 'relative left-1/2 w-[min(calc(100vw-3rem),1680px)] -translate-x-1/2' : ''}>
         <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} highlight={hovered ?? pinned} onHoverTeam={setHovered} />

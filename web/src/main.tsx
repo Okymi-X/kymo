@@ -10,6 +10,7 @@ import { Home } from './pages/Home'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
+import { StagePage } from './pages/StagePage'
 import { TournamentPage } from './pages/TournamentPage'
 import './index.css'
 
@@ -33,6 +34,7 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <ThemeLoader />
           <Routes>
+            <Route path="/t/:slug/stage" element={<StagePage />} />
             <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />

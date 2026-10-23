@@ -22,6 +22,11 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 - Swiss (planned). Round robin and groups then knockout are built.
 - Multi tenant SaaS, payments.
 
+## Event day features
+- Public activity log of every result, correction, forfeit and reset, so disputes can be checked.
+- Stage mode for a projector, and a followable team with its next match.
+- Sample data (`seed-demo`) to try every format and state.
+
 ## Acceptance criteria
 - Create a 16 team single elimination tournament and play it to a champion through the UI.
 - Same for double elimination with 8 teams, including grand final reset.
