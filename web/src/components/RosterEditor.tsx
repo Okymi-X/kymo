@@ -20,7 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, X } from 'lucide-react'
 import { api } from '../api/client'
 import type { Seeding, Tournament } from '../api/types'
-import { Button, ErrorText, Field, Select } from './ui'
+import { Button, ErrorText, Field, Select, Textarea } from './ui'
 
 interface Item {
   key: number
@@ -58,7 +58,7 @@ function Row({
         aria-label={`Qualifier score for ${item.name}`}
         value={item.score}
         onChange={(e) => onScore(Math.max(0, Number(e.target.value) || 0))}
-        className="w-20 rounded-control border border-line bg-bg px-2 py-1 text-right font-mono text-xs tabular-nums"
+        className="h-8 w-20 rounded-control border border-field-line bg-field px-2 text-right font-mono text-xs tabular-nums focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/25"
       />
       <button type="button" aria-label={`Remove ${item.name}`} onClick={onRemove} className="p-1 text-muted hover:text-danger">
         <X size={16} />
@@ -145,12 +145,7 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
       </div>
       <div className="flex flex-col gap-4">
         <Field label="Add teams, one per line (optional: Name, score)">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={5}
-            className="rounded-control border border-line bg-surface px-3 py-2 text-ink"
-          />
+          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5} placeholder={'Alpha, 900\nBravo, 750'} />
         </Field>
         <Button onClick={add} disabled={!draft.trim()}>
           Add to roster

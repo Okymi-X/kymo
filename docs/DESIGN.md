@@ -22,3 +22,8 @@ Direction: calm, precise, Apple level restraint. Content is the bracket; chrome 
 
 ## Accessibility
 WCAG AA contrast, visible focus ring (2px accent), full keyboard control of match editing, live region for score updates.
+
+## Form controls
+- One height for inputs, selects and buttons (40px), so rows align. Labels sit above in ink at 70 percent.
+- Field border uses `field-line` (stronger than card borders) so inputs read in dark mode. Placeholder at 60 percent muted so it never looks like a value.
+- Focus: accent border plus a 3px accent ring at 25 percent. Select uses a custom chevron. Disabled primary buttons turn neutral instead of dimming the accent.
