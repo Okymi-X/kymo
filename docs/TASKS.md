@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Round robin: circle method schedule (3 to 32 teams), draws allowed, 3/1/0 points, table by points then goal difference then goals, champion when all matches are played; Standings with D and Pts, Schedule board by round, e2e (engine 7 tests, API 1, stats 4)
 - [x] QA round 1 (Codex and a Claude subagent, 17 distinct findings, 2 not reproduced) fixed: per client login throttle with Retry-After, JSON error envelope for all API errors, hidden character and score validation, unicode slugs, SSE and static 404s, server side logout, roster editor state and start errors, standings ranking with third place, long name overflow, live site name preview. 4 new API tests, 3 new e2e, 1 new ranking test
 - [x] Data views: standings, matches, teams, team dialog with path, hover highlight, CSV export, wide bracket area (12 stats tests, 1 e2e)
 - [x] Design polish: responsive sticky header, PageTitle, depth tokens, dialog motion, fit to width bracket, larger touch targets, empty state
@@ -28,6 +29,7 @@
 ## In progress
 
 ## Todo
+- [ ] Swiss and group stage into knockout
 - [ ] API tokens: expiry and a rule that API tokens cannot mint tokens
 - [ ] Roster drag and drop announcements use team names
 - [ ] Public list endpoint pages or trims rosters

@@ -22,8 +22,8 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-const resultLabel = { win: 'Won', loss: 'Lost', next: 'Up next', waiting: 'Waiting' } as const
-const resultStyle = { win: 'text-win', loss: 'text-danger', next: 'text-accent', waiting: 'text-muted' } as const
+const resultLabel = { win: 'Won', loss: 'Lost', draw: 'Drew', next: 'Up next', waiting: 'Waiting' } as const
+const resultStyle = { win: 'text-win', loss: 'text-danger', draw: 'text-muted', next: 'text-accent', waiting: 'text-muted' } as const
 
 export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
   const row = computeTeamRows(tournament).find((r) => r.team.id === teamId)
@@ -32,6 +32,7 @@ export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
   const label = tournament.bracket ? roundNamer(tournament.bracket) : () => ''
   const opponent = (id: number | null) => teamName(id === null ? { kind: 'empty' } : { kind: 'team', team: id })
   const diff = row.pointsFor - row.pointsAgainst
+  const league = tournament.format === 'round_robin'
   return (
     <Modal label={`${row.team.name} details`} onClose={onClose} width="32rem">
       <div className="flex flex-col gap-5 p-6">
@@ -46,12 +47,12 @@ export function TeamDialog({ tournament, teamId, teamName, onClose }: Props) {
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Qualifier" value={row.team.score} />
-          <Stat label="Record" value={`${row.wins}-${row.losses}`} />
-          <Stat label="Points" value={`${row.pointsFor}:${row.pointsAgainst}`} />
+          <Stat label="Record" value={league ? `${row.wins}-${row.draws}-${row.losses}` : `${row.wins}-${row.losses}`} />
+          <Stat label={league ? 'League points' : 'Points'} value={league ? row.points : `${row.pointsFor}:${row.pointsAgainst}`} />
           <Stat label="Difference" value={diff > 0 ? `+${diff}` : diff} />
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-medium text-muted">Path through the bracket</h3>
+          <h3 className="mb-2 text-sm font-medium text-muted">{league ? 'Fixtures' : 'Path through the bracket'}</h3>
           {history.length === 0 ? (
             <p className="text-sm text-muted">No matches yet.</p>
           ) : (

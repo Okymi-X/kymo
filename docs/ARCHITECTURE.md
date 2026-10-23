@@ -38,6 +38,9 @@ Organizer action -> API handler -> repository loads matches -> engine applies ch
 - SQLite first for zero config self hosting; SQLx queries kept portable.
 - Matches store pointers to the next match (winner and loser), so propagation is a graph walk, not formula math.
 
+## Round robin
+`Format::RoundRobin` builds `Stage::League` matches with the circle method (an odd team count rests one team per round and creates no bye match). No advancement pointers. A scored tie is a draw (winner none); knockout stages still reject ties. `Bracket::standings()` ranks by points (3 win, 1 draw), goal difference, goals scored, then team id (ids follow seed order). The champion is the table leader once every match is played. Capped at 32 teams (496 matches). The web app swaps the Bracket tab for a Schedule board grouped by round.
+
 ## Customization
 Appearance (site name, accent per color scheme, corner radius, typeface) lives in the `setting` table and is served at GET /settings. The web app injects it as a CSS variable override on load; every value is validated on the server (hex colors, radius 0 to 20, fixed font list) and again before it reaches CSS. New options extend the JSON, no migration. Contrast against the page background is shown while editing.
 

@@ -95,6 +95,42 @@ describe('ranking after a third place match', () => {
   })
 })
 
+describe('round robin table', () => {
+  const league = (matches: Match[]) =>
+    tournament(matches, { format: 'round_robin', bracket: { format: 'round_robin', matches } })
+  const lm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null) =>
+    match(id, team(a), team(b), score, winner, { stage: 'league' })
+
+  it('awards 3 points for a win and 1 for a draw', () => {
+    const rows = computeTeamRows(league([lm(0, 1, 2, [2, 2], null), lm(1, 1, 3, [1, 0], 'A'), lm(2, 2, 3, [0, 0], null)]))
+    const row = (id: number) => rows.find((r) => r.team.id === id)!
+    expect(row(1)).toMatchObject({ points: 4, wins: 1, draws: 1, losses: 0 })
+    expect(row(2)).toMatchObject({ points: 2, draws: 2 })
+    expect(row(3)).toMatchObject({ points: 1, losses: 1, draws: 1 })
+  })
+
+  it('orders by points then goal difference and never marks a team out', () => {
+    const rows = computeTeamRows(league([lm(0, 1, 2, [3, 0], 'A'), lm(1, 3, 4, [1, 0], 'A')]))
+    expect(rows.map((r) => r.team.id).slice(0, 2)).toEqual([1, 3])
+    expect(rows.every((r) => r.status !== 'out')).toBe(true)
+  })
+
+  it('ranks equal points by goal difference, not by games played', () => {
+    const rows = computeTeamRows(league([lm(0, 1, 2, [3, 0], 'A'), lm(1, 3, 4, [1, 0], 'A'), lm(2, 3, 5, [0, 1], 'B')]))
+    const order = rows.map((r) => r.team.id)
+    const [one, three] = [rows.find((r) => r.team.id === 1)!, rows.find((r) => r.team.id === 3)!]
+    expect([one.points, three.points]).toEqual([3, 3])
+    expect(three.played).toBeGreaterThan(one.played)
+    expect(order.indexOf(1)).toBeLessThan(order.indexOf(3))
+  })
+
+  it('treats a scored draw as played and reports it in a team path', () => {
+    const t = league([lm(0, 1, 2, [1, 1], null)])
+    expect(matchState(t.bracket!.matches[0])).toBe('played')
+    expect(teamHistory(t, 1)[0].result).toBe('draw')
+  })
+})
+
 describe('matchState and teamHistory', () => {
   it('distinguishes ready, waiting and played', () => {
     expect(matchState(match(0, team(1), team(2), null, null))).toBe('ready')

@@ -1,6 +1,6 @@
-export type Format = 'single_elimination' | 'double_elimination'
+export type Format = 'single_elimination' | 'double_elimination' | 'round_robin'
 export type Status = 'draft' | 'live' | 'done'
-export type Stage = 'winners' | 'losers' | 'grand_final' | 'grand_reset' | 'third_place'
+export type Stage = 'winners' | 'losers' | 'grand_final' | 'grand_reset' | 'third_place' | 'league'
 export type Side = 'A' | 'B'
 export type Seeding = 'manual' | 'random' | 'score'
 

@@ -10,6 +10,8 @@ interface Props {
   onEdit?: (match: Match) => void
   style?: CSSProperties
   highlight?: number | null
+  /** League matches are all open at once, so skip the accent ring. */
+  quiet?: boolean
   onHoverTeam?: (team: number | null) => void
 }
 
@@ -58,9 +60,9 @@ function Row({
   )
 }
 
-export function MatchCard({ match, teamName, onEdit, style, highlight = null, onHoverTeam }: Props) {
+export function MatchCard({ match, teamName, onEdit, style, highlight = null, quiet = false, onHoverTeam }: Props) {
   const ready = isReady(match)
-  const open = ready && match.winner === null
+  const open = !quiet && ready && !match.forfeit && match.score === null
   const body = (
     <>
       <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} lit={highlight !== null && match.slots[0].kind === 'team' && (match.slots[0] as { team: number }).team === highlight} onHover={onHoverTeam} />

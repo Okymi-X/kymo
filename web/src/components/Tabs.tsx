@@ -26,7 +26,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, children
   }
   return (
     <div className="flex flex-col gap-6">
-      <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto border-b border-line">
+      <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line">
         {items.map((item, i) => {
           const active = item.id === value
           return (

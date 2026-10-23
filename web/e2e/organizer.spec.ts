@@ -184,3 +184,37 @@ test('sign out ends the session on the server', async ({ page, request }) => {
   const after = await request.get('/api/v1/admin/tokens', { headers: { authorization: `Bearer ${token}` } })
   expect(after.status()).toBe(401)
 })
+
+test('round robin plays with a draw and crowns the table leader', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('League Cup')
+  await page.getByLabel('Format').selectOption('round_robin')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  await expect(page.getByRole('tab', { name: 'Schedule' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Bracket' })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Schedule' }).click()
+
+  const cards = page.getByRole('button', { name: /Edit result for/ })
+  await expect(cards).toHaveCount(3)
+  await cards.first().click()
+  await page.getByRole('dialog').getByLabel('Score').nth(0).fill('1')
+  await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole('button', { name: /Edit result for/ }).nth(i + 1).click()
+    await page.getByRole('dialog').getByLabel('Score').nth(0).fill('2')
+    await page.getByRole('dialog').getByLabel('Score').nth(1).fill('0')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  }
+  await page.getByRole('tab', { name: 'Standings' }).click()
+  await expect(page.getByRole('columnheader', { name: 'Pts' })).toBeVisible()
+  await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Finished')).toBeVisible()
+})

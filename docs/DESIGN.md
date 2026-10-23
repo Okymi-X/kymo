@@ -47,3 +47,6 @@ lucide-react only. Font Awesome was considered and not added: a second icon set 
 
 ## Data views
 Tournament page tabs (URL `?view=`): Bracket, Standings, Matches, Teams. Standings: rank, team, seed, qualifier score, P, W, L, point difference, status (In, Out, Champion). Matches: Up next, Waiting for teams, Played, each row opens the result dialog for organizers. Teams: cards that open a team dialog with record, points and the path through the bracket. Hovering a team in the bracket highlights it everywhere. Standings and results export as CSV (formula characters are neutralized). Bracket area is wider than the page column (up to 1680px) so a double elimination bracket fits at full size.
+
+## Round robin views
+Standings first (P, W, D, L, +/-, Pts), then Schedule (cards grouped by round, no accent ring because every match is open), Matches, Teams. Ranking explanation sits above the table.

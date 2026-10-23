@@ -35,7 +35,8 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
 
-  const valid = a !== '' && b !== '' && Number(a) >= 0 && Number(b) >= 0 && Number(a) !== Number(b)
+  const league = match.stage === 'league'
+  const valid = a !== '' && b !== '' && Number(a) >= 0 && Number(b) >= 0 && (league || Number(a) !== Number(b))
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (valid) save.mutate()
@@ -60,7 +61,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             <Input type="number" min={0} inputMode="numeric" value={b} onChange={(e) => setB(e.target.value)} className="font-mono" />
           </Field>
         </div>
-        {a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
+        {!league && a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <p className="text-xs font-medium text-muted">No game played</p>
           <div className="grid grid-cols-2 gap-2">

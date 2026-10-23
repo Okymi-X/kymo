@@ -9,7 +9,7 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 - Spectators: watch a public live bracket without signing in.
 
 ## Goals (v1)
-- Single and double elimination brackets, byes, seeding (manual, random, by score).
+- Single and double elimination brackets, round robin leagues, byes, seeding (manual, random, by score).
 - Teams, tournaments, rounds, matches, per match scores and winners.
 - Easy editing: drag and drop seeding, inline score edit, undo last result, re-generate bracket before start.
 - Public live bracket view, shareable URL, auto refresh via server sent events.
@@ -19,7 +19,7 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 
 ## Non goals (v1)
 - Hosting CTF challenges or flag submission.
-- Round robin, Swiss, group stage (planned v2).
+- Swiss and group stage into knockout (planned v2). Round robin is built.
 - Multi tenant SaaS, payments.
 
 ## Acceptance criteria

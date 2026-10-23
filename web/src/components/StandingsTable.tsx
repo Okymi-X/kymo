@@ -13,10 +13,11 @@ interface Props {
 const num = 'text-right font-mono tabular-nums'
 
 export function StandingsTable({ tournament, rows, onSelect }: Props) {
+  const league = tournament.format === 'round_robin'
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted">Active teams first, then by wins and point difference.</p>
+        <p className="text-sm text-muted">{league ? 'Ranked by points (3 for a win, 1 for a draw), then goal difference, then goals scored.' : 'Active teams first, then by how far they went, wins and point difference.'}</p>
         <ExportButton filename={`${tournament.slug}-standings.csv`} build={() => standingsCsv(rows)} />
       </div>
       <div className="overflow-x-auto rounded-card border border-line bg-surface">
@@ -30,8 +31,10 @@ export function StandingsTable({ tournament, rows, onSelect }: Props) {
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>Qualifier</th>
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>P</th>
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>W</th>
+              {league && <th scope="col" className={`px-3 py-3 font-medium ${num}`}>D</th>}
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>L</th>
               <th scope="col" className={`px-3 py-3 font-medium ${num}`}>+/-</th>
+              {league && <th scope="col" className={`px-3 py-3 font-medium ${num}`}>Pts</th>}
               <th scope="col" className="px-4 py-3 font-medium">Status</th>
             </tr>
           </thead>
@@ -51,8 +54,10 @@ export function StandingsTable({ tournament, rows, onSelect }: Props) {
                   <td className={`px-3 py-2.5 text-muted ${num}`}>{r.team.score}</td>
                   <td className={`px-3 py-2.5 ${num}`}>{r.played}</td>
                   <td className={`px-3 py-2.5 ${num}`}>{r.wins}</td>
+                  {league && <td className={`px-3 py-2.5 ${num}`}>{r.draws}</td>}
                   <td className={`px-3 py-2.5 ${num}`}>{r.losses}</td>
                   <td className={`px-3 py-2.5 ${num} ${diff > 0 ? 'text-win' : diff < 0 ? 'text-danger' : 'text-muted'}`}>{diff > 0 ? `+${diff}` : diff}</td>
+                  {league && <td className={`px-3 py-2.5 font-semibold ${num}`}>{r.points}</td>}
                   <td className="px-4 py-2.5">
                     <StatusBadge status={r.status} />
                   </td>

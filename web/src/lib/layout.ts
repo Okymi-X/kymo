@@ -42,7 +42,7 @@ export interface BracketLayout {
   height: number
 }
 
-const stageRank: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2, grand_reset: 3, third_place: 4 }
+const stageRank: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2, grand_reset: 3, third_place: 4, league: 5 }
 
 /** The third place match shares the final's column, below it. */
 const columnKey = (m: Match) => `${m.stage === 'third_place' ? 'winners' : m.stage}-${m.round}`

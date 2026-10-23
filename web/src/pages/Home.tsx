@@ -34,6 +34,7 @@ function CreateForm() {
         <Select value={format} onChange={(e) => setFormat(e.target.value as Format)}>
           <option value="single_elimination">{formatLabel.single_elimination}</option>
           <option value="double_elimination">{formatLabel.double_elimination}</option>
+          <option value="round_robin">{formatLabel.round_robin}</option>
         </Select>
       </Field>
       {format === 'single_elimination' && (

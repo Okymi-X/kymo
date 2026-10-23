@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { MatchList } from '../components/MatchList'
+import { ScheduleBoard } from '../components/ScheduleBoard'
 import { RosterEditor } from '../components/RosterEditor'
 import { ScoreDialog } from '../components/ScoreDialog'
 import { StandingsTable } from '../components/StandingsTable'
@@ -90,16 +91,21 @@ function AdminActions({ t }: { t: Tournament }) {
   )
 }
 
-type View = 'bracket' | 'standings' | 'matches' | 'teams'
+type View = 'bracket' | 'schedule' | 'standings' | 'matches' | 'teams'
 
-const VIEWS: TabItem<View>[] = [
+const KNOCKOUT_VIEWS: TabItem<View>[] = [
   { id: 'bracket', label: 'Bracket' },
   { id: 'standings', label: 'Standings' },
   { id: 'matches', label: 'Matches' },
   { id: 'teams', label: 'Teams' },
 ]
 
-const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v)
+const LEAGUE_VIEWS: TabItem<View>[] = [
+  { id: 'standings', label: 'Standings' },
+  { id: 'schedule', label: 'Schedule' },
+  { id: 'matches', label: 'Matches' },
+  { id: 'teams', label: 'Teams' },
+]
 
 export function TournamentPage() {
   const { slug = '' } = useParams()
@@ -110,8 +116,9 @@ export function TournamentPage() {
   const [teamId, setTeamId] = useState<number | null>(null)
   const [params, setParams] = useSearchParams()
   const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
+  const views = t?.format === 'round_robin' ? LEAGUE_VIEWS : KNOCKOUT_VIEWS
   const requested = params.get('view')
-  const view: View = isView(requested) ? requested : 'bracket'
+  const view: View = views.find((v) => v.id === requested)?.id ?? views[0].id
   useLiveUpdates(slug)
 
   if (isPending) return <p className="text-muted">Loading</p>
@@ -139,8 +146,9 @@ export function TournamentPage() {
       </div>
       <Champion t={t} teamName={teamName} />
       {t.bracket ? (
-        <Tabs items={VIEWS} value={view} onChange={(v) => setParams(v === 'bracket' ? {} : { view: v }, { replace: true })} label="Tournament views">
+        <Tabs items={views} value={view} onChange={(v) => setParams(v === views[0].id ? {} : { view: v }, { replace: true })} label="Tournament views">
           {view === 'bracket' && <BracketView bracket={t.bracket} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
           {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
