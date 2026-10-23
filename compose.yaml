@@ -1,0 +1,13 @@
+services:
+  kymo:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      KYMO_ADMIN_PASSWORD: ${KYMO_ADMIN_PASSWORD:?set KYMO_ADMIN_PASSWORD to at least 12 characters}
+    volumes:
+      - kymo-data:/data
+    restart: unless-stopped
+
+volumes:
+  kymo-data:
