@@ -52,6 +52,8 @@ export interface Tournament {
   advance: number
   /** Swiss rounds, zero when the usual count is used. */
   rounds: number
+  /** Optional #rrggbb accent for this tournament's pages. */
+  accent: string | null
   status: Status
   created_at: string
   teams: Team[]

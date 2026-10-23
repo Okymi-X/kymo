@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { GroupsView } from '../components/GroupsView'
 import { StatusPill } from '../components/ui'
+import { accentProps } from '../lib/theme'
 import { stageFits } from '../lib/layout'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { bySchedule, planLine } from '../lib/schedule'
@@ -210,7 +211,7 @@ export function StagePage() {
   const knockout = t.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null
 
   return (
-    <div className="flex min-h-screen flex-col gap-6 p-6 lg:p-10">
+    <div className="flex min-h-screen flex-col gap-6 p-6 lg:p-10" {...accentProps(t.accent)}>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <h1 className="truncate text-4xl font-semibold leading-none tracking-[-0.03em] lg:text-5xl">{t.name}</h1>

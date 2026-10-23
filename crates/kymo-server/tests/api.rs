@@ -1618,3 +1618,57 @@ async fn the_documented_example_file_imports() {
     assert_eq!(made["teams"].as_array().unwrap().len(), 6);
     assert_eq!(made["teams"][0]["name"], "Null Pointers");
 }
+
+#[tokio::test]
+async fn a_tournament_can_carry_its_own_accent() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Tinted", "format": "swiss"})),
+    )
+    .await;
+    let (status, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/accent",
+        t,
+        Some(json!({"accent": "#aa2200"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(out["accent"], "#aa2200");
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/accent",
+        t,
+        Some(json!({"accent": "red;}</style>"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, shown) = call(&app, "GET", "/api/v1/tournaments/tinted", None, None).await;
+    assert_eq!(shown["accent"], "#aa2200");
+    let (_, cleared) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/accent",
+        t,
+        Some(json!({"accent": null})),
+    )
+    .await;
+    assert!(cleared["accent"].is_null());
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/accent",
+        None,
+        Some(json!({"accent": null})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

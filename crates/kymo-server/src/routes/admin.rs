@@ -172,6 +172,32 @@ pub async fn rename(
     Ok(Json(t))
 }
 
+#[derive(Deserialize)]
+pub struct AccentBody {
+    /// A #rrggbb color, or null to use the site accent again.
+    accent: Option<String>,
+}
+
+pub async fn set_accent(
+    _: Admin,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<AccentBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    if let Some(color) = body.accent.as_deref() {
+        let valid = color.len() == 7
+            && color.starts_with('#')
+            && color[1..].chars().all(|c| c.is_ascii_hexdigit());
+        if !valid {
+            return Err(ApiError::BadRequest("color must look like #0a6fe0".into()));
+        }
+    }
+    db::set_accent(&state.pool, id, body.accent.as_deref()).await?;
+    let t = db::get(&state.pool, id).await?;
+    state.notify(&t.slug);
+    Ok(Json(t))
+}
+
 pub async fn remove(
     _: Admin,
     State(state): State<AppState>,

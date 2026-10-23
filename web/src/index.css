@@ -301,3 +301,16 @@ dialog[open]::backdrop {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line) transparent;
 }
+
+/* A tournament may carry its own accent. Dark mode lifts it toward white so it stays readable. */
+[data-tournament-accent] {
+  --color-accent: var(--tournament-accent);
+}
+:root[data-scheme='dark'] [data-tournament-accent] {
+  --color-accent: color-mix(in srgb, var(--tournament-accent) 65%, white);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme='light']) [data-tournament-accent] {
+    --color-accent: color-mix(in srgb, var(--tournament-accent) 65%, white);
+  }
+}

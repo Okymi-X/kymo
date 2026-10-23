@@ -8,6 +8,7 @@ import { BracketView } from '../components/BracketView'
 import { GroupsView } from '../components/GroupsView'
 import { StandingsTable } from '../components/StandingsTable'
 import { StatusPill } from '../components/ui'
+import { accentProps } from '../lib/theme'
 import { computeTeamRows } from '../lib/stats'
 
 export type EmbedView = 'bracket' | 'standings' | 'groups'
@@ -48,7 +49,7 @@ export function EmbedPage() {
   const knockout = t.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null
 
   return (
-    <div className="flex h-screen flex-col gap-4 p-4">
+    <div className="flex h-screen flex-col gap-4 p-4" {...accentProps(t.accent)}>
       {showTitle && (
         <header className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{t.name}</h1>

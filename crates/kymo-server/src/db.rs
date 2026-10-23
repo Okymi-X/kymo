@@ -40,6 +40,7 @@ struct Row {
     groups: i64,
     advance: i64,
     rounds: i64,
+    accent: Option<String>,
     status: Status,
     bracket: Option<String>,
     created_at: String,
@@ -56,6 +57,8 @@ pub struct Tournament {
     pub advance: u8,
     /// Swiss rounds, zero to pick the usual count at start.
     pub rounds: u8,
+    /// Optional #rrggbb accent that tints this tournament's pages.
+    pub accent: Option<String>,
     pub status: Status,
     pub created_at: String,
     pub teams: Vec<Team>,
@@ -121,6 +124,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         groups: u8::try_from(row.groups).unwrap_or(2),
         advance: u8::try_from(row.advance).unwrap_or(2),
         rounds: u8::try_from(row.rounds).unwrap_or(0),
+        accent: row.accent,
         status: row.status,
         created_at: row.created_at,
         team_count: teams.len(),
@@ -191,6 +195,19 @@ pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, Ap
     .execute(pool)
     .await?;
     Ok(result.last_insert_rowid())
+}
+
+pub async fn set_accent(pool: &SqlitePool, id: i64, accent: Option<&str>) -> Result<(), ApiError> {
+    let done = sqlx::query("UPDATE tournament SET accent = ? WHERE id = ?")
+        .bind(accent)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if done.rows_affected() == 0 {
+        Err(ApiError::NotFound)
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn rename(pool: &SqlitePool, id: i64, name: &str) -> Result<(), ApiError> {

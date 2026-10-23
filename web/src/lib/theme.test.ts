@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_APPEARANCE, PAGE_BACKGROUND, PRESETS, contrastRatio, matchingPreset, themeCss } from './theme'
+import { DEFAULT_APPEARANCE, accentProps, PAGE_BACKGROUND, PRESETS, contrastRatio, matchingPreset, themeCss } from './theme'
 
 describe('themeCss', () => {
   it('writes accent, radius and font for both color schemes', () => {
@@ -68,5 +68,13 @@ describe('tint and avatars', () => {
     const css = themeCss({ ...DEFAULT_APPEARANCE, tint: 'cool', avatars: false })
     expect(css).toContain('--color-bg:#f6f8fb')
     expect(css).toContain('[data-avatar]{display:none !important;}')
+  })
+})
+
+describe('accentProps', () => {
+  it('scopes a valid hex and ignores anything else', () => {
+    expect(accentProps('#aa2200')).toMatchObject({ 'data-tournament-accent': '', style: { '--tournament-accent': '#aa2200' } })
+    expect(accentProps(null)).toEqual({})
+    expect(accentProps('red;}</style>')).toEqual({})
   })
 })

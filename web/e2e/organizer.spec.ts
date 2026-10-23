@@ -616,3 +616,18 @@ test('a Swiss tournament plans the next round once a round is played', async ({ 
   await expect(edits).toHaveCount(4)
   await expect(page.getByText('Round 2').first()).toBeVisible()
 })
+
+test('a tournament can get its own color and drop it again', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Colored Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Color', exact: true }).click()
+  await page.getByLabel('Hex color').fill('#aa2200')
+  await page.getByRole('button', { name: 'Save color' }).click()
+  await expect(page.locator('[data-tournament-accent]').first()).toHaveCSS('--tournament-accent', '#aa2200')
+  await page.reload()
+  await expect(page.locator('[data-tournament-accent]').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Color', exact: true }).click()
+  await page.getByRole('button', { name: 'Use site color' }).click()
+  await expect(page.locator('[data-tournament-accent]')).toHaveCount(0)
+})

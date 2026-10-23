@@ -25,6 +25,7 @@ import { Modal } from '../components/Modal'
 import { Button, ErrorText, Field, Input, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
+import { accentProps, isHex } from '../lib/theme'
 import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
 import { CalendarPlus, Code, Monitor, Printer, X } from 'lucide-react'
@@ -49,7 +50,7 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
   )
 }
 
-type Pending = 'reset' | 'delete' | 'rename' | null
+type Pending = 'reset' | 'delete' | 'rename' | 'color' | null
 
 function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; teamId: number; teamName: (s: Slot) => string; onOpen: () => void; onStop: () => void }) {
   const row = computeTeamRows(t).find((r) => r.team.id === teamId)
@@ -93,6 +94,14 @@ function AdminActions({ t }: { t: Tournament }) {
     },
   })
   const [name, setName] = useState(t.name)
+  const [color, setColor] = useState(t.accent ?? '#0a6fe0')
+  const recolor = useMutation({
+    mutationFn: (accent: string | null) => api.setAccent(t.id, accent),
+    onSuccess: (next) => {
+      client.setQueryData(['tournament', next.slug], next)
+      setAsking(null)
+    },
+  })
   const rename = useMutation({
     mutationFn: () => api.rename(t.id, name.trim()),
     onSuccess: (next) => {
@@ -118,12 +127,56 @@ function AdminActions({ t }: { t: Tournament }) {
       >
         Rename
       </Button>
+      <Button
+        onClick={() => {
+          setColor(t.accent ?? '#0a6fe0')
+          setAsking('color')
+        }}
+      >
+        Color
+      </Button>
       <ExportButton filename={`${t.slug}-backup.json`} build={() => JSON.stringify(t, null, 2)} label="Backup JSON" type="application/json" />
       {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
       <Button variant="danger" onClick={() => setAsking('delete')}>
         Delete
       </Button>
       <ErrorText error={reset.error ?? remove.error} />
+      {asking === 'color' && (
+        <Modal label="Tournament color" onClose={() => setAsking(null)}>
+          <form
+            className="flex flex-col gap-4 p-6"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (isHex(color)) recolor.mutate(color)
+            }}
+          >
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Tournament color</h2>
+              <p className="mt-1 text-sm text-muted">Tints buttons and highlights on this tournament, its stage screen and its embed.</p>
+            </div>
+            <div className="flex items-end gap-3">
+              <input type="color" aria-label="Pick a color" value={isHex(color) ? color : '#0a6fe0'} onChange={(e) => setColor(e.target.value)} className="h-10 w-14 cursor-pointer rounded-control border border-field-line bg-field p-1" />
+              <Field label="Hex color">
+                <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={7} className="w-32 font-mono" />
+              </Field>
+            </div>
+            <ErrorText error={recolor.error} />
+            <div className="flex items-center justify-between gap-2">
+              <Button type="button" variant="ghost" onClick={() => recolor.mutate(null)} disabled={recolor.isPending || t.accent === null}>
+                Use site color
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={recolor.isPending || !isHex(color)}>
+                  Save color
+                </Button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
       {asking === 'rename' && (
         <Modal label="Rename tournament" onClose={() => setAsking(null)}>
           <form
@@ -234,7 +287,7 @@ export function TournamentPage() {
   if (error || !t) return <ErrorText error={error ?? new Error('Tournament not found')} />
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8" {...accentProps(t.accent)}>
       <div className="-mb-4">
         <BackLink>Tournaments</BackLink>
       </div>

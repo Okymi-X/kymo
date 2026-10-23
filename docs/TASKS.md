@@ -53,8 +53,9 @@
 
 - [x] Swiss format (engine swiss.rs, rounds column, demo Swiss Open), palette search icon and key chips, select chevron fix
 
+- [x] Per tournament accent color (Color button, scoped CSS), tournament import with schema, README quickstart
+
 ## Todo
-- [ ] More customization: per tournament accent
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

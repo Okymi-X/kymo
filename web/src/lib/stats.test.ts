@@ -30,6 +30,7 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   groups: 2,
   advance: 2,
   rounds: 0,
+  accent: null,
   status: 'live',
   created_at: '',
   teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),

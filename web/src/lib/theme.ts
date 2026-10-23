@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { Appearance, FontChoice } from '../api/types'
 import { resolveScheme } from './scheme'
 
@@ -138,3 +139,9 @@ export function contrastRatio(a: string, b: string): number {
 
 export const PAGE_BACKGROUND = { light: '#fafafa', dark: '#0b0b0c' }
 export const AA = 4.5
+
+/** Props that scope a tournament's own accent to an element and everything inside it. */
+export function accentProps(accent: string | null | undefined): { 'data-tournament-accent'?: string; style?: CSSProperties } {
+  if (!accent || !isHex(accent)) return {}
+  return { 'data-tournament-accent': '', style: { '--tournament-accent': accent } as CSSProperties }
+}
