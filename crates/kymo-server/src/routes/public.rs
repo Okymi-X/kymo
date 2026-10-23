@@ -1,0 +1,63 @@
+use std::convert::Infallible;
+
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use futures_core::Stream;
+use serde::{Deserialize, Serialize};
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
+
+use crate::db::{self, Tournament};
+use crate::error::ApiError;
+use crate::state::AppState;
+
+#[derive(Deserialize)]
+pub struct LoginBody {
+    password: String,
+}
+
+#[derive(Serialize)]
+pub struct LoginOut {
+    token: String,
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(body): Json<LoginBody>,
+) -> Result<Json<LoginOut>, ApiError> {
+    if !state.verify_password(&body.password) {
+        return Err(ApiError::Unauthorized);
+    }
+    Ok(Json(LoginOut {
+        token: state.open_session(),
+    }))
+}
+
+pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>, ApiError> {
+    let mut all = db::list(&state.pool).await?;
+    for t in &mut all {
+        t.bracket = None;
+    }
+    Ok(Json(all))
+}
+
+pub async fn show(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<Tournament>, ApiError> {
+    Ok(Json(db::get_by_slug(&state.pool, &slug).await?))
+}
+
+pub async fn events(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = BroadcastStream::new(state.events.subscribe()).filter_map(move |msg| match msg {
+        Ok(changed) if changed == slug => {
+            Some(Ok(Event::default().event("update").data("changed")))
+        }
+        _ => None,
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
