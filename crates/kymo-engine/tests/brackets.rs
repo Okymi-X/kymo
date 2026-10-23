@@ -269,3 +269,19 @@ fn changing_a_semifinal_result_updates_the_third_place_slots() {
     b.set_result(0, 1, 3).unwrap();
     assert_eq!(b.matches[3].slots[0], Slot::Team(1));
 }
+
+#[test]
+fn progress_counts_only_matches_that_are_played_by_people() {
+    let mut b = generate(&teams(3), Format::SingleElimination).unwrap();
+    assert_eq!(b.progress(), (0, 2));
+    play_all(&mut b, lower_team_wins);
+    assert_eq!(b.progress(), (2, 2));
+}
+
+#[test]
+fn progress_ignores_a_void_grand_final_reset() {
+    let mut b = generate(&teams(4), Format::DoubleElimination).unwrap();
+    play_all(&mut b, lower_team_wins);
+    let (played, total) = b.progress();
+    assert_eq!(played, total);
+}

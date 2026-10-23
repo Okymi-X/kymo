@@ -90,6 +90,17 @@ pub struct Bracket {
 }
 
 impl Bracket {
+    /// (played, total) over matches people actually play: byes and a void reset are skipped.
+    pub fn progress(&self) -> (usize, usize) {
+        let real = self
+            .matches
+            .iter()
+            .filter(|m| !m.slots.contains(&Slot::Bye));
+        real.fold((0, 0), |(played, total), m| {
+            (played + usize::from(m.is_played()), total + 1)
+        })
+    }
+
     pub fn champion(&self) -> Option<TeamId> {
         let slot_of = |m: &Match| m.winner.map(|s| m.slots[s.index()]);
         let winner = match self.format {

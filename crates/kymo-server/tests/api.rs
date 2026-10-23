@@ -517,3 +517,39 @@ async fn appearance_is_public_editable_by_admins_and_validated() {
     let (_, after) = call(&app, "GET", "/api/v1/settings", None, None).await;
     assert_eq!(after["site_name"], "Kymo");
 }
+
+#[tokio::test]
+async fn list_reports_progress_without_sending_brackets() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Progress", "format": "single_elimination"})),
+    )
+    .await;
+    let teams = json!({"teams": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/result",
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    assert_eq!(list[0]["progress"], json!({"played": 1, "total": 3}));
+    assert!(list[0]["bracket"].is_null());
+}

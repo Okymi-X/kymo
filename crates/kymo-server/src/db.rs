@@ -16,6 +16,12 @@ pub enum Status {
     Done,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Progress {
+    pub played: usize,
+    pub total: usize,
+}
+
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Team {
     pub id: i64,
@@ -48,6 +54,7 @@ pub struct Tournament {
     pub teams: Vec<Team>,
     pub bracket: Option<Bracket>,
     pub champion: Option<u32>,
+    pub progress: Progress,
 }
 
 pub async fn connect(url: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -83,6 +90,16 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         .map_err(parse)?;
     Ok(Tournament {
         champion: bracket.as_ref().and_then(Bracket::champion),
+        progress: bracket.as_ref().map_or(
+            Progress {
+                played: 0,
+                total: 0,
+            },
+            |b| {
+                let (played, total) = b.progress();
+                Progress { played, total }
+            },
+        ),
         bracket,
         id: row.id,
         name: row.name,
