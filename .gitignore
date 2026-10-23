@@ -4,3 +4,4 @@ web/dist/
 *.db
 *.db-*
 .env
+.kymo-password

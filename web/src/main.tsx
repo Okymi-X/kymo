@@ -6,6 +6,7 @@ import { BrowserRouter, Route, Routes } from 'react-router'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
+import { Tokens } from './pages/Tokens'
 import { TournamentPage } from './pages/TournamentPage'
 import './index.css'
 
@@ -20,6 +21,7 @@ createRoot(document.getElementById('root')!).render(
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />
             </Routes>
           </Shell>

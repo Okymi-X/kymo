@@ -45,3 +45,9 @@ export interface Tournament {
   bracket: Bracket | null
   champion: number | null
 }
+
+export interface ApiToken {
+  id: number
+  label: string
+  created_at: number
+}

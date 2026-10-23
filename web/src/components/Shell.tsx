@@ -14,7 +14,11 @@ export function Shell({ children }: { children: ReactNode }) {
             Kymo
           </Link>
           {admin ? (
-            <Button
+            <div className="flex items-center gap-4">
+              <Link to="/tokens" className="text-muted hover:text-ink">
+                API tokens
+              </Link>
+              <Button
               variant="ghost"
               onClick={() => {
                 session.clear()
@@ -22,7 +26,8 @@ export function Shell({ children }: { children: ReactNode }) {
               }}
             >
               Sign out
-            </Button>
+              </Button>
+            </div>
           ) : (
             <Link to="/login" className="text-muted hover:text-ink">
               Organizer sign in
