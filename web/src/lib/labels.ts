@@ -5,7 +5,11 @@ export const formatLabel: Record<Format, string> = {
   double_elimination: 'Double elimination',
   round_robin: 'Round robin',
   group_knockout: 'Groups then knockout',
+  swiss: 'Swiss',
 }
+
+/** Formats ranked by a points table instead of a knockout tree. */
+export const isLeagueFormat = (format: Format) => format === 'round_robin' || format === 'swiss'
 
 export function roundLabel(stage: Stage, round: number, totalRounds: number, format: Format): string {
   if (stage === 'grand_final') return 'Grand final'

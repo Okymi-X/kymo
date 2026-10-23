@@ -29,6 +29,9 @@ pub struct CreateBody {
     groups: u8,
     #[serde(default = "default_advance")]
     advance: u8,
+    /// Swiss only: rounds to play, 1 to 12. Zero picks log2 of the team count.
+    #[serde(default)]
+    rounds: u8,
 }
 
 fn default_groups() -> u8 {
@@ -134,6 +137,9 @@ pub async fn create(
             "use 2 to 8 groups and 1 to 4 teams advancing per group".into(),
         ));
     }
+    if body.format == Format::Swiss && body.rounds > 12 {
+        return Err(ApiError::BadRequest("Swiss plays 1 to 12 rounds".into()));
+    }
     let id = db::create(
         &state.pool,
         NewTournament {
@@ -143,6 +149,11 @@ pub async fn create(
             third_place: body.third_place && body.format == Format::SingleElimination,
             groups: body.groups,
             advance: body.advance,
+            rounds: if body.format == Format::Swiss {
+                body.rounds
+            } else {
+                0
+            },
         },
     )
     .await?;
@@ -256,6 +267,7 @@ pub async fn start(
             third_place: t.third_place,
             groups: t.groups,
             advance: t.advance,
+            rounds: t.rounds,
         },
     )?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;

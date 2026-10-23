@@ -9,7 +9,7 @@ import { BracketView } from '../components/BracketView'
 import { GroupsView } from '../components/GroupsView'
 import { StatusPill } from '../components/ui'
 import { stageFits } from '../lib/layout'
-import { formatLabel, roundNamer } from '../lib/labels'
+import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { bySchedule, planLine } from '../lib/schedule'
 import { computeTeamRows, isRealMatch, matchState, type TeamRow } from '../lib/stats'
 
@@ -41,6 +41,18 @@ function buildSlides(t: Tournament, rows: TeamRow[]): Slide[] {
     pages.forEach((page, i) =>
       slides.push({ id: `standings-${i}`, label: pages.length > 1 ? `Standings ${i + 1}/${pages.length}` : 'Standings', kind: 'standings', rows: page, offset: i * TABLE_PAGE }),
     )
+  }
+  if (t.format === 'swiss') {
+    const latest = Math.max(...bracket.matches.map((m) => m.round))
+    const open = bracket.matches.filter((m) => !m.slots.some((s) => s.kind === 'bye') && m.score === null && !m.forfeit)
+    const round = open.length > 0 ? Math.min(...open.map((m) => m.round)) : latest
+    const matches = bracket.matches.filter((m) => m.round === round && !m.slots.some((s) => s.kind === 'bye'))
+    const title = `Round ${round} of ${bracket.swiss_rounds ?? latest}`
+    chunk(matches, ROUND_PAGE).forEach((page, i, all) =>
+      slides.push({ id: `round-${i}`, label: all.length > 1 ? `${title}, ${i + 1}/${all.length}` : title, kind: 'round', title, matches: page }),
+    )
+    tableSlides(TABLE_PAGES_MAX)
+    return slides
   }
   if (t.format === 'round_robin') {
     tableSlides(Math.ceil(32 / TABLE_PAGE))
@@ -263,7 +275,7 @@ export function StagePage() {
                     <BracketView bracket={knockout} teamName={name} fill hideControls />
                   </div>
                 )}
-                {active?.kind === 'standings' && <StageTable rows={active.rows} offset={active.offset} league={t.format === 'round_robin'} />}
+                {active?.kind === 'standings' && <StageTable rows={active.rows} offset={active.offset} league={isLeagueFormat(t.format)} />}
                 {active?.kind === 'groups' && <GroupsView tournament={t} teamName={name} onSelect={() => undefined} />}
               </div>
             )}

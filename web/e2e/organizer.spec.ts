@@ -593,3 +593,26 @@ test('an organizer can decide a tie in a round robin table', async ({ page }) =>
   await page.getByRole('button', { name: 'Save order' }).click()
   await expect(page.getByRole('table').getByRole('row').nth(1)).toContainText('Charlie')
 })
+
+test('a Swiss tournament plans the next round once a round is played', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Swiss Cup')
+  await page.getByLabel('Format').selectOption('swiss')
+  await page.getByLabel('Rounds').selectOption('2')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await page.getByRole('tab', { name: 'Schedule' }).click()
+  const edits = page.getByRole('button', { name: /Edit result for/ })
+  await expect(edits).toHaveCount(2)
+  for (let i = 0; i < 2; i++) {
+    await edits.nth(i).click()
+    await page.getByRole('dialog').getByLabel('Score').nth(0).fill('2')
+    await page.getByRole('dialog').getByLabel('Score').nth(1).fill('1')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  }
+  await expect(edits).toHaveCount(4)
+  await expect(page.getByText('Round 2').first()).toBeVisible()
+})

@@ -22,3 +22,4 @@
 - Stage overview slide shows only when stageScale (layout.ts, 1440x880 area) is at least 0.55: a 32 slot knockout fits (0.60), 64 does not (0.30).
 - Appearance JSON gained tint and avatars with serde defaults, so rows saved earlier still load. Server css() and web themeCss() must stay in sync.
 - Bracket.tiebreak is a list of team ids placed before the id fallback in standings. Web leagueOrderFor in stats.ts must mirror the engine sort. Team ids in tests are database ids (not 1..n when a prior roster was replaced).
+- Swiss: Bracket.swiss_rounds, matches are Stage::League with group None and a Swiss bye is a [Team, Bye] match that counts as a win in standings. refresh_swiss plans round k+1 once rounds 1..k are played and swiss_guard blocks edits once a later round is played. Round 1 is fixed at generation (top half meets bottom half).

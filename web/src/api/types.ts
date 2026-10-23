@@ -1,4 +1,4 @@
-export type Format = 'single_elimination' | 'double_elimination' | 'round_robin' | 'group_knockout'
+export type Format = 'single_elimination' | 'double_elimination' | 'round_robin' | 'group_knockout' | 'swiss'
 export type Status = 'draft' | 'live' | 'done'
 export type Stage = 'winners' | 'losers' | 'grand_final' | 'grand_reset' | 'third_place' | 'league'
 export type Side = 'A' | 'B'
@@ -29,6 +29,8 @@ export interface Match {
 export interface Bracket {
   format: Format
   matches: Match[]
+  /** Swiss only: rounds the event plays. */
+  swiss_rounds?: number
   /** Organizer decided order for teams level on points, difference and goals. */
   tiebreak: number[]
 }
@@ -48,6 +50,8 @@ export interface Tournament {
   third_place: boolean
   groups: number
   advance: number
+  /** Swiss rounds, zero when the usual count is used. */
+  rounds: number
   status: Status
   created_at: string
   teams: Team[]

@@ -628,3 +628,105 @@ fn tiebreak_order_decides_teams_level_on_everything() {
     );
     assert_eq!(order(&b), vec![3, 1, 2]);
 }
+
+fn swiss(n: u32, rounds: u8) -> Bracket {
+    generate_with(
+        &teams(n),
+        Format::Swiss,
+        Options {
+            rounds,
+            ..Options::default()
+        },
+    )
+    .unwrap()
+}
+
+fn play_swiss_round(b: &mut Bracket, round: u32) {
+    let ids: Vec<usize> = b
+        .matches
+        .iter()
+        .filter(|m| m.round == round && !m.slots.contains(&Slot::Bye))
+        .map(|m| m.id)
+        .collect();
+    for id in ids {
+        let (a, c) = lower_team_wins(&b.matches[id]);
+        b.set_result(id, a, c).unwrap();
+    }
+}
+
+fn pairs_of(b: &Bracket) -> Vec<(u32, u32)> {
+    b.matches
+        .iter()
+        .filter_map(|m| match m.slots {
+            [Slot::Team(a), Slot::Team(c)] => Some((a.min(c), a.max(c))),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn swiss_plans_each_round_after_the_last_without_rematches() {
+    let mut b = swiss(8, 0);
+    assert_eq!(b.swiss_rounds, 3);
+    assert_eq!(b.matches.len(), 4);
+    assert_eq!(b.champion(), None);
+    for round in 1..=3 {
+        assert!(b.matches.iter().all(|m| m.round <= round));
+        play_swiss_round(&mut b, round);
+    }
+    assert_eq!(b.matches.len(), 12);
+    let pairs = pairs_of(&b);
+    let mut unique = pairs.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), pairs.len(), "a pair met twice: {pairs:?}");
+    assert_eq!(b.champion(), Some(1));
+}
+
+#[test]
+fn swiss_gives_each_team_at_most_one_bye_when_the_count_is_odd() {
+    let mut b = swiss(5, 3);
+    for round in 1..=3 {
+        play_swiss_round(&mut b, round);
+    }
+    let byes: Vec<u32> = b
+        .matches
+        .iter()
+        .filter_map(|m| match m.slots {
+            [Slot::Team(t), Slot::Bye] => Some(t),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(byes.len(), 3);
+    let mut unique = byes.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 3);
+    let table = b.standings();
+    assert!(table.iter().all(|s| s.played == 3));
+}
+
+#[test]
+fn swiss_corrections_replan_an_unplayed_round_and_block_a_played_one() {
+    let mut b = swiss(8, 3);
+    play_swiss_round(&mut b, 1);
+    let before = pairs_of(&b);
+    let first = b.matches.iter().find(|m| m.round == 1).unwrap().id;
+    let (x, y) = lower_team_wins(&b.matches[first]);
+    b.set_result(first, y, x).unwrap();
+    assert_ne!(
+        pairs_of(&b),
+        before,
+        "round two follows the corrected result"
+    );
+    play_swiss_round(&mut b, 2);
+    assert_eq!(
+        b.set_result(first, x, y),
+        Err(EngineError::DownstreamPlayed)
+    );
+    assert_eq!(b.clear_result(first), Err(EngineError::DownstreamPlayed));
+    assert_eq!(
+        generate_with(&teams(3), Format::Swiss, Options::default()),
+        Err(EngineError::TooFewTeams { min: 4 })
+    );
+}

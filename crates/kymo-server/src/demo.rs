@@ -67,13 +67,26 @@ struct Plan {
     third_place: bool,
     groups: u8,
     advance: u8,
+    rounds: u8,
     /// How many matches to play: `None` plays everything, `Some(0)` leaves the roster only.
     play: Option<usize>,
     started: bool,
     story: bool,
 }
 
-const PLANS: [Plan; 7] = [
+const PLANS: [Plan; 8] = [
+    Plan {
+        name: "Swiss Open",
+        format: Format::Swiss,
+        teams: 12,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        rounds: 4,
+        play: Some(14),
+        started: true,
+        story: false,
+    },
     Plan {
         name: "Spring Cup 2026",
         format: Format::DoubleElimination,
@@ -81,6 +94,7 @@ const PLANS: [Plan; 7] = [
         third_place: false,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: Some(7),
         started: true,
         story: false,
@@ -92,6 +106,7 @@ const PLANS: [Plan; 7] = [
         third_place: true,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: None,
         started: true,
         story: false,
@@ -103,6 +118,7 @@ const PLANS: [Plan; 7] = [
         third_place: false,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: Some(11),
         started: true,
         story: false,
@@ -114,6 +130,7 @@ const PLANS: [Plan; 7] = [
         third_place: false,
         groups: 3,
         advance: 2,
+        rounds: 0,
         play: Some(20),
         started: true,
         story: false,
@@ -125,6 +142,7 @@ const PLANS: [Plan; 7] = [
         third_place: false,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: Some(0),
         started: false,
         story: false,
@@ -136,6 +154,7 @@ const PLANS: [Plan; 7] = [
         third_place: true,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: Some(70),
         started: true,
         story: false,
@@ -147,6 +166,7 @@ const PLANS: [Plan; 7] = [
         third_place: false,
         groups: 2,
         advance: 2,
+        rounds: 0,
         play: Some(2),
         started: true,
         story: true,
@@ -200,6 +220,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
             third_place: plan.third_place,
             groups: plan.groups,
             advance: plan.advance,
+            rounds: plan.rounds,
         },
     )
     .await?;
@@ -223,6 +244,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
         third_place: plan.third_place,
         groups: plan.groups,
         advance: plan.advance,
+        rounds: plan.rounds,
     };
     let mut bracket = generate_with(&ids, plan.format, options)?;
 

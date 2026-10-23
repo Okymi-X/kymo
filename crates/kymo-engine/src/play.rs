@@ -13,6 +13,7 @@ fn auto_winner(slots: [Slot; 2]) -> Option<Side> {
 impl Bracket {
     /// Records a result. The bracket is left untouched when this returns an error.
     pub fn set_result(&mut self, id: MatchId, a: u32, b: u32) -> Result<(), EngineError> {
+        self.swiss_guard(id)?;
         let mut next = self.clone();
         let m = next
             .matches
@@ -55,6 +56,7 @@ impl Bracket {
 
     /// Awards a ready match to one side without a score.
     pub fn set_forfeit(&mut self, id: MatchId, winner: Side) -> Result<(), EngineError> {
+        self.swiss_guard(id)?;
         let mut next = self.clone();
         let m = next
             .matches
@@ -99,6 +101,7 @@ impl Bracket {
 
     /// Removes a recorded result. Fails if a later match was already played.
     pub fn clear_result(&mut self, id: MatchId) -> Result<(), EngineError> {
+        self.swiss_guard(id)?;
         let mut next = self.clone();
         let m = next
             .matches
@@ -120,6 +123,9 @@ impl Bracket {
     /// the first knockout round. Before that, and whenever a group result changes, the slots
     /// follow the table. A knockout match that was already played blocks the change.
     pub(crate) fn refresh_knockout(&mut self) -> Result<(), EngineError> {
+        if self.format == Format::Swiss {
+            return self.refresh_swiss();
+        }
         if self.format != Format::GroupKnockout {
             return Ok(());
         }

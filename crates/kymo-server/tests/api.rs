@@ -1056,16 +1056,16 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
 
     let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(first["added"], 7);
+    assert_eq!(first["added"], 8);
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
     let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
     let list = list.as_array().unwrap();
-    assert_eq!(list.len(), 7);
+    assert_eq!(list.len(), 8);
     let formats: std::collections::HashSet<_> =
         list.iter().map(|t| t["format"].as_str().unwrap()).collect();
-    assert_eq!(formats.len(), 4);
+    assert_eq!(formats.len(), 5);
     let statuses: std::collections::HashSet<_> =
         list.iter().map(|t| t["status"].as_str().unwrap()).collect();
     assert_eq!(statuses, ["draft", "live", "done"].into_iter().collect());
@@ -1488,4 +1488,78 @@ async fn organizer_can_break_a_tie_over_the_api() {
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn swiss_plans_rounds_as_results_arrive_over_the_api() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let (status, bad) = call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Too long", "format": "swiss", "rounds": 13})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Swiss Cup", "format": "swiss", "rounds": 2})),
+    )
+    .await;
+    let teams: Vec<_> = (0..6)
+        .map(|i| json!({"name": format!("S{i}"), "score": 0}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({ "teams": teams })),
+    )
+    .await;
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(started["bracket"]["matches"].as_array().unwrap().len(), 3);
+    assert_eq!(started["bracket"]["swiss_rounds"], 2);
+
+    let mut out = started;
+    for id in 0..3 {
+        let path = format!("/api/v1/admin/tournaments/1/matches/{id}/result");
+        (_, out) = call(
+            &app,
+            "PUT",
+            &path,
+            t,
+            Some(json!({"score_a": 2, "score_b": 1})),
+        )
+        .await;
+    }
+    assert_eq!(
+        out["bracket"]["matches"].as_array().unwrap().len(),
+        6,
+        "round two appears"
+    );
+    assert!(out["champion"].is_null());
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/3/result",
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 }

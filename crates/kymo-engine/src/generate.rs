@@ -16,6 +16,8 @@ pub struct Options {
     pub groups: u8,
     /// Groups then knockout only: how many teams per group reach the knockout (1 to 4).
     pub advance: u8,
+    /// Swiss only: number of rounds, 1 to 12. Zero picks the usual log2 of the team count.
+    pub rounds: u8,
 }
 
 impl Default for Options {
@@ -24,6 +26,7 @@ impl Default for Options {
             third_place: false,
             groups: 2,
             advance: 2,
+            rounds: 0,
         }
     }
 }
@@ -47,6 +50,7 @@ pub fn generate_with(
     match format {
         Format::RoundRobin => return Ok(round_robin(teams)),
         Format::GroupKnockout => return group_knockout(teams, options),
+        Format::Swiss => return crate::swiss::swiss(teams, options.rounds),
         _ => {}
     }
     let size = teams.len().next_power_of_two();
@@ -71,6 +75,7 @@ pub fn generate_with(
         format,
         matches,
         tiebreak: Vec::new(),
+        swiss_rounds: 0,
     };
     for id in winners[1].clone() {
         bracket.settle(id)?;
@@ -82,6 +87,7 @@ fn validate(teams: &[TeamId], format: Format) -> Result<(), EngineError> {
     let min = match format {
         Format::SingleElimination => 2,
         Format::DoubleElimination | Format::RoundRobin | Format::GroupKnockout => 3,
+        Format::Swiss => 4,
     };
     if teams.len() < min {
         return Err(EngineError::TooFewTeams { min });
@@ -283,6 +289,7 @@ fn round_robin(teams: &[TeamId]) -> Bracket {
         format: Format::RoundRobin,
         matches,
         tiebreak: Vec::new(),
+        swiss_rounds: 0,
     }
 }
 
@@ -355,6 +362,7 @@ fn group_knockout(teams: &[TeamId], options: Options) -> Result<Bracket, EngineE
         format: Format::GroupKnockout,
         matches,
         tiebreak: Vec::new(),
+        swiss_rounds: 0,
     };
     for id in winners[1].clone() {
         bracket.settle(id)?;

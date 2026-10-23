@@ -51,9 +51,10 @@
 
 - [x] Organizer tiebreak order (engine, PUT /admin/tournaments/{id}/tiebreak, Decide ties dialog) that also decides group qualifiers; grouped command palette
 
+- [x] Swiss format (engine swiss.rs, rounds column, demo Swiss Open), palette search icon and key chips, select chevron fix
+
 ## Todo
 - [ ] More customization: per tournament accent
-- [ ] Swiss format
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

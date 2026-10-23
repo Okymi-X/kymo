@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Tournament } from '../api/types'
+import { isLeagueFormat } from '../lib/labels'
 import { slicePage, usePagination } from '../lib/paginate'
 import { standingsCsv, tiedSets, type TeamRow } from '../lib/stats'
 import { useIsAdmin } from '../api/client'
@@ -25,7 +26,7 @@ interface Props {
 const num = 'text-right font-mono tabular-nums'
 const PAGE_SIZE = 15
 
-export function StandingsTable({ tournament, rows, onSelect, league = tournament.format === 'round_robin', title, advancing = 0, hideExport = false }: Props) {
+export function StandingsTable({ tournament, rows, onSelect, league = isLeagueFormat(tournament.format), title, advancing = 0, hideExport = false }: Props) {
   const [query, setQuery] = useState('')
   const admin = useIsAdmin()
   const [deciding, setDeciding] = useState(false)

@@ -259,8 +259,14 @@ dialog[open]::backdrop {
     box-shadow: var(--shadow-lift);
   }
 
+  /* The chevron is already drawn as a background image on every select. */
   select::picker-icon {
-    color: var(--color-muted);
+    display: none;
+  }
+
+  select {
+    display: inline-flex;
+    align-items: center;
   }
 
   select option {
@@ -279,4 +285,9 @@ dialog[open]::backdrop {
     font-weight: 600;
     background: color-mix(in srgb, var(--color-accent) 14%, transparent);
   }
+}
+
+.palette-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
 }

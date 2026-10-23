@@ -1,4 +1,5 @@
 import { Check, Copy } from 'lucide-react'
+import { isLeagueFormat } from '../lib/labels'
 import { useState } from 'react'
 import type { Tournament } from '../api/types'
 import { defaultEmbedView, type EmbedView } from '../pages/EmbedPage'
@@ -42,7 +43,7 @@ export function EmbedDialog({ tournament, onClose }: { tournament: Tournament; o
     }
   }
   const views: { value: EmbedView; label: string }[] =
-    tournament.format === 'round_robin'
+    isLeagueFormat(tournament.format)
       ? [{ value: 'standings', label: 'Standings' }]
       : tournament.format === 'group_knockout'
         ? [{ value: 'groups', label: 'Groups' }, { value: 'bracket', label: 'Knockout' }, { value: 'standings', label: 'Standings' }]

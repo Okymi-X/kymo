@@ -1,8 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Search } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { api, session, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
 import { filterCommands, type Command } from '../lib/palette'
+
+function Key({ children }: { children: string }) {
+  return <kbd className="rounded border border-line bg-bg px-1.5 py-0.5 font-mono text-[0.6875rem] leading-none">{children}</kbd>
+}
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -76,6 +81,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       aria-label="Command palette"
       className="mx-auto mt-[15vh] w-[min(92vw,32rem)] rounded-card border border-line bg-surface p-0 text-ink"
     >
+      <div className="flex items-center gap-3 border-b border-line px-4">
+        <Search size={16} aria-hidden="true" className="shrink-0 text-muted" />
       <input
         role="combobox"
         aria-expanded="true"
@@ -88,9 +95,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         }}
         onKeyDown={onKeyDown}
         placeholder="Go to a tournament or page"
-        className="w-full border-b border-line bg-transparent px-4 py-3 text-base placeholder:text-muted focus:outline-none"
+        className="h-12 w-full bg-transparent text-base placeholder:text-muted focus:outline-none focus-visible:outline-none"
       />
-      <ul id="palette-list" role="listbox" className="max-h-[22rem] overflow-y-auto p-1.5">
+      </div>
+      <ul id="palette-list" role="listbox" className="palette-scroll max-h-[22rem] overflow-y-auto p-1.5">
         {results.length === 0 && <li className="px-3 py-6 text-center text-muted">Nothing matches &ldquo;{query}&rdquo;</li>}
         {results.map((c, i) => (
           <Fragment key={c.id}>
@@ -105,7 +113,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               aria-selected={i === active}
               onMouseMove={() => setActive(i)}
               onClick={() => choose(c)}
-              className={`flex cursor-pointer items-center justify-between gap-3 rounded-control px-3 py-2 ${i === active ? 'bg-accent/10 text-ink' : ''}`}
+              className={`flex cursor-pointer items-center justify-between gap-3 rounded-control px-3 py-2 ${i === active ? 'bg-accent/10 text-ink ring-1 ring-inset ring-accent/30' : ''}`}
             >
               <span className="truncate">{c.label}</span>
               {c.hint && <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-xs text-muted">{c.hint}</span>}
@@ -114,9 +122,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         ))}
       </ul>
       <p className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-muted">
-        <span><kbd className="font-mono">Up</kbd> <kbd className="font-mono">Down</kbd> to move</span>
-        <span><kbd className="font-mono">Enter</kbd> to open</span>
-        <span><kbd className="font-mono">Esc</kbd> to close</span>
+        <span className="flex items-center gap-1.5"><Key>Up</Key><Key>Down</Key> move</span>
+        <span className="flex items-center gap-1.5"><Key>Enter</Key> open</span>
+        <span className="flex items-center gap-1.5"><Key>Esc</Key> close</span>
       </p>
     </dialog>
   )

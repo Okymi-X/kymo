@@ -79,13 +79,14 @@ export const api = {
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
   loadDemo: () => request<{ added: number }>('POST', '/admin/demo'),
   activity: (slug: string) => request<LogEvent[]>('GET', `/tournaments/${encodeURIComponent(slug)}/activity`),
-  create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number }) =>
+  create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number; rounds: number }) =>
     request<Tournament>('POST', '/tournaments', {
       name,
       format,
       third_place: options.thirdPlace,
       groups: options.groups,
       advance: options.advance,
+      rounds: options.rounds,
     }),
   rename: (id: number, name: string) => request<Tournament>('PUT', admin(id), { name }),
   remove: (id: number) => request<void>('DELETE', admin(id)),

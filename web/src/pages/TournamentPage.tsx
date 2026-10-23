@@ -23,7 +23,7 @@ import { TeamsGrid } from '../components/TeamsGrid'
 import { ExportButton } from '../components/ExportButton'
 import { Modal } from '../components/Modal'
 import { Button, ErrorText, Field, Input, PageTitle, StatusPill } from '../components/ui'
-import { formatLabel, roundNamer } from '../lib/labels'
+import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
@@ -210,7 +210,7 @@ export function TournamentPage() {
   const [embedding, setEmbedding] = useState(false)
   const [params, setParams] = useSearchParams()
   const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
-  const views = t?.format === 'round_robin' ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
+  const views = t && isLeagueFormat(t.format) ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
   const groupsDone = (t?.bracket?.matches ?? []).filter((m) => m.stage === 'league').every((m) => m.score !== null || m.forfeit)
   const fallback = t?.format === 'group_knockout' && groupsDone ? 'bracket' : views[0].id
   const requested = params.get('view')

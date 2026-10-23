@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react'
+import { isLeagueFormat } from '../lib/labels'
 import { useEffect, useMemo } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import type { Slot, Tournament } from '../api/types'
@@ -12,7 +13,7 @@ import { computeTeamRows } from '../lib/stats'
 export type EmbedView = 'bracket' | 'standings' | 'groups'
 
 export function defaultEmbedView(format: Tournament['format']): EmbedView {
-  return format === 'round_robin' ? 'standings' : format === 'group_knockout' ? 'groups' : 'bracket'
+  return isLeagueFormat(format) ? 'standings' : format === 'group_knockout' ? 'groups' : 'bracket'
 }
 
 /** A tournament view meant for an iframe or a stream overlay: no navigation, optional transparency. */

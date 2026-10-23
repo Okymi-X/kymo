@@ -1,4 +1,5 @@
 import type { Match, Side, Slot, Stage, Team, Tournament } from '../api/types'
+import { isLeagueFormat } from './labels'
 
 export type TeamStatus = 'champion' | 'active' | 'out' | 'seeded'
 
@@ -127,7 +128,7 @@ function statusOf(t: Tournament, row: TeamRow): TeamStatus {
     const loser = teamOf(m.slots[sideIndex(m.winner as Side) === 0 ? 1 : 0])
     return loser === row.team.id
   }).length
-  if (t.format !== 'round_robin' && lost >= lossesToExit) return 'out'
+  if (!isLeagueFormat(t.format) && lost >= lossesToExit) return 'out'
   return 'active'
 }
 
@@ -135,7 +136,7 @@ export function computeTeamRows(t: Tournament): TeamRow[] {
   const rows = tally(t, () => true)
   for (const row of rows.values()) row.status = statusOf(t, row)
   const order: Record<TeamStatus, number> = { champion: 0, active: 1, seeded: 1, out: 2 }
-  const compare = t.format === 'round_robin' ? leagueOrderFor(t) : knockoutOrder
+  const compare = isLeagueFormat(t.format) ? leagueOrderFor(t) : knockoutOrder
   return [...rows.values()].sort((a, b) => order[a.status] - order[b.status] || compare(a, b))
 }
 

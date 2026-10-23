@@ -16,10 +16,11 @@ function CreateForm() {
   const [thirdPlace, setThirdPlace] = useState(false)
   const [groups, setGroups] = useState(2)
   const [advance, setAdvance] = useState(2)
+  const [rounds, setRounds] = useState(0)
   const client = useQueryClient()
   const navigate = useNavigate()
   const create = useMutation({
-    mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance }),
+    mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance, rounds: format === 'swiss' ? rounds : 0 }),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
       navigate(`/t/${t.slug}`)
@@ -40,6 +41,7 @@ function CreateForm() {
           <option value="double_elimination">{formatLabel.double_elimination}</option>
           <option value="round_robin">{formatLabel.round_robin}</option>
           <option value="group_knockout">{formatLabel.group_knockout}</option>
+          <option value="swiss">{formatLabel.swiss}</option>
         </Select>
       </Field>
       {format === 'group_knockout' && (
@@ -63,6 +65,18 @@ function CreateForm() {
             </Select>
           </Field>
         </>
+      )}
+      {format === 'swiss' && (
+        <Field label="Rounds">
+          <Select value={rounds} onChange={(e) => setRounds(Number(e.target.value))}>
+            <option value={0}>Automatic</option>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Field>
       )}
       {format === 'single_elimination' && (
         <label className="flex h-10 items-center gap-2 text-sm">

@@ -10,6 +10,7 @@ pub enum Format {
     DoubleElimination,
     RoundRobin,
     GroupKnockout,
+    Swiss,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +104,9 @@ pub struct Bracket {
     /// listed earlier rank higher; teams not listed rank after them, lowest id first.
     #[serde(default)]
     pub tiebreak: Vec<TeamId>,
+    /// Swiss only: how many rounds the event plays. Zero for every other format.
+    #[serde(default)]
+    pub swiss_rounds: u32,
 }
 
 /// One team's line in a round robin table. A win is worth 3 points, a draw 1.
@@ -167,6 +171,14 @@ impl Bracket {
             .iter()
             .filter(|m| m.stage == Stage::League && m.group == group)
         {
+            if let [Slot::Team(a), Slot::Bye] | [Slot::Bye, Slot::Team(a)] = m.slots {
+                // A Swiss bye counts as a win without goals.
+                let row = row_index(&mut table, a);
+                table[row].played += 1;
+                table[row].wins += 1;
+                table[row].points += 3;
+                continue;
+            }
             let [Slot::Team(a), Slot::Team(b)] = m.slots else {
                 continue;
             };
@@ -219,6 +231,18 @@ impl Bracket {
 
     pub fn champion(&self) -> Option<TeamId> {
         let slot_of = |m: &Match| m.winner.map(|s| m.slots[s.index()]);
+        if self.format == Format::Swiss {
+            let rounds = self.matches.iter().map(|m| m.round).max().unwrap_or(0);
+            let done = rounds >= self.swiss_rounds
+                && self
+                    .matches
+                    .iter()
+                    .filter(|m| !m.slots.contains(&Slot::Bye))
+                    .all(Match::is_played);
+            return done
+                .then(|| self.standings().first().map(|s| s.team))
+                .flatten();
+        }
         if self.format == Format::RoundRobin {
             let all_played = !self.matches.is_empty() && self.matches.iter().all(Match::is_played);
             return all_played
@@ -229,7 +253,7 @@ impl Bracket {
             Format::SingleElimination | Format::GroupKnockout => {
                 slot_of(self.matches.iter().rfind(|m| m.stage == Stage::Winners)?)
             }
-            Format::RoundRobin => None,
+            Format::RoundRobin | Format::Swiss => None,
             Format::DoubleElimination => {
                 let n = self.matches.len();
                 let (grand, reset) = (&self.matches[n - 2], &self.matches[n - 1]);
