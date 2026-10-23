@@ -1303,3 +1303,43 @@ async fn only_embed_pages_may_be_framed() {
         Some("nosniff")
     );
 }
+
+#[tokio::test]
+async fn logo_accepts_small_raster_data_uris_only() {
+    let app = app().await;
+    let token = login(&app).await;
+    let look = |logo: serde_json::Value| {
+        json!({
+            "site_name": "Kymo", "accent_light": "#0a6fe0", "accent_dark": "#4da3ff",
+            "radius": 8, "font": "sans", "logo": logo
+        })
+    };
+    let png = "data:image/png;base64,iVBORw0KGgo=";
+    for (logo, expected) in [
+        (json!(png), StatusCode::OK),
+        (json!(null), StatusCode::OK),
+        (
+            json!("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!("data:image/png;base64,\"onerror=x"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (json!("https://example.com/a.png"), StatusCode::BAD_REQUEST),
+        (
+            json!(format!("data:image/png;base64,{}", "A".repeat(90_000))),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let (status, _) = call(
+            &app,
+            "PUT",
+            "/api/v1/admin/settings",
+            Some(&token),
+            Some(look(logo)),
+        )
+        .await;
+        assert_eq!(status, expected);
+    }
+}

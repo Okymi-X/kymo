@@ -553,3 +553,17 @@ test('an organizer can rename a tournament, and unknown pages show a 404', async
   await page.keyboard.press('Shift+Slash')
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
 })
+
+test('a logo can be uploaded in appearance and shows in the header', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/settings')
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64')
+  await page.getByLabel('Upload logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png })
+  await expect(page.getByAltText('Current logo')).toBeVisible()
+  await page.getByRole('button', { name: 'Save appearance' }).click()
+  await page.reload()
+  await expect(page.getByRole('link', { name: 'Kymo home' }).locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/)
+  await page.getByRole('button', { name: 'Remove logo' }).click()
+  await page.getByRole('button', { name: 'Save appearance' }).click()
+  await expect(page.getByAltText('Current logo')).toHaveCount(0)
+})

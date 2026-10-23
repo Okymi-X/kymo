@@ -8,7 +8,7 @@ import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
 import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Segmented, StatusPill } from '../components/ui'
-import { AA, DEFAULT_APPEARANCE, FONT_LABELS, PAGE_BACKGROUND, PRESETS, contrastRatio, isHex, matchingPreset } from '../lib/theme'
+import { AA, DEFAULT_APPEARANCE, FONT_LABELS, LOGO_TYPES, PAGE_BACKGROUND, PRESETS, contrastRatio, isHex, matchingPreset, readLogo } from '../lib/theme'
 
 const SAMPLE_NAMES = new Map([
   [1, 'Null Pointers'],
@@ -160,6 +160,7 @@ export function Settings() {
   const client = useQueryClient()
   const { data: saved } = useAppearance()
   const [draft, setDraft] = useState<Appearance | null>(null)
+  const [logoError, setLogoError] = useState<string | null>(null)
   const current = draft ?? saved ?? DEFAULT_APPEARANCE
 
   useEffect(() => {
@@ -211,6 +212,35 @@ export function Settings() {
           <Section title="Brand">
             <Field label="Site name">
               <Input value={current.site_name} onChange={(e) => set('site_name', e.target.value)} maxLength={40} className="max-w-sm" />
+            </Field>
+            <Field label="Logo">
+              <div className="flex flex-wrap items-center gap-3">
+                {current.logo && <img src={current.logo} alt="Current logo" className="h-9 w-auto max-w-48 rounded-control border border-line bg-surface p-1 object-contain" />}
+                <input
+                  type="file"
+                  accept={LOGO_TYPES.join(',')}
+                  aria-label="Upload logo"
+                  className="text-sm file:mr-3 file:h-10 file:rounded-control file:border file:border-line file:bg-surface file:px-4 file:font-medium"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ''
+                    if (!file) return
+                    const result = await readLogo(file)
+                    if ('error' in result) setLogoError(result.error)
+                    else {
+                      setLogoError(null)
+                      set('logo', result.uri)
+                    }
+                  }}
+                />
+                {current.logo && (
+                  <Button type="button" variant="ghost" onClick={() => set('logo', null)}>
+                    Remove logo
+                  </Button>
+                )}
+              </div>
+              <span className="text-xs text-muted">PNG, JPEG or WebP, up to 60 KB. Shown instead of the site name in the header.</span>
+              {logoError && <span role="alert" className="text-sm text-danger">{logoError}</span>}
             </Field>
             <Field label="Tagline on the home page">
               <Input value={current.tagline} onChange={(e) => set('tagline', e.target.value)} maxLength={120} />

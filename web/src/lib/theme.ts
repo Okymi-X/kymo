@@ -12,6 +12,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   tagline: 'Knockout brackets for CTF events, updated as results come in.',
   tint: 'neutral',
   avatars: true,
+  logo: null,
 }
 
 export const FONT_STACKS: Record<FontChoice, string> = {
@@ -61,6 +62,21 @@ function tintCss(tint: Appearance['tint']): string {
     `:root[data-scheme="dark"]{${tintVars(dark)}}`,
     `@media (prefers-color-scheme:dark){:root:not([data-scheme="light"]){${tintVars(dark)}}}`,
   ].join('')
+}
+
+export const MAX_LOGO_BYTES = 60_000
+export const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+
+/** Reads an image file into a data URI, or returns the reason it cannot be used. */
+export function readLogo(file: File): Promise<{ uri: string } | { error: string }> {
+  if (!LOGO_TYPES.includes(file.type)) return Promise.resolve({ error: 'Use a PNG, JPEG or WebP image.' })
+  if (file.size > MAX_LOGO_BYTES) return Promise.resolve({ error: 'That image is over 60 KB. Resize it first.' })
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve({ uri: String(reader.result) })
+    reader.onerror = () => resolve({ error: 'The file could not be read.' })
+    reader.readAsDataURL(file)
+  })
 }
 
 export interface Preset {

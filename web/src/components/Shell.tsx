@@ -14,10 +14,12 @@ import { StatusPill } from './ui'
 
 const shortcut = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd K' : 'Ctrl K'
 
-function Brand({ siteName }: { siteName: string }) {
+function Brand({ siteName, logo }: { siteName: string; logo: string | null }) {
   return (
     <Link to="/" aria-label={`${siteName} home`} className="shrink-0">
-      {siteName === DEFAULT_APPEARANCE.site_name ? (
+      {logo ? (
+        <img src={logo} alt={siteName} className="h-9 w-auto max-w-48 object-contain" />
+      ) : siteName === DEFAULT_APPEARANCE.site_name ? (
         <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-10 w-auto" />
       ) : (
         <span className="text-base font-semibold tracking-tight">{siteName}</span>
@@ -73,7 +75,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
   const admin = useIsAdmin()
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const siteName = useAppearance().data?.site_name ?? DEFAULT_APPEARANCE.site_name
+  const look = useAppearance().data
+  const siteName = look?.site_name ?? DEFAULT_APPEARANCE.site_name
   const onTournaments = pathname === '/' || pathname.startsWith('/t/')
   const info = useHeaderInfo()
   return (
@@ -89,7 +92,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <ChevronLeft size={20} aria-hidden="true" />
           </button>
         )}
-        <Brand siteName={siteName} />
+        <Brand siteName={siteName} logo={look?.logo ?? null} />
         <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''}`}>
           <Link
             to="/"

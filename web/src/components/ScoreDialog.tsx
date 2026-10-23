@@ -54,40 +54,47 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
       ref={ref}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
-      className="m-auto w-[min(92vw,26rem)] rounded-card border border-line bg-surface p-0 text-ink"
+      className="m-auto w-[min(92vw,28rem)] overflow-x-hidden rounded-card border border-line bg-surface p-0 text-ink"
     >
       <form onSubmit={submit} className="flex flex-col gap-5 p-6">
         <h2 className="text-lg font-semibold tracking-tight">Match result</h2>
-        <div className="grid grid-cols-[1fr_5rem] items-end gap-x-3 gap-y-4">
-          <span className="truncate pb-2 font-medium">{names[0]}</span>
-          <Field label="Score">
-            <Input type="number" min={0} inputMode="numeric" value={a} onChange={(e) => setA(e.target.value)} autoFocus className="font-mono" />
-          </Field>
-          <span className="truncate pb-2 font-medium">{names[1]}</span>
-          <Field label="Score">
-            <Input type="number" min={0} inputMode="numeric" value={b} onChange={(e) => setB(e.target.value)} className="font-mono" />
-          </Field>
+        <div className="flex flex-col gap-2">
+          {([[names[0], a, setA], [names[1], b, setB]] as const).map(([name, value, set], i) => (
+            <div key={i} className="flex items-center gap-3 rounded-control border border-line px-3 py-2">
+              <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                aria-label={`Score for ${name}`}
+                value={value}
+                onChange={(e) => set(e.target.value)}
+                autoFocus={i === 0}
+                className="w-20 shrink-0 text-center font-mono"
+              />
+            </div>
+          ))}
         </div>
         {!league && a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <p className="text-xs font-medium text-muted">No game played</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Button onClick={() => forfeit.mutate('A')} disabled={forfeit.isPending}>
+          <div className="flex flex-col gap-2">
+            <Button onClick={() => forfeit.mutate('A')} disabled={forfeit.isPending} className="justify-start">
               <span className="truncate">{names[0]} advances</span>
             </Button>
-            <Button onClick={() => forfeit.mutate('B')} disabled={forfeit.isPending}>
+            <Button onClick={() => forfeit.mutate('B')} disabled={forfeit.isPending} className="justify-start">
               <span className="truncate">{names[1]} advances</span>
             </Button>
           </div>
         </div>
         <div className="flex flex-col gap-3 border-t border-line pt-4">
           <p className="text-xs font-medium text-muted">Schedule</p>
-          <div className="grid grid-cols-[1fr_1fr] gap-3 max-sm:grid-cols-1">
+          <div className="flex flex-col gap-3">
             <Field label="Starts">
-              <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+              <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full min-w-0" />
             </Field>
             <Field label="Place">
-              <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Room A" maxLength={40} />
+              <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Room A" maxLength={40} className="w-full min-w-0" />
             </Field>
           </div>
           <div className="flex gap-2">

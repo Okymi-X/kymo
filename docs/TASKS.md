@@ -43,13 +43,15 @@
 - [x] Stage mode as rotating slides: current round cards, standings pages, bracket overview only when it fits at 0.55 zoom (32 team brackets)
 - [x] Rename tournament, JSON backup, 404 page, shortcuts help (?), page tint and avatar toggle in Appearance
 
+- [x] Logo upload (PNG, JPEG, WebP data URI under 60 KB, validated server side) and a tidier match result dialog
+
 ## Todo
 - [ ] Swiss format
 - [ ] Knockout entrants chosen by hand or by tiebreak play-offs when group ties decide who advances
 - [ ] API tokens: expiry and a rule that API tokens cannot mint tokens
 - [ ] Roster drag and drop announcements use team names
 - [ ] Public list endpoint pages or trims rosters
-- [ ] More customization: logo upload, per tournament accent, bracket line style
+- [ ] More customization: per tournament accent, bracket line style
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

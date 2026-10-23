@@ -7,6 +7,12 @@ const KEY: &str = "appearance";
 const MAX_SITE_NAME: usize = 40;
 const MAX_RADIUS: u8 = 20;
 const MAX_TAGLINE: usize = 120;
+const MAX_LOGO: usize = 80_000;
+const LOGO_PREFIXES: [&str; 3] = [
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+    "data:image/webp;base64,",
+];
 const DEFAULT_TAGLINE: &str = "Knockout brackets for CTF events, updated as results come in.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +68,9 @@ pub struct Appearance {
     pub tint: Tint,
     #[serde(default = "default_avatars")]
     pub avatars: bool,
+    /// Header logo as a small raster data URI. SVG is refused so no script can ride along.
+    #[serde(default)]
+    pub logo: Option<String>,
 }
 
 fn default_tint() -> Tint {
@@ -93,6 +102,7 @@ impl Default for Appearance {
             tagline: default_tagline(),
             tint: Tint::Neutral,
             avatars: true,
+            logo: None,
         }
     }
 }
@@ -130,6 +140,20 @@ impl Appearance {
             return Err(ApiError::BadRequest(format!(
                 "radius must be at most {MAX_RADIUS}"
             )));
+        }
+        if let Some(logo) = self.logo.as_deref() {
+            let body = LOGO_PREFIXES.iter().find_map(|p| logo.strip_prefix(p));
+            let valid = logo.len() <= MAX_LOGO
+                && body.is_some_and(|b| {
+                    !b.is_empty()
+                        && b.bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
+                });
+            if !valid {
+                return Err(ApiError::BadRequest(
+                    "logo must be a PNG, JPEG or WebP image under 60 KB".into(),
+                ));
+            }
         }
         Ok(())
     }

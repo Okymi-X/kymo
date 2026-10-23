@@ -77,6 +77,7 @@ export interface Appearance {
   tagline: string
   tint: Tint
   avatars: boolean
+  logo: string | null
 }
 
 export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled'
