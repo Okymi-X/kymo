@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { ApiToken, Appearance, Format, Seeding, Side, Tournament } from './types'
+import type { ApiToken, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
@@ -77,6 +77,7 @@ export const api = {
   logout: () => request<void>('POST', '/auth/logout'),
   list: () => request<Tournament[]>('GET', '/tournaments'),
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
+  activity: (slug: string) => request<LogEvent[]>('GET', `/tournaments/${encodeURIComponent(slug)}/activity`),
   create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number }) =>
     request<Tournament>('POST', '/tournaments', {
       name,

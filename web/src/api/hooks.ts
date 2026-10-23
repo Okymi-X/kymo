@@ -7,6 +7,8 @@ export const useTournaments = () => useQuery({ queryKey: ['tournaments'], queryF
 export const useTournament = (slug: string) =>
   useQuery({ queryKey: ['tournament', slug], queryFn: () => api.get(slug) })
 
+export const useActivity = (slug: string) => useQuery({ queryKey: ['activity', slug], queryFn: () => api.activity(slug) })
+
 /** Refetches the tournament whenever the server reports a change. */
 export function useLiveUpdates(slug: string) {
   const client = useQueryClient()
@@ -14,6 +16,7 @@ export function useLiveUpdates(slug: string) {
     const source = new EventSource(`/api/v1/tournaments/${encodeURIComponent(slug)}/events`)
     source.addEventListener('update', () => {
       void client.invalidateQueries({ queryKey: ['tournament', slug] })
+      void client.invalidateQueries({ queryKey: ['activity', slug] })
     })
     return () => source.close()
   }, [slug, client])

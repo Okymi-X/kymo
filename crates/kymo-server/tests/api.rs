@@ -1008,3 +1008,38 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
     .await;
     assert_eq!(after[0]["kind"], "reset");
 }
+
+#[tokio::test]
+async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
+    let app = app().await;
+    let token = login(&app).await;
+    let look = json!({
+        "site_name": "A</title><script>x</script>", "accent_light": "#aa2200", "accent_dark": "#ff8866",
+        "radius": 14, "font": "serif", "scheme": "dark", "density": "compact", "tagline": "Hello"
+    });
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/settings",
+        Some(&token),
+        Some(look),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, kind, html) = raw(&app, "GET", "/t/anything", None, "").await;
+    if status == StatusCode::NOT_FOUND {
+        return; // the web app is not built in this checkout
+    }
+    assert_eq!(status, StatusCode::OK);
+    assert!(kind.starts_with("text/html"));
+    assert!(html.contains("data-scheme=\"dark\""), "{html}");
+    assert!(html.contains("--color-accent:#aa2200"));
+    assert!(html.contains("font-size:14.5px"));
+    assert!(html.contains("id=\"kymo-appearance\""));
+    assert!(
+        !html.contains("</title><script>x"),
+        "site name must be escaped"
+    );
+    assert!(!html.contains("<script>x</script>"));
+}

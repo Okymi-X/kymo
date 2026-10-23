@@ -82,14 +82,8 @@ pub struct ResultBody {
     score_b: u32,
 }
 
-/// Invisible or direction changing characters let a name look like another one.
-fn is_hidden_char(c: char) -> bool {
-    c.is_control()
-        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
-}
-
 fn clean_name(raw: &str, max: usize) -> Result<String, ApiError> {
-    if raw.chars().any(is_hidden_char) {
+    if raw.chars().any(crate::text::is_hidden_char) {
         return Err(ApiError::BadRequest(
             "names cannot contain control or invisible characters".into(),
         ));

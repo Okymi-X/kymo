@@ -67,3 +67,21 @@ export interface Appearance {
   radius: number
   font: FontChoice
 }
+
+export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared'
+
+export interface LogEvent {
+  id: number
+  at: number
+  kind: EventKind
+  match_id: number | null
+  data: {
+    teams?: number
+    team_a?: number | null
+    team_b?: number | null
+    score_a?: number | null
+    score_b?: number | null
+    winner?: 'A' | 'B' | null
+    forfeit?: boolean
+  }
+}
