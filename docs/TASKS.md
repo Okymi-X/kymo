@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] API test plays a 7 team double elimination tournament to a champion over HTTP (7 API tests total)
 - [x] Web: single canvas layout with links from winners and losers into the grand final (9 layout tests), verified in browser
 - [x] Web: API token panel (create with one time secret, list, revoke via dialog), checked in browser
 - [x] Server: sessions and API tokens stored hashed (sha256) in SQLite, survive restarts; /admin/tokens list, create, revoke; test added
@@ -17,5 +18,5 @@
 
 ## Todo
 - [ ] Web: command palette
-- [ ] Web: component and e2e tests
+- [ ] Web: browser e2e tests (Playwright) for the organizer flow
 - [ ] README with quickstart

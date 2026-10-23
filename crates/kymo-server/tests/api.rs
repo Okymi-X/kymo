@@ -321,3 +321,78 @@ async fn api_tokens_authenticate_until_revoked_and_sessions_survive_restart() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// Plays every ready match (side A wins) through the HTTP API until the tournament is done.
+async fn play_out(app: &Router, token: &str, id: i64) -> Value {
+    for _ in 0..64 {
+        let (_, t) = call(app, "GET", "/api/v1/tournaments/play-off", None, None).await;
+        if t["status"] == "done" {
+            return t;
+        }
+        let ready = t["bracket"]["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| {
+                m["score"].is_null()
+                    && m["slots"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|s| s["kind"] == "team")
+            })
+            .map(|m| m["id"].as_u64().unwrap());
+        let Some(match_id) = ready else { break };
+        let uri = format!("/api/v1/admin/tournaments/{id}/matches/{match_id}/result");
+        let (status, _) = call(
+            app,
+            "PUT",
+            &uri,
+            Some(token),
+            Some(json!({"score_a": 2, "score_b": 1})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    panic!("tournament never finished");
+}
+
+#[tokio::test]
+async fn double_elimination_plays_to_a_champion_over_the_api() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Play Off", "format": "double_elimination"})),
+    )
+    .await;
+    let roster: Vec<_> = (1..=7)
+        .map(|n| json!({"name": format!("team {n}"), "score": 100 - n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": roster})),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "score"})),
+    )
+    .await;
+
+    let done = play_out(&app, &token, 1).await;
+    assert_eq!(done["status"], "done");
+    let champion = done["champion"].as_i64().unwrap();
+    let top_seed = done["teams"][0]["id"].as_i64().unwrap();
+    assert_eq!(champion, top_seed);
+}
