@@ -9,16 +9,39 @@ interface Props {
   teamName: (slot: Slot) => string
   onEdit?: (match: Match) => void
   style?: CSSProperties
+  highlight?: number | null
+  onHoverTeam?: (team: number | null) => void
 }
 
 function isReady(match: Match) {
   return match.slots.every((s) => s.kind === 'team')
 }
 
-function Row({ name, slot, score, won, forfeit }: { name: string; slot: Slot; score: number | null; won: boolean; forfeit: boolean }) {
+function Row({
+  name,
+  slot,
+  score,
+  won,
+  forfeit,
+  lit,
+  onHover,
+}: {
+  name: string
+  slot: Slot
+  score: number | null
+  won: boolean
+  forfeit: boolean
+  lit: boolean
+  onHover?: (team: number | null) => void
+}) {
   const dim = slot.kind !== 'team'
+  const team = slot.kind === 'team' ? slot.team : null
   return (
-    <div className="flex flex-1 items-center justify-between gap-3 px-3">
+    <div
+      onPointerEnter={() => onHover?.(team)}
+      onPointerLeave={() => onHover?.(null)}
+      className={`flex flex-1 items-center justify-between gap-3 px-3 transition-colors ${lit ? 'bg-accent/15' : ''}`}
+    >
       <motion.span
         key={name}
         initial={{ opacity: 0, y: 4 }}
@@ -35,14 +58,14 @@ function Row({ name, slot, score, won, forfeit }: { name: string; slot: Slot; sc
   )
 }
 
-export function MatchCard({ match, teamName, onEdit, style }: Props) {
+export function MatchCard({ match, teamName, onEdit, style, highlight = null, onHoverTeam }: Props) {
   const ready = isReady(match)
   const open = ready && match.winner === null
   const body = (
     <>
-      <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} />
+      <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} lit={highlight !== null && match.slots[0].kind === 'team' && (match.slots[0] as { team: number }).team === highlight} onHover={onHoverTeam} />
       <div className="border-t border-line" />
-      <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} />
+      <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} lit={highlight !== null && match.slots[1].kind === 'team' && (match.slots[1] as { team: number }).team === highlight} onHover={onHoverTeam} />
     </>
   )
   const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`

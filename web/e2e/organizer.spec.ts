@@ -115,3 +115,35 @@ test('appearance changes are saved for everyone and can be restored', async ({ p
   await page.getByRole('button', { name: 'Restore defaults' }).click()
   await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
 })
+
+test('standings, matches and team views show the same results', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Data Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha, 900\nBravo, 800\nCharlie, 700\nDelta, 600')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await record(page, 'Edit result for Alpha versus Delta', '3', '1')
+
+  await page.getByRole('tab', { name: 'Standings' }).click()
+  await expect(page).toHaveURL(/view=standings/)
+  const alpha = page.getByRole('row', { name: /Alpha/ })
+  await expect(alpha).toContainText('In')
+  await expect(page.getByRole('row', { name: /Delta/ })).toContainText('Out')
+
+  await page.getByRole('tab', { name: 'Matches' }).click()
+  await expect(page.getByRole('heading', { name: /Up next/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Played 1/ })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'Teams' }).click()
+  await page.getByRole('button', { name: /Alpha/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Alpha details' })
+  await expect(dialog).toContainText('1-0')
+  await expect(dialog).toContainText('Won 3:1')
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toBeHidden()
+
+  await page.getByRole('tab', { name: 'Standings' }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export CSV' }).click()])
+  expect(download.suggestedFilename()).toBe('data-cup-standings.csv')
+})

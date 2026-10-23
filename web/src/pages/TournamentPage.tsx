@@ -1,16 +1,22 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useLiveUpdates, useTournament } from '../api/hooks'
 import type { Match, Slot, Tournament } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { MatchList } from '../components/MatchList'
 import { RosterEditor } from '../components/RosterEditor'
 import { ScoreDialog } from '../components/ScoreDialog'
+import { StandingsTable } from '../components/StandingsTable'
+import { Tabs, type TabItem } from '../components/Tabs'
+import { TeamDialog } from '../components/TeamDialog'
+import { TeamsGrid } from '../components/TeamsGrid'
 import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel } from '../lib/labels'
+import { computeTeamRows } from '../lib/stats'
 
 function useTeamName(t: Tournament | undefined) {
   return useMemo(() => {
@@ -84,12 +90,28 @@ function AdminActions({ t }: { t: Tournament }) {
   )
 }
 
+type View = 'bracket' | 'standings' | 'matches' | 'teams'
+
+const VIEWS: TabItem<View>[] = [
+  { id: 'bracket', label: 'Bracket' },
+  { id: 'standings', label: 'Standings' },
+  { id: 'matches', label: 'Matches' },
+  { id: 'teams', label: 'Teams' },
+]
+
+const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v)
+
 export function TournamentPage() {
   const { slug = '' } = useParams()
   const admin = useIsAdmin()
   const { data: t, isPending, error } = useTournament(slug)
   const teamName = useTeamName(t)
   const [editing, setEditing] = useState<Match | null>(null)
+  const [teamId, setTeamId] = useState<number | null>(null)
+  const [params, setParams] = useSearchParams()
+  const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
+  const requested = params.get('view')
+  const view: View = isView(requested) ? requested : 'bracket'
   useLiveUpdates(slug)
 
   if (isPending) return <p className="text-muted">Loading</p>
@@ -117,7 +139,12 @@ export function TournamentPage() {
       </div>
       <Champion t={t} teamName={teamName} />
       {t.bracket ? (
-        <BracketView bracket={t.bracket} teamName={teamName} onEdit={admin ? setEditing : undefined} />
+        <Tabs items={VIEWS} value={view} onChange={(v) => setParams(v === 'bracket' ? {} : { view: v }, { replace: true })} label="Tournament views">
+          {view === 'bracket' && <BracketView bracket={t.bracket} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
+          {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
+        </Tabs>
       ) : admin ? (
         <RosterEditor key={t.teams.map((x) => x.id).join()} tournament={t} />
       ) : (
@@ -126,6 +153,7 @@ export function TournamentPage() {
           <p className="mt-1 text-muted">It appears here once the organizer starts the tournament.</p>
         </div>
       )}
+      {teamId !== null && <TeamDialog tournament={t} teamId={teamId} teamName={teamName} onClose={() => setTeamId(null)} />}
       {editing && (
         <ScoreDialog
           key={editing.id}

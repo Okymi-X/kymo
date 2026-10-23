@@ -84,7 +84,7 @@ export function Settings() {
         <ColorField label="Accent, light mode" value={current.accent_light} onChange={(v) => set('accent_light', v)} against={PAGE_BACKGROUND.light} />
         <ColorField label="Accent, dark mode" value={current.accent_dark} onChange={(v) => set('accent_dark', v)} against={PAGE_BACKGROUND.dark} />
       </div>
-      <div className="flex flex-wrap items-end gap-8">
+      <div className="flex flex-wrap items-start gap-8">
         <Field label={`Corner radius, ${current.radius}px`}>
           <input
             type="range"
@@ -92,7 +92,7 @@ export function Settings() {
             max={20}
             value={current.radius}
             onChange={(e) => set('radius', Number(e.target.value))}
-            className="w-56 accent-accent"
+            className="h-10 w-56 accent-accent"
           />
         </Field>
         <Field label="Typeface">

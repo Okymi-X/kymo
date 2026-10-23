@@ -16,3 +16,12 @@ export function roundLabel(stage: Stage, round: number, totalRounds: number, for
   if (fromEnd === 2) return 'Quarterfinals'
   return `Round ${round}`
 }
+
+import type { Bracket, Match } from '../api/types'
+
+/** Returns a function that names the round a match belongs to. */
+export function roundNamer(bracket: Bracket): (m: Match) => string {
+  const totals = new Map<Stage, number>()
+  for (const m of bracket.matches) totals.set(m.stage, Math.max(totals.get(m.stage) ?? 0, m.round))
+  return (m) => roundLabel(m.stage, m.round, totals.get(m.stage) ?? 0, bracket.format)
+}

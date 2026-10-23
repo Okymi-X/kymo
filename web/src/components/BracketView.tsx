@@ -25,7 +25,9 @@ function Canvas({
   zoom,
   teamName,
   onEdit,
-}: { bracket: Bracket; layout: BracketLayout; zoom: number } & Omit<Props, 'bracket'>) {
+  highlight,
+  onHoverTeam,
+}: { bracket: Bracket; layout: BracketLayout; zoom: number; highlight: number | null; onHoverTeam: (team: number | null) => void } & Omit<Props, 'bracket'>) {
   const totals = useMemo(() => {
     const out = new Map<Stage, number>()
     for (const m of bracket.matches) out.set(m.stage, Math.max(out.get(m.stage) ?? 0, m.round))
@@ -59,7 +61,7 @@ function Canvas({
               </h4>
             ))}
           {layout.placed.map((p) => (
-            <MatchCard key={p.match.id} match={p.match} teamName={teamName} onEdit={onEdit} style={{ position: 'absolute', left: p.x, top: p.y }} />
+            <MatchCard key={p.match.id} match={p.match} teamName={teamName} onEdit={onEdit} highlight={highlight} onHoverTeam={onHoverTeam} style={{ position: 'absolute', left: p.x, top: p.y }} />
           ))}
         </div>
       </div>
@@ -70,6 +72,7 @@ function Canvas({
 export function BracketView({ bracket, teamName, onEdit }: Props) {
   const [manual, setManual] = useState<number | null>(null)
   const [available, setAvailable] = useState(0)
+  const [hovered, setHovered] = useState<number | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const clamp = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 10) / 10))
 
@@ -112,8 +115,8 @@ export function BracketView({ bracket, teamName, onEdit }: Props) {
           <Plus size={16} />
         </Button>
       </div>
-      <div ref={hostRef}>
-        <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} />
+      <div ref={hostRef} className="relative left-1/2 w-[min(calc(100vw-3rem),1680px)] -translate-x-1/2">
+        <Canvas bracket={bracket} layout={layout} zoom={zoom} teamName={teamName} onEdit={onEdit} highlight={hovered} onHoverTeam={setHovered} />
       </div>
     </div>
   )

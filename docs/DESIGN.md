@@ -44,3 +44,6 @@ lucide-react only. Font Awesome was considered and not added: a second icon set 
 - Dialogs enter with opacity and scale 0.96 over 180ms (strong ease out), backdrop fades. Reduced motion collapses durations.
 - Bracket fits the available width by default (floor 60 percent, so text stays readable); the percentage button returns to fit, plus and minus override.
 - Touch targets in the roster editor are at least 40px. Tournament header shows matches played.
+
+## Data views
+Tournament page tabs (URL `?view=`): Bracket, Standings, Matches, Teams. Standings: rank, team, seed, qualifier score, P, W, L, point difference, status (In, Out, Champion). Matches: Up next, Waiting for teams, Played, each row opens the result dialog for organizers. Teams: cards that open a team dialog with record, points and the path through the bracket. Hovering a team in the bracket highlights it everywhere. Standings and results export as CSV (formula characters are neutralized). Bracket area is wider than the page column (up to 1680px) so a double elimination bracket fits at full size.
