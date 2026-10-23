@@ -1,7 +1,9 @@
+import { usePageTitle } from '../lib/usePageTitle'
 import { Link } from 'react-router'
 import { PageTitle } from '../components/ui'
 
 export function NotFound() {
+  usePageTitle('Page not found')
   return (
     <div className="flex flex-col items-start gap-4 py-16">
       <p className="font-mono text-sm text-muted">404</p>

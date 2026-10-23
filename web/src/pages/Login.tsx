@@ -1,3 +1,4 @@
+import { usePageTitle } from '../lib/usePageTitle'
 import { useState, type FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
@@ -6,6 +7,7 @@ import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle } from '../components/ui'
 
 export function Login() {
+  usePageTitle('Organizer sign in')
   const [password, setPassword] = useState('')
   const navigate = useNavigate()
   const login = useMutation({

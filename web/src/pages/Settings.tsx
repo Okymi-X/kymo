@@ -1,3 +1,4 @@
+import { usePageTitle } from '../lib/usePageTitle'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
@@ -161,6 +162,7 @@ const DENSITIES: { value: Density; label: string }[] = [
 ]
 
 export function Settings() {
+  usePageTitle('Appearance')
   const admin = useIsAdmin()
   const client = useQueryClient()
   const { data: saved } = useAppearance()

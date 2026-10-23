@@ -665,3 +665,14 @@ test('the newest result can be undone from the activity log', async ({ page }) =
   await page.getByRole('tab', { name: 'Bracket' }).click()
   await expect(page.getByRole('button', { name: 'Edit result for Alpha versus Delta' })).toBeVisible()
 })
+
+test('the tab title follows the page and a skip link reaches the content', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Title Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await expect(page).toHaveTitle(/^Title Cup · /)
+  await page.goto('/settings')
+  await expect(page).toHaveTitle(/^Appearance · /)
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
+})

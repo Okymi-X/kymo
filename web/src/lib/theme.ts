@@ -120,7 +120,6 @@ export function applyAppearance(a: Appearance) {
   }
   el.textContent = themeCss(a)
   document.documentElement.dataset.scheme = resolveScheme(a.scheme)
-  document.title = a.site_name
 }
 
 function luminance(hex: string): number {

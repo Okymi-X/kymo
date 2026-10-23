@@ -25,6 +25,7 @@ import { Modal } from '../components/Modal'
 import { Button, ErrorText, Field, Input, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
+import { usePageTitle } from '../lib/usePageTitle'
 import { accentProps, isHex } from '../lib/theme'
 import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
@@ -276,6 +277,7 @@ export function TournamentPage() {
   const { slug = '' } = useParams()
   const admin = useIsAdmin()
   const { data: t, isPending, error } = useTournament(slug)
+  usePageTitle(t?.name)
   const teamName = useTeamName(t)
   const [editing, setEditing] = useState<Match | null>(null)
   const [teamId, setTeamId] = useState<number | null>(null)

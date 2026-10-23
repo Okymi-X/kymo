@@ -152,10 +152,13 @@ export function Shell({ children }: { children?: ReactNode }) {
   return (
     <HeaderProvider>
       <div className="min-h-screen">
+        <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-control focus:bg-surface focus:px-4 focus:py-2 focus:font-medium focus:shadow-[var(--shadow-lift)]">
+          Skip to content
+        </a>
         <Header onSearch={() => setPaletteOpen(true)} />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
-        <main className="mx-auto max-w-6xl px-4 py-10">{children ?? <Outlet />}</main>
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-10 focus:outline-none">{children ?? <Outlet />}</main>
       </div>
     </HeaderProvider>
   )

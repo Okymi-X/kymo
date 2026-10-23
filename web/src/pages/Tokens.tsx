@@ -1,3 +1,4 @@
+import { usePageTitle } from '../lib/usePageTitle'
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate } from 'react-router'
@@ -40,6 +41,7 @@ const EXPIRY: [string, string][] = [
 ]
 
 export function Tokens() {
+  usePageTitle('API tokens')
   const admin = useIsAdmin()
   const client = useQueryClient()
   const [label, setLabel] = useState('')
