@@ -118,7 +118,7 @@ export function Home() {
       {data && data.length > 0 && shown.length === 0 && <p className="text-muted">Nothing matches this filter.</p>}
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {shown.map((t) => (
-          <li key={t.id}>
+          <li key={t.id} className="min-w-0">
             <TournamentCard t={t} />
           </li>
         ))}

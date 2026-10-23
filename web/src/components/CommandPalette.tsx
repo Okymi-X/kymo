@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { session, useIsAdmin } from '../api/client'
+import { api, session, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
 import { filterCommands, type Command } from '../lib/palette'
 
@@ -19,7 +19,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (admin) {
       list.push({ id: 'appearance', label: 'Appearance', run: go('/settings') })
       list.push({ id: 'tokens', label: 'API tokens', run: go('/tokens') })
-      list.push({ id: 'out', label: 'Sign out', run: () => { session.clear(); navigate('/') } })
+      list.push({ id: 'out', label: 'Sign out', run: () => {
+          void api.logout().catch(() => undefined)
+          session.clear()
+          navigate('/')
+        } })
     } else {
       list.push({ id: 'in', label: 'Organizer sign in', run: go('/login') })
     }

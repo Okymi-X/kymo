@@ -88,7 +88,7 @@ export function RosterEditor({ tournament }: { tournament: Tournament }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const minTeams = tournament.format === 'double_elimination' ? 3 : 2
+  const minTeams = tournament.format === 'double_elimination' ? 3 : tournament.third_place ? 4 : 2
   const names = items.map((i) => i.name)
   const payload = items.map(({ name, score }) => ({ name, score }))
   const publish = (t: Tournament) => client.setQueryData(['tournament', t.slug], t)

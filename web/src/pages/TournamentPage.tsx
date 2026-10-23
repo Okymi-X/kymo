@@ -146,7 +146,7 @@ export function TournamentPage() {
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
         </Tabs>
       ) : admin ? (
-        <RosterEditor key={t.teams.map((x) => x.id).join()} tournament={t} />
+        <RosterEditor key={`${t.id}-draft`} tournament={t} />
       ) : (
         <div className="rounded-card border border-dashed border-field-line p-10 text-center">
           <p className="text-lg font-medium">The bracket is not ready</p>

@@ -74,6 +74,7 @@ const admin = (id: number) => `/admin/tournaments/${id}`
 
 export const api = {
   login: (password: string) => request<{ token: string }>('POST', '/auth/login', { password }),
+  logout: () => request<void>('POST', '/auth/logout'),
   list: () => request<Tournament[]>('GET', '/tournaments'),
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
   create: (name: string, format: Format, thirdPlace: boolean) =>

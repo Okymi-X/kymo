@@ -10,6 +10,9 @@ export interface TeamRow {
   pointsFor: number
   pointsAgainst: number
   status: TeamStatus
+  /** Matches played in the main bracket, the third place match excluded. Deeper runs rank higher. */
+  depth: number
+  thirdPlaceWin: boolean
 }
 
 export interface HistoryEntry {
@@ -40,7 +43,7 @@ const decisive = (m: Match) => m.winner !== null && m.slots.every((s) => s.kind 
 
 export function computeTeamRows(t: Tournament): TeamRow[] {
   const rows = new Map<number, TeamRow>(
-    t.teams.map((team) => [team.id, { team, played: 0, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0, status: 'seeded' as TeamStatus }]),
+    t.teams.map((team) => [team.id, { team, played: 0, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0, status: 'seeded' as TeamStatus, depth: 0, thirdPlaceWin: false }]),
   )
   const matches = t.bracket?.matches ?? []
   for (const m of matches.filter(decisive)) {
@@ -51,6 +54,8 @@ export function computeTeamRows(t: Tournament): TeamRow[] {
       if (!row) return
       const won = sideIndex(winner) === i
       row.played += 1
+      if (m.stage === 'third_place') row.thirdPlaceWin = row.thirdPlaceWin || won
+      else row.depth += 1
       row.wins += won ? 1 : 0
       row.losses += won ? 0 : 1
       if (m.score) {
@@ -76,7 +81,9 @@ export function computeTeamRows(t: Tournament): TeamRow[] {
   return [...rows.values()].sort(
     (a, b) =>
       order[a.status] - order[b.status] ||
+      b.depth - a.depth ||
       b.wins - a.wins ||
+      Number(b.thirdPlaceWin) - Number(a.thirdPlaceWin) ||
       b.pointsFor - b.pointsAgainst - (a.pointsFor - a.pointsAgainst) ||
       a.team.seed - b.team.seed,
   )

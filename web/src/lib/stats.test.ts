@@ -80,6 +80,21 @@ describe('computeTeamRows', () => {
   })
 })
 
+describe('ranking after a third place match', () => {
+  it('keeps the runner-up above the third place winner', () => {
+    const t = tournament(
+      [
+        match(0, team(1), team(4), [1, 0], 'A'),
+        match(1, team(2), team(3), [1, 0], 'A'),
+        match(2, team(2), team(1), [100, 0], 'A'),
+        match(3, team(3), team(4), [100, 0], 'A', { stage: 'third_place' }),
+      ],
+      { champion: 2, status: 'done' },
+    )
+    expect(computeTeamRows(t).map((r) => r.team.id)).toEqual([2, 1, 3, 4])
+  })
+})
+
 describe('matchState and teamHistory', () => {
   it('distinguishes ready, waiting and played', () => {
     expect(matchState(match(0, team(1), team(2), null, null))).toBe('ready')

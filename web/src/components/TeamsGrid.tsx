@@ -6,7 +6,7 @@ export function TeamsGrid({ rows, onSelect }: { rows: TeamRow[]; onSelect: (team
   return (
     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {rows.map((r) => (
-        <li key={r.team.id}>
+        <li key={r.team.id} className="min-w-0">
           <button
             type="button"
             onClick={() => onSelect(r.team.id)}

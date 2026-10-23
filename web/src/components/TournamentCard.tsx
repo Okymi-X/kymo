@@ -46,7 +46,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
   return (
     <Link
       to={`/t/${t.slug}`}
-      className="group flex h-full flex-col gap-4 rounded-card border border-line bg-surface p-5 shadow-[var(--shadow-card)] transition-[border-color,box-shadow,transform] duration-150 hover:border-field-line hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
+      className="group flex h-full flex-col gap-4 min-w-0 rounded-card border border-line bg-surface p-5 shadow-[var(--shadow-card)] transition-[border-color,box-shadow,transform] duration-150 hover:border-field-line hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

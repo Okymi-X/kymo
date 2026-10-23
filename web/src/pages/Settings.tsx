@@ -10,7 +10,6 @@ import {
   DEFAULT_APPEARANCE,
   FONT_LABELS,
   PAGE_BACKGROUND,
-  applyAppearance,
   contrastRatio,
   isHex,
 } from '../lib/theme'
@@ -47,16 +46,22 @@ export function Settings() {
   const current = draft ?? saved ?? DEFAULT_APPEARANCE
 
   useEffect(() => {
-    applyAppearance(current)
-  }, [current])
-  useEffect(() => () => {
-    const latest = client.getQueryData<Appearance>(appearanceKey)
-    if (latest) applyAppearance(latest)
-  }, [client])
+    if (draft) client.setQueryData(appearanceKey, draft)
+  }, [draft, client])
+  useEffect(
+    () => () => {
+      void client.invalidateQueries({ queryKey: appearanceKey })
+    },
+    [client],
+  )
 
   const store = (next: Appearance) => {
     client.setQueryData(appearanceKey, next)
     setDraft(null)
+  }
+  const discard = () => {
+    setDraft(null)
+    void client.invalidateQueries({ queryKey: appearanceKey })
   }
   const save = useMutation({ mutationFn: () => api.saveAppearance(current), onSuccess: store })
   const reset = useMutation({ mutationFn: api.resetAppearance, onSuccess: store })
@@ -110,7 +115,7 @@ export function Settings() {
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="primary" type="button">Primary action</Button>
           <Button type="button">Secondary</Button>
-          <Input placeholder="Text field" className="w-48" />
+          <Input aria-label="Preview text field" placeholder="Text field" className="w-48" />
           <span className="rounded-full border border-line px-2.5 py-0.5 text-xs font-medium text-accent">Live</span>
         </div>
       </div>
@@ -119,7 +124,7 @@ export function Settings() {
         <Button type="submit" variant="primary" disabled={!valid || !dirty || save.isPending}>
           Save appearance
         </Button>
-        <Button variant="ghost" onClick={() => setDraft(null)} disabled={!dirty}>
+        <Button variant="ghost" onClick={discard} disabled={!dirty}>
           Discard changes
         </Button>
         <Button variant="danger" onClick={() => reset.mutate()} disabled={reset.isPending}>

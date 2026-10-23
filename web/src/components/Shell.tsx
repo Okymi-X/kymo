@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { session, useIsAdmin } from '../api/client'
+import { api, session, useIsAdmin } from '../api/client'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 import { CommandPalette } from './CommandPalette'
 import { useAppearance } from './ThemeLoader'
@@ -60,6 +60,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   variant="ghost"
                   className="whitespace-nowrap px-2.5"
                   onClick={() => {
+                    void api.logout().catch(() => undefined)
                     session.clear()
                     navigate('/')
                   }}
