@@ -204,7 +204,10 @@ fn with_third_place(n: u32) -> Bracket {
     generate_with(
         &teams(n),
         Format::SingleElimination,
-        Options { third_place: true },
+        Options {
+            third_place: true,
+            ..Options::default()
+        },
     )
     .unwrap()
 }
@@ -248,7 +251,10 @@ fn third_place_needs_four_teams_and_is_ignored_for_double_elimination() {
         generate_with(
             &teams(3),
             Format::SingleElimination,
-            Options { third_place: true }
+            Options {
+                third_place: true,
+                ..Options::default()
+            }
         )
         .unwrap_err(),
         EngineError::TooFewTeams { min: 4 }
@@ -256,7 +262,10 @@ fn third_place_needs_four_teams_and_is_ignored_for_double_elimination() {
     let double = generate_with(
         &teams(8),
         Format::DoubleElimination,
-        Options { third_place: true },
+        Options {
+            third_place: true,
+            ..Options::default()
+        },
     )
     .unwrap();
     assert!(double.matches.iter().all(|m| m.stage != Stage::ThirdPlace));
@@ -384,4 +393,174 @@ fn round_robin_limits_team_count_and_still_forbids_knockout_ties() {
     );
     let mut single = generate(&teams(4), Format::SingleElimination).unwrap();
     assert_eq!(single.set_result(0, 1, 1), Err(EngineError::Tie));
+}
+
+fn groups(n: u32, groups: u8, advance: u8) -> Bracket {
+    generate_with(
+        &teams(n),
+        Format::GroupKnockout,
+        Options {
+            groups,
+            advance,
+            ..Options::default()
+        },
+    )
+    .unwrap()
+}
+
+fn play_groups(b: &mut Bracket) {
+    let ids: Vec<usize> = b
+        .matches
+        .iter()
+        .filter(|m| m.stage == Stage::League)
+        .map(|m| m.id)
+        .collect();
+    for id in ids {
+        let (a, c) = lower_team_wins(&b.matches[id]);
+        b.set_result(id, a, c).unwrap();
+    }
+}
+
+#[test]
+fn groups_are_dealt_in_a_snake_and_play_a_round_robin() {
+    let b = groups(8, 2, 2);
+    let league: Vec<_> = b
+        .matches
+        .iter()
+        .filter(|m| m.stage == Stage::League)
+        .collect();
+    assert_eq!(league.len(), 12);
+    assert_eq!(b.group_count(), 2);
+    let members = |g: u32| {
+        let mut ids: Vec<u32> = league
+            .iter()
+            .filter(|m| m.group == Some(g))
+            .flat_map(|m| m.slots)
+            .filter_map(|s| if let Slot::Team(t) = s { Some(t) } else { None })
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    };
+    assert_eq!(members(0), vec![1, 4, 5, 8]);
+    assert_eq!(members(1), vec![2, 3, 6, 7]);
+    let knockout = b
+        .matches
+        .iter()
+        .filter(|m| m.stage == Stage::Winners)
+        .count();
+    assert_eq!(knockout, 3);
+}
+
+#[test]
+fn knockout_waits_for_the_groups_then_fills_without_group_rematches() {
+    let mut b = groups(8, 2, 2);
+    let first_round = |b: &Bracket| -> Vec<[Slot; 2]> {
+        b.matches
+            .iter()
+            .filter(|m| m.stage == Stage::Winners && m.round == 1)
+            .map(|m| m.slots)
+            .collect()
+    };
+    assert!(first_round(&b).iter().flatten().all(|s| *s == Slot::Empty));
+    play_groups(&mut b);
+    let group_of = |team: u32| if [1, 4, 5, 8].contains(&team) { 0 } else { 1 };
+    for [x, y] in first_round(&b) {
+        let (Slot::Team(x), Slot::Team(y)) = (x, y) else {
+            panic!("unfilled slot")
+        };
+        assert_ne!(group_of(x), group_of(y), "group rematch {x} v {y}");
+    }
+    play_all(&mut b, lower_team_wins);
+    assert_eq!(b.champion(), Some(1));
+}
+
+#[test]
+fn changing_a_group_result_moves_qualifiers_until_a_knockout_match_is_played() {
+    let mut b = groups(8, 2, 2);
+    play_groups(&mut b);
+    let before = b
+        .matches
+        .iter()
+        .find(|m| m.stage == Stage::Winners)
+        .unwrap()
+        .slots;
+    b.clear_result(0).unwrap();
+    assert!(
+        b.matches
+            .iter()
+            .filter(|m| m.stage == Stage::Winners && m.round == 1)
+            .flat_map(|m| m.slots)
+            .all(|s| s == Slot::Empty)
+    );
+    b.set_result(0, 1, 0).unwrap();
+    assert_eq!(
+        b.matches
+            .iter()
+            .find(|m| m.stage == Stage::Winners)
+            .unwrap()
+            .slots,
+        before
+    );
+
+    let ready = b
+        .matches
+        .iter()
+        .find(|m| m.stage == Stage::Winners && m.is_ready())
+        .unwrap()
+        .id;
+    b.set_result(ready, 1, 0).unwrap();
+    let snapshot = b.clone();
+    assert_eq!(b.clear_result(0), Err(EngineError::DownstreamPlayed));
+    assert_eq!(b, snapshot);
+}
+
+#[test]
+fn uneven_groups_and_byes_still_reach_a_champion() {
+    for (n, g, a) in [
+        (9u32, 3u8, 2u8),
+        (10, 2, 3),
+        (7, 2, 1),
+        (12, 4, 2),
+        (16, 4, 2),
+    ] {
+        let mut b = groups(n, g, a);
+        play_all(&mut b, lower_team_wins);
+        assert!(b.champion().is_some(), "n={n} groups={g} advance={a}");
+        let (played, total) = b.progress();
+        assert_eq!(played, total, "n={n}");
+    }
+}
+
+#[test]
+fn group_setup_is_validated() {
+    let bad = |n: u32, groups: u8, advance: u8| {
+        generate_with(
+            &teams(n),
+            Format::GroupKnockout,
+            Options {
+                groups,
+                advance,
+                ..Options::default()
+            },
+        )
+        .unwrap_err()
+    };
+    assert!(matches!(bad(8, 1, 1), EngineError::BadGroupSetup(_)));
+    assert!(matches!(bad(5, 2, 1), EngineError::BadGroupSetup(_)));
+    assert!(matches!(bad(6, 2, 3), EngineError::BadGroupSetup(_)));
+    assert!(matches!(bad(8, 2, 0), EngineError::BadGroupSetup(_)));
+    assert_eq!(bad(33, 4, 2), EngineError::TooManyTeams { max: 32 });
+}
+
+#[test]
+fn group_tables_are_separate_per_group() {
+    let mut b = groups(6, 2, 1);
+    play_groups(&mut b);
+    let (a, c) = (b.group_standings(Some(0)), b.group_standings(Some(1)));
+    assert_eq!(a.len(), 3);
+    assert_eq!(c.len(), 3);
+    assert!(a.iter().all(|s| s.played == 2));
+    assert_eq!(a[0].team, 1);
+    assert_eq!(c[0].team, 2);
 }

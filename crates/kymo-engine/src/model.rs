@@ -9,6 +9,7 @@ pub enum Format {
     SingleElimination,
     DoubleElimination,
     RoundRobin,
+    GroupKnockout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +70,9 @@ pub struct Match {
     pub winner: Option<Side>,
     #[serde(default)]
     pub forfeit: bool,
+    /// Group index (0 is group A) for league matches of a groups then knockout tournament.
+    #[serde(default)]
+    pub group: Option<u32>,
     pub next_win: Option<Dest>,
     pub next_lose: Option<Dest>,
 }
@@ -125,8 +129,26 @@ impl Bracket {
     /// Round robin table, best first: points, then goal difference, then goals scored, then
     /// the lower team id (teams are numbered in seed order).
     pub fn standings(&self) -> Vec<Standing> {
+        self.group_standings(None)
+    }
+
+    /// Number of groups in a groups then knockout tournament, zero otherwise.
+    pub fn group_count(&self) -> u32 {
+        self.matches
+            .iter()
+            .filter_map(|m| m.group)
+            .max()
+            .map_or(0, |g| g + 1)
+    }
+
+    /// Table for one group (or for the whole league when `group` is `None`).
+    pub fn group_standings(&self, group: Option<u32>) -> Vec<Standing> {
         let mut table: Vec<Standing> = Vec::new();
-        for m in self.matches.iter().filter(|m| m.stage == Stage::League) {
+        for m in self
+            .matches
+            .iter()
+            .filter(|m| m.stage == Stage::League && m.group == group)
+        {
             let [Slot::Team(a), Slot::Team(b)] = m.slots else {
                 continue;
             };
@@ -185,7 +207,7 @@ impl Bracket {
                 .flatten();
         }
         let winner = match self.format {
-            Format::SingleElimination => {
+            Format::SingleElimination | Format::GroupKnockout => {
                 slot_of(self.matches.iter().rfind(|m| m.stage == Stage::Winners)?)
             }
             Format::RoundRobin => None,

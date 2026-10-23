@@ -1,5 +1,6 @@
 use crate::error::EngineError;
-use crate::model::{Bracket, Dest, MatchId, Side, Slot, Stage};
+use crate::generate::seed_order;
+use crate::model::{Bracket, Dest, Format, MatchId, Side, Slot, Stage, TeamId};
 
 fn auto_winner(slots: [Slot; 2]) -> Option<Side> {
     match slots {
@@ -31,6 +32,7 @@ impl Bracket {
             std::cmp::Ordering::Equal => None,
         };
         next.settle(id)?;
+        next.refresh_knockout()?;
         *self = next;
         Ok(())
     }
@@ -49,6 +51,7 @@ impl Bracket {
         m.forfeit = true;
         m.winner = Some(winner);
         next.settle(id)?;
+        next.refresh_knockout()?;
         *self = next;
         Ok(())
     }
@@ -67,8 +70,83 @@ impl Bracket {
         m.forfeit = false;
         m.winner = None;
         next.settle(id)?;
+        next.refresh_knockout()?;
         *self = next;
         Ok(())
+    }
+
+    /// Groups then knockout: once every group match is played, the qualifiers are placed in
+    /// the first knockout round. Before that, and whenever a group result changes, the slots
+    /// follow the table. A knockout match that was already played blocks the change.
+    pub(crate) fn refresh_knockout(&mut self) -> Result<(), EngineError> {
+        if self.format != Format::GroupKnockout {
+            return Ok(());
+        }
+        let league: Vec<_> = self
+            .matches
+            .iter()
+            .filter(|m| m.stage == Stage::League)
+            .collect();
+        let done = !league.is_empty() && league.iter().all(|m| m.is_played());
+        let first_round: Vec<MatchId> = self
+            .matches
+            .iter()
+            .filter(|m| m.stage == Stage::Winners && m.round == 1)
+            .map(|m| m.id)
+            .collect();
+        let order = seed_order(first_round.len() * 2);
+        let qualifiers = first_round
+            .iter()
+            .flat_map(|&id| self.matches[id].slots)
+            .filter(|s| *s != Slot::Bye)
+            .count();
+        let seeded = if done {
+            self.knockout_seeds(qualifiers, &order)
+        } else {
+            Vec::new()
+        };
+        for (i, &id) in first_round.iter().enumerate() {
+            for side in [Side::A, Side::B] {
+                if self.matches[id].slots[side.index()] == Slot::Bye {
+                    continue;
+                }
+                let seed = order[2 * i + side.index()];
+                let slot = seeded.get(seed - 1).map_or(Slot::Empty, |t| Slot::Team(*t));
+                self.set_slot(Dest { id, side }, slot)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Qualifiers ordered by group placement, then points, goal difference and goals scored.
+    /// Same group teams are moved apart in the first round when a swap allows it.
+    fn knockout_seeds(&self, qualifiers: usize, order: &[usize]) -> Vec<TeamId> {
+        let groups = self.group_count() as usize;
+        let advance = qualifiers / groups;
+        let mut ranked = Vec::new();
+        for g in 0..groups {
+            for (place, line) in self
+                .group_standings(Some(g as u32))
+                .into_iter()
+                .take(advance)
+                .enumerate()
+            {
+                ranked.push((place, line, g));
+            }
+        }
+        ranked.sort_by_key(|(place, line, _)| {
+            (
+                *place,
+                std::cmp::Reverse(line.points),
+                std::cmp::Reverse(i64::from(line.points_for) - i64::from(line.points_against)),
+                std::cmp::Reverse(line.points_for),
+                line.team,
+            )
+        });
+        let mut seeds: Vec<(TeamId, usize)> =
+            ranked.iter().map(|(_, line, g)| (line.team, *g)).collect();
+        separate_groups(&mut seeds, order);
+        seeds.into_iter().map(|(team, _)| team).collect()
     }
 
     pub(crate) fn settle(&mut self, id: MatchId) -> Result<(), EngineError> {
@@ -136,5 +214,28 @@ impl Bracket {
                 b,
             ),
         ]
+    }
+}
+
+/// Swaps the lower seed of a same group first round pair with another pair's lower seed when
+/// that leaves both pairs with teams from different groups.
+fn separate_groups(seeds: &mut [(TeamId, usize)], order: &[usize]) {
+    let pairs = order.len() / 2;
+    let seed_at = |pair: usize, side: usize| order[2 * pair + side] - 1;
+    for i in 0..pairs {
+        let (a, b) = (seed_at(i, 0), seed_at(i, 1));
+        if a >= seeds.len() || b >= seeds.len() || seeds[a].1 != seeds[b].1 {
+            continue;
+        }
+        for j in 0..pairs {
+            let (c, d) = (seed_at(j, 0), seed_at(j, 1));
+            if j == i || d >= seeds.len() || c >= seeds.len() {
+                continue;
+            }
+            if seeds[a].1 != seeds[d].1 && seeds[c].1 != seeds[b].1 {
+                seeds.swap(b, d);
+                break;
+            }
+        }
     }
 }

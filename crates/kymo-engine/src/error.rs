@@ -18,6 +18,8 @@ pub enum EngineError {
     Tie,
     #[error("match {0} has no recorded result")]
     NoResult(MatchId),
+    #[error("{0}")]
+    BadGroupSetup(String),
     #[error("a later match depends on this result and was already played")]
     DownstreamPlayed,
 }

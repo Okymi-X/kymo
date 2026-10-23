@@ -8,10 +8,24 @@ pub const MAX_TEAMS: usize = 256;
 pub const MAX_ROUND_ROBIN_TEAMS: usize = 32;
 const MIN_THIRD_PLACE: usize = 4;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Options {
     /// Single elimination only: the two semifinal losers play for third place.
     pub third_place: bool,
+    /// Groups then knockout only: number of groups (2 to 8).
+    pub groups: u8,
+    /// Groups then knockout only: how many teams per group reach the knockout (1 to 4).
+    pub advance: u8,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            third_place: false,
+            groups: 2,
+            advance: 2,
+        }
+    }
 }
 
 /// `teams` is ordered by seed: index 0 is seed 1.
@@ -30,8 +44,10 @@ pub fn generate_with(
             min: MIN_THIRD_PLACE,
         });
     }
-    if format == Format::RoundRobin {
-        return Ok(round_robin(teams));
+    match format {
+        Format::RoundRobin => return Ok(round_robin(teams)),
+        Format::GroupKnockout => return group_knockout(teams, options),
+        _ => {}
     }
     let size = teams.len().next_power_of_two();
     let rounds = size.trailing_zeros() as usize;
@@ -61,12 +77,12 @@ pub fn generate_with(
 fn validate(teams: &[TeamId], format: Format) -> Result<(), EngineError> {
     let min = match format {
         Format::SingleElimination => 2,
-        Format::DoubleElimination | Format::RoundRobin => 3,
+        Format::DoubleElimination | Format::RoundRobin | Format::GroupKnockout => 3,
     };
     if teams.len() < min {
         return Err(EngineError::TooFewTeams { min });
     }
-    let max = if format == Format::RoundRobin {
+    let max = if matches!(format, Format::RoundRobin | Format::GroupKnockout) {
         MAX_ROUND_ROBIN_TEAMS
     } else {
         MAX_TEAMS
@@ -94,6 +110,7 @@ fn add_round(matches: &mut Vec<Match>, stage: Stage, round: usize, count: usize)
                 score: None,
                 winner: None,
                 forfeit: false,
+                group: None,
                 next_win: None,
                 next_lose: None,
             });
@@ -122,7 +139,7 @@ fn link_winners_bracket(matches: &mut [Match], winners: &[Vec<MatchId>]) {
 }
 
 /// Standard seed order so seed 1 meets the lowest seed and byes go to the top seeds.
-fn seed_order(size: usize) -> Vec<usize> {
+pub(crate) fn seed_order(size: usize) -> Vec<usize> {
     let mut order = vec![1];
     while order.len() < size {
         let total = order.len() * 2 + 1;
@@ -220,13 +237,12 @@ fn add_third_place(matches: &mut Vec<Match>, winners: &[Vec<MatchId>], rounds: u
 
 /// Circle method: one team stays put and the rest rotate, so every pair meets exactly once.
 /// With an odd number of teams one team rests each round and no match is created for it.
-fn round_robin(teams: &[TeamId]) -> Bracket {
+fn robin_matches(teams: &[TeamId], group: Option<u32>, matches: &mut Vec<Match>) {
     let mut ring: Vec<Option<TeamId>> = teams.iter().copied().map(Some).collect();
     if ring.len() % 2 == 1 {
         ring.push(None);
     }
     let n = ring.len();
-    let mut matches = Vec::new();
     for round in 1..n {
         let mut position = 0;
         for i in 0..n / 2 {
@@ -241,6 +257,7 @@ fn round_robin(teams: &[TeamId]) -> Bracket {
                     score: None,
                     winner: None,
                     forfeit: false,
+                    group,
                     next_win: None,
                     next_lose: None,
                 });
@@ -249,8 +266,88 @@ fn round_robin(teams: &[TeamId]) -> Bracket {
         }
         ring[1..].rotate_right(1);
     }
+}
+
+fn round_robin(teams: &[TeamId]) -> Bracket {
+    let mut matches = Vec::new();
+    robin_matches(teams, None, &mut matches);
     Bracket {
         format: Format::RoundRobin,
         matches,
     }
+}
+
+fn bad_setup(message: impl Into<String>) -> EngineError {
+    EngineError::BadGroupSetup(message.into())
+}
+
+/// Groups are filled in a snake over the seeds so each group gets a similar spread of strength.
+fn group_of(seed_index: usize, groups: usize) -> usize {
+    let (row, col) = (seed_index / groups, seed_index % groups);
+    if row % 2 == 0 { col } else { groups - 1 - col }
+}
+
+fn group_knockout(teams: &[TeamId], options: Options) -> Result<Bracket, EngineError> {
+    let (groups, advance) = (usize::from(options.groups), usize::from(options.advance));
+    if !(2..=8).contains(&groups) {
+        return Err(bad_setup("use 2 to 8 groups"));
+    }
+    if !(1..=4).contains(&advance) {
+        return Err(bad_setup("1 to 4 teams per group can advance"));
+    }
+    if teams.len() < 3 * groups {
+        return Err(bad_setup(format!(
+            "{groups} groups need at least {} teams",
+            3 * groups
+        )));
+    }
+    let smallest = teams.len() / groups;
+    if advance >= smallest {
+        return Err(bad_setup(
+            "the smallest group must be larger than the number advancing",
+        ));
+    }
+
+    let mut members: Vec<Vec<TeamId>> = vec![Vec::new(); groups];
+    for (i, &team) in teams.iter().enumerate() {
+        members[group_of(i, groups)].push(team);
+    }
+    let mut matches = Vec::new();
+    for (g, group) in members.iter().enumerate() {
+        robin_matches(group, Some(g as u32), &mut matches);
+    }
+
+    let entrants = groups * advance;
+    let size = entrants.next_power_of_two();
+    let rounds = size.trailing_zeros() as usize;
+    let mut winners: Vec<Vec<MatchId>> = vec![Vec::new()];
+    for round in 1..=rounds {
+        winners.push(add_round(
+            &mut matches,
+            Stage::Winners,
+            round,
+            size >> round,
+        ));
+    }
+    link_winners_bracket(&mut matches, &winners);
+    let order = seed_order(size);
+    for (i, &id) in winners[1].iter().enumerate() {
+        let slot = |seed: usize| {
+            if seed > entrants {
+                Slot::Bye
+            } else {
+                Slot::Empty
+            }
+        };
+        matches[id].slots = [slot(order[2 * i]), slot(order[2 * i + 1])];
+    }
+
+    let mut bracket = Bracket {
+        format: Format::GroupKnockout,
+        matches,
+    };
+    for id in winners[1].clone() {
+        bracket.settle(id)?;
+    }
+    Ok(bracket)
 }
