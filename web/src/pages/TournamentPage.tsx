@@ -9,6 +9,7 @@ import { BracketView } from '../components/BracketView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { GroupsView } from '../components/GroupsView'
 import { BackLink } from '../components/BackLink'
+import { EmbedDialog } from '../components/EmbedDialog'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { usePublishHeader } from '../components/HeaderContext'
 import { MatchList } from '../components/MatchList'
@@ -24,7 +25,7 @@ import { formatLabel, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
-import { CalendarPlus, Monitor, X } from 'lucide-react'
+import { CalendarPlus, Code, Monitor, Printer, X } from 'lucide-react'
 import { Link } from 'react-router'
 
 function useTeamName(t: Tournament | undefined) {
@@ -162,6 +163,7 @@ export function TournamentPage() {
   const teamName = useTeamName(t)
   const [editing, setEditing] = useState<Match | null>(null)
   const [teamId, setTeamId] = useState<number | null>(null)
+  const [embedding, setEmbedding] = useState(false)
   const [params, setParams] = useSearchParams()
   const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
   const views = t?.format === 'round_robin' ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
@@ -218,6 +220,24 @@ export function TournamentPage() {
             </a>
           )}
           {t.bracket && (
+            <>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="no-print inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40"
+              >
+                <Printer size={16} aria-hidden="true" /> Print
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmbedding(true)}
+                className="no-print inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40"
+              >
+                <Code size={16} aria-hidden="true" /> Embed
+              </button>
+            </>
+          )}
+          {t.bracket && (
             <Link to={`/t/${t.slug}/stage`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
               <Monitor size={16} aria-hidden="true" /> Stage mode
             </Link>
@@ -249,6 +269,7 @@ export function TournamentPage() {
           <p className="mt-1 text-muted">It appears here once the organizer starts the tournament.</p>
         </div>
       )}
+      {embedding && <EmbedDialog tournament={t} onClose={() => setEmbedding(false)} />}
       {teamId !== null && (
         <TeamDialog
           tournament={t}

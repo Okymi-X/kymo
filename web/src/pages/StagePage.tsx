@@ -166,7 +166,11 @@ export function StagePage() {
               <Champion t={t} name={champion} />
             ) : (
               <div key={active?.id} className="stage-fade">
-                {active?.id === 'bracket' && knockout && <BracketView bracket={knockout} teamName={name} contained hideControls />}
+                {active?.id === 'bracket' && knockout && (
+                  <div className="h-[calc(100vh-9rem)] min-h-[24rem]">
+                    <BracketView bracket={knockout} teamName={name} fill hideControls />
+                  </div>
+                )}
                 {active?.id === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={() => undefined} hideExport />}
                 {active?.id === 'groups' && <GroupsView tournament={t} teamName={name} onSelect={() => undefined} />}
               </div>

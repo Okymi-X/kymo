@@ -62,3 +62,12 @@ Activity tab: a vertical timeline with an icon per kind, relative time with the 
 
 ## Stage mode
 Route `/t/{slug}/stage`, outside the normal shell. Large title with status and progress, a rotating main panel (bracket then standings, or groups then knockout), a side column with the next four ready matches and the latest six results. Keys: space pauses, arrows switch, F toggles full screen. When a champion exists the panel becomes a full height champion screen with a large avatar and the up next list is hidden. Updates arrive over the same live event stream as the normal page.
+
+## Bracket map
+The bracket lives in a bounded viewport (`MapViewport`) instead of a tall page. Interactions: drag with the mouse or one finger (momentum on release, skipped for reduced motion), Ctrl or Cmd with the wheel and two finger pinch zoom around the pointer, plain wheel pans and hands the wheel back to the page once the map is at an edge, arrows pan, + and - zoom, 0 resets, F shows everything. A drag past 4px never counts as a click, so match cards stay safe to grab. Controls sit bottom left, the minimap bottom right (only when the map is larger than the viewport) and jumping on it recenters. Initial zoom fits the width with a floor of 60 percent; stage mode and embeds fill their parent and start zoomed out to show everything. Print drops the viewport and prints the canvas at half size.
+
+## Back and wayfinding
+Every sub page starts with a text back link to Tournaments. On phones the header also has a back chevron (history back, home if there is no history). The header has a live badge linking to the live filter, a wide search field, a light and dark switch that only the visitor sees (hidden when the organizer forces a scheme) and the organizer menu.
+
+## Embed and print
+`/embed/{slug}` has no navigation and accepts `view`, `theme`, `transparent=1` and `title=0`. It is the only route allowed in a frame. The Embed dialog builds the iframe code. Print hides the header, tabs and dialogs.

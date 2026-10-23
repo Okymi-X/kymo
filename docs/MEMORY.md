@@ -17,3 +17,5 @@
 - Framework rejections (bad JSON, 405, 413) are rewritten to {error} by the json_errors layer in routes/mod.rs.
 - Idea chosen on 2026-10-23: the recurring pain at live CTF events is trust and wayfinding (disputed scores, where do we play, screen sharing the admin page). Built the activity log, stage mode and follow a team for it.
 - `kymo-server seed-demo` fills the database with six sample tournaments (idempotent by slug). The Appearance saved look in the local kymo.db was customized by the owner (monospace), do not reset it.
+- Bracket UI is a map (MapViewport). Playwright tests pan with mouse.down/move/up, zoom with keyboard Control plus mouse.wheel, and read the canvas transform from the style attribute (no DOM lib in the e2e tsconfig). Page scroll tests use the Matches tab because the bracket no longer makes the page tall.
+- In tool input, the two characters backslash backslash semicolon can be rewritten to a single backslash; patch such lines with python chr(92) when writing RFC 5545 escapes.

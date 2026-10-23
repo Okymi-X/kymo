@@ -11,6 +11,7 @@ import { Home } from './pages/Home'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
+import { EmbedPage } from './pages/EmbedPage'
 import { StagePage } from './pages/StagePage'
 import { TournamentPage } from './pages/TournamentPage'
 import './index.css'
@@ -41,6 +42,7 @@ createRoot(document.getElementById('root')!).render(
           <ThemeLoader />
           <Routes>
             <Route path="/t/:slug/stage" element={<StagePage />} />
+            <Route path="/embed/:slug" element={<EmbedPage />} />
             <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />

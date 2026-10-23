@@ -47,6 +47,12 @@ Organizer action -> API handler -> repository loads matches -> engine applies ch
 ## Activity log
 `event(id, tournament_id, at, kind, match_id, data)` is append only and public (GET /tournaments/{slug}/activity, newest first, 200 rows). Kinds: started, reset, result, corrected (a change to a match that already had a result), forfeit, cleared. `data` is a snapshot of the match after the change. Entries are written inside the same write lock as the bracket change, and a refused edit writes nothing.
 
+## Scheduling and calendar
+`Match.scheduled_at` (unix seconds) and `Match.venue` are plain data on the match, validated on write (2000 to 2100, 40 characters, no control characters), logged as `scheduled` events and never used by bracket logic. `GET /tournaments/{slug}/calendar.ics` exports every scheduled real match as a 45 minute VEVENT in UTC with RFC 5545 escaping and line folding.
+
+## Security headers and embedding
+A middleware sets nosniff, a same origin referrer policy and a CSP on every response. Everything gets `X-Frame-Options: DENY` and `frame-ancestors 'none'` except paths under `/embed/`, which get `frame-ancestors *`. Chrome treats `*` as network schemes only, so test iframes must be hosted on an http origin, and it blocks public looking hosts from framing localhost.
+
 ## Customization
 Appearance (site name, tagline, accent per color scheme, corner radius, typeface, color mode, density) lives in the `setting` table and is served at GET /settings. The server also inlines the saved look into index.html (a `<style id="kymo-theme">`, `data-scheme` on `<html>`, the title and a JSON data block) so the first paint is already right and the app seeds its query cache from the block, which avoids a flash on refresh. The web app applies the same CSS through `applyAppearance`; every value is validated on the server (hex colors, radius 0 to 20, fixed font list) and again before it reaches CSS. New options extend the JSON, no migration. Contrast against the page background is shown while editing.
 

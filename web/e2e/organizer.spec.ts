@@ -310,17 +310,18 @@ test('the header shows the tournament once its title scrolls away', async ({ pag
   await page.getByLabel('New tournament').fill('Nav Cup')
   await page.getByLabel('Format').selectOption('double_elimination')
   await page.getByRole('button', { name: 'Create' }).click()
-  await page.getByLabel(/Add teams/).fill('A1\nB1\nC1\nD1\nE1\nF1\nG1\nH1')
+  await page.getByLabel(/Add teams/).fill(Array.from({ length: 16 }, (_, i) => `N${i + 1}`).join('\n'))
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
   await expect(page.getByRole('heading', { name: 'Nav Cup' })).toBeVisible()
-  await expect(page.getByText('Losers bracket')).toBeVisible()
   const header = page.getByRole('banner')
   await expect(header.getByText('Nav Cup')).toHaveCount(0)
-  await page.mouse.move(600, 500)
-  await page.mouse.wheel(0, 700)
+  // The bracket is a bounded map now, so use the long list of matches to make the page scroll.
+  await page.getByRole('tab', { name: 'Matches' }).click()
+  await expect(page.getByRole('heading', { name: /Up next/ })).toBeVisible()
+  await page.keyboard.press('End')
   await expect(header.getByText('Nav Cup')).toBeVisible()
-  await page.mouse.wheel(0, -2000)
+  await page.keyboard.press('Home')
   await expect(header.getByText('Nav Cup')).toHaveCount(0)
 })
 
@@ -437,4 +438,102 @@ test('nav bar: live badge, search bar, light and dark switch that is remembered'
   await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark')
   await page.getByRole('button', { name: 'Switch to light mode' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light')
+})
+
+test('embed: dialog builds the snippet and the page works inside a real iframe', async ({ page, context }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Embed Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await record(page, 'Edit result for Alpha versus Delta', '3', '1')
+
+  await page.getByRole('button', { name: 'Embed' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Embed this tournament' })
+  await dialog.getByLabel('Theme').selectOption('dark')
+  await dialog.getByLabel('Transparent background').check()
+  const snippet = dialog.getByLabel('Code to paste')
+  await expect(snippet).toHaveValue(/<iframe src="http:\/\/[^"]+\/embed\/embed-cup\?theme=dark&transparent=1"/)
+  await dialog.getByRole('button', { name: 'Done' }).click()
+
+  const origin = new URL(page.url()).origin
+  // A host page on an http address (frame-ancestors * does not cover about:blank pages, and
+  // Chrome blocks public looking hosts from framing localhost, so intercept a path on the same origin).
+  await context.route(`${origin}/__host`, (route) =>
+    route.fulfill({ contentType: 'text/html', body: `<h1>Host page</h1><iframe title="cup" src="${origin}/embed/embed-cup?theme=dark&transparent=1" width="900" height="500"></iframe>` }),
+  )
+  const host = await context.newPage()
+  await host.goto(`${origin}/__host`)
+  const frame = host.frameLocator('iframe[title="cup"]')
+  await expect(frame.getByRole('heading', { name: 'Embed Cup' })).toBeVisible()
+  await expect(frame.getByText('Null').or(frame.getByText('Alpha')).first()).toBeVisible()
+
+  const bare = await context.newPage()
+  await bare.goto('/embed/embed-cup?title=0&transparent=1')
+  await expect(bare.getByRole('banner')).toHaveCount(0)
+  await expect(bare.getByRole('heading', { name: 'Embed Cup' })).toHaveCount(0)
+  await expect(bare.locator('body')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(bare.getByRole('link', { name: /Open on Kymo/ })).toBeVisible()
+})
+
+async function mapTransform(page: Page) {
+  const style = (await page.locator('[data-map-canvas]').getAttribute('style')) ?? ''
+  const m = /translate3d\((-?[\d.]+)px, (-?[\d.]+)px, 0px?\) scale\(([\d.]+)\)/.exec(style)
+  if (!m) throw new Error(`no transform in ${style}`)
+  return { x: Number(m[1]), y: Number(m[2]), s: Number(m[3]) }
+}
+
+test('the bracket is a map: drag, zoom at the cursor, keys, minimap, and no accidental clicks', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Map Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  const names = Array.from({ length: 16 }, (_, i) => `Team${String.fromCharCode(65 + i)}`).join('\n')
+  await page.getByLabel(/Add teams/).fill(names)
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+
+  const map = page.getByRole('region', { name: 'Bracket map' })
+  await expect(map).toBeVisible()
+  await expect(map.getByRole('button', { name: /Edit result for TeamA versus TeamP/ })).toBeVisible()
+  const start = await mapTransform(page)
+  const box = (await map.boundingBox())!
+
+  // Dragging from a match card moves the map and does not open the result dialog.
+  const card = map.getByRole('button', { name: /Edit result for TeamA versus TeamP/ })
+  const cardBox = (await card.boundingBox())!
+  await page.mouse.move(cardBox.x + 30, cardBox.y + 30)
+  await page.mouse.down()
+  await page.mouse.move(cardBox.x + 30 - 40, cardBox.y + 30 - 60, { steps: 6 })
+  await page.mouse.up()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const dragged = await mapTransform(page)
+  expect(dragged.y).not.toBe(start.y)
+
+  // A plain click still opens the match.
+  await map.getByRole('button', { name: 'Reset view' }).click()
+  await expect.poll(async () => (await mapTransform(page)).y).toBe(start.y)
+  await card.click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Ctrl and wheel zooms around the cursor.
+  const before = await mapTransform(page)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -240)
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await mapTransform(page)).s).toBeGreaterThan(before.s)
+
+  // Keys pan and the reset button restores the first view.
+  await map.focus()
+  const keyed = await mapTransform(page)
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(async () => (await mapTransform(page)).x).not.toBe(keyed.x)
+  await map.getByRole('button', { name: 'Reset view' }).click()
+  await expect.poll(async () => (await mapTransform(page)).s).toBeCloseTo(start.s, 2)
+
+  // Show everything zooms out until the whole bracket fits.
+  await map.getByRole('button', { name: 'Show everything' }).click()
+  await expect.poll(async () => (await mapTransform(page)).s).toBeLessThan(start.s)
 })
