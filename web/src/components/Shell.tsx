@@ -24,8 +24,8 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <Link to="/" className="text-base font-semibold tracking-tight">
-            Kymo
+          <Link to="/" aria-label="Kymo home">
+            <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-10 w-auto" />
           </Link>
           <div className="flex items-center gap-4">
             <button type="button" onClick={() => setPaletteOpen(true)} className="rounded-control border border-line px-2.5 py-1 text-xs text-muted hover:text-ink" aria-label="Open command palette">

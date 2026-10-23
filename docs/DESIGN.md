@@ -27,3 +27,6 @@ WCAG AA contrast, visible focus ring (2px accent), full keyboard control of matc
 - One height for inputs, selects and buttons (40px), so rows align. Labels sit above in ink at 70 percent.
 - Field border uses `field-line` (stronger than card borders) so inputs read in dark mode. Placeholder at 60 percent muted so it never looks like a value.
 - Focus: accent border plus a 3px accent ring at 25 percent. Select uses a custom chevron. Disabled primary buttons turn neutral instead of dimming the accent.
+
+## Brand
+Logo: `web/public/logo.png` (wordmark with bracket nodes). Favicon and app icon: `favicon-32.png`, `favicon-192.png`, `apple-touch-icon.png`, cropped from the supplied rounded square K mark. Header logo height 40px.
