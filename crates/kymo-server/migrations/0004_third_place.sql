@@ -1,0 +1,1 @@
+ALTER TABLE tournament ADD COLUMN third_place INTEGER NOT NULL DEFAULT 0;

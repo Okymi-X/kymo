@@ -30,6 +30,7 @@ struct Row {
     name: String,
     slug: String,
     format: String,
+    third_place: bool,
     status: Status,
     bracket: Option<String>,
     created_at: String,
@@ -41,6 +42,7 @@ pub struct Tournament {
     pub name: String,
     pub slug: String,
     pub format: Format,
+    pub third_place: bool,
     pub status: Status,
     pub created_at: String,
     pub teams: Vec<Team>,
@@ -86,6 +88,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         name: row.name,
         slug: row.slug,
         format: serde_json::from_value(row.format.into()).map_err(parse)?,
+        third_place: row.third_place,
         status: row.status,
         created_at: row.created_at,
         teams,
@@ -136,13 +139,16 @@ pub async fn create(
     name: &str,
     slug: &str,
     format: Format,
+    third_place: bool,
 ) -> Result<i64, ApiError> {
-    let result = sqlx::query("INSERT INTO tournament (name, slug, format) VALUES (?, ?, ?)")
-        .bind(name)
-        .bind(slug)
-        .bind(format_to_text(format))
-        .execute(pool)
-        .await?;
+    let result =
+        sqlx::query("INSERT INTO tournament (name, slug, format, third_place) VALUES (?, ?, ?, ?)")
+            .bind(name)
+            .bind(slug)
+            .bind(format_to_text(format))
+            .bind(third_place)
+            .execute(pool)
+            .await?;
     Ok(result.last_insert_rowid())
 }
 

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use kymo_engine::{Format, Side, generate};
+use kymo_engine::{Format, Options, Side, generate_with};
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 
@@ -21,6 +21,8 @@ const MAX_SCORE: u32 = 1_000_000;
 pub struct CreateBody {
     name: String,
     format: Format,
+    #[serde(default)]
+    third_place: bool,
 }
 
 #[derive(Deserialize)]
@@ -100,7 +102,7 @@ pub async fn create(
             "name needs at least one letter or digit".into(),
         ));
     }
-    let id = db::create(&state.pool, &name, &slug, body.format).await?;
+    let id = db::create(&state.pool, &name, &slug, body.format, body.third_place).await?;
     Ok((StatusCode::CREATED, Json(db::get(&state.pool, id).await?)))
 }
 
@@ -195,7 +197,13 @@ pub async fn start(
     db::replace_teams(&state.pool, id, &reseeded).await?;
     teams = db::get(&state.pool, id).await?.teams;
     let ids: Vec<u32> = teams.iter().map(|team| team.id as u32).collect();
-    let bracket = generate(&ids, t.format)?;
+    let bracket = generate_with(
+        &ids,
+        t.format,
+        Options {
+            third_place: t.third_place,
+        },
+    )?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))

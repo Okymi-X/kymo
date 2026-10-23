@@ -429,3 +429,47 @@ async fn forfeit_over_the_api_advances_a_team_and_validates_the_side() {
     assert_eq!(out["bracket"]["matches"][0]["forfeit"], true);
     assert_eq!(out["bracket"]["matches"][2]["slots"][0]["kind"], "team");
 }
+
+#[tokio::test]
+async fn third_place_option_adds_a_match_and_keeps_the_champion() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let body = json!({"name": "Bronze", "format": "single_elimination", "third_place": true});
+    let (status, created) = call(&app, "POST", "/api/v1/tournaments", t, Some(body)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["third_place"], true);
+    let teams = json!({"teams": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    let (_, started) = call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    assert_eq!(started["bracket"]["matches"].as_array().unwrap().len(), 4);
+    let uri = |m: usize| format!("/api/v1/admin/tournaments/1/matches/{m}/result");
+    for m in [0, 1, 2] {
+        call(
+            &app,
+            "PUT",
+            &uri(m),
+            t,
+            Some(json!({"score_a": 2, "score_b": 1})),
+        )
+        .await;
+    }
+    let (_, done) = call(&app, "GET", "/api/v1/tournaments/bronze", None, None).await;
+    assert_eq!(done["status"], "done");
+    let (status, _) = call(
+        &app,
+        "PUT",
+        &uri(3),
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
