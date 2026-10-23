@@ -10,6 +10,8 @@ export const DEFAULT_APPEARANCE: Appearance = {
   scheme: 'system',
   density: 'comfortable',
   tagline: 'Knockout brackets for CTF events, updated as results come in.',
+  tint: 'neutral',
+  avatars: true,
 }
 
 export const FONT_STACKS: Record<FontChoice, string> = {
@@ -39,6 +41,25 @@ export function themeCss(a: Appearance): string {
     `:root[data-scheme="dark"]{--color-accent:${dark};}`,
     `@media (prefers-color-scheme:dark){:root:not([data-scheme="light"]){--color-accent:${dark};}}`,
     `html{font-size:${size};}`,
+    tintCss(a.tint),
+    a.avatars === false ? '[data-avatar]{display:none !important;}' : '',
+  ].join('')
+}
+
+const TINTS = {
+  warm: { light: ['#faf8f5', '#fffefc', '#e8e4dd'], dark: ['#0d0c0b', '#161412', '#2d2a26'] },
+  cool: { light: ['#f6f8fb', '#fcfdff', '#dfe5ee'], dark: ['#090c10', '#11151b', '#232a34'] },
+} as const
+
+const tintVars = ([bg, surface, line]: readonly string[]) => `--color-bg:${bg};--color-surface:${surface};--color-line:${line};`
+
+function tintCss(tint: Appearance['tint']): string {
+  if (tint !== 'warm' && tint !== 'cool') return ''
+  const { light, dark } = TINTS[tint]
+  return [
+    `:root{${tintVars(light)}}`,
+    `:root[data-scheme="dark"]{${tintVars(dark)}}`,
+    `@media (prefers-color-scheme:dark){:root:not([data-scheme="light"]){${tintVars(dark)}}}`,
   ].join('')
 }
 

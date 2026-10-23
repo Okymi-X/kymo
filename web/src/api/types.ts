@@ -64,6 +64,7 @@ export type FontChoice = 'sans' | 'serif' | 'mono'
 
 export type Scheme = 'system' | 'light' | 'dark'
 export type Density = 'comfortable' | 'compact'
+export type Tint = 'neutral' | 'warm' | 'cool'
 
 export interface Appearance {
   site_name: string
@@ -74,6 +75,8 @@ export interface Appearance {
   scheme: Scheme
   density: Density
   tagline: string
+  tint: Tint
+  avatars: boolean
 }
 
 export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled'

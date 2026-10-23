@@ -19,3 +19,5 @@
 - `kymo-server seed-demo` fills the database with six sample tournaments (idempotent by slug). The Appearance saved look in the local kymo.db was customized by the owner (monospace), do not reset it.
 - Bracket UI is a map (MapViewport). Playwright tests pan with mouse.down/move/up, zoom with keyboard Control plus mouse.wheel, and read the canvas transform from the style attribute (no DOM lib in the e2e tsconfig). Page scroll tests use the Matches tab because the bracket no longer makes the page tall.
 - In tool input, the two characters backslash backslash semicolon can be rewritten to a single backslash; patch such lines with python chr(92) when writing RFC 5545 escapes.
+- Stage overview slide shows only when stageScale (layout.ts, 1440x880 area) is at least 0.55: a 32 slot knockout fits (0.60), 64 does not (0.30).
+- Appearance JSON gained tint and avatars with serde defaults, so rows saved earlier still load. Server css() and web themeCss() must stay in sync.

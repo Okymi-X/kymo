@@ -32,6 +32,14 @@ pub enum Density {
     Compact,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tint {
+    Neutral,
+    Warm,
+    Cool,
+}
+
 fn default_tagline() -> String {
     DEFAULT_TAGLINE.into()
 }
@@ -50,6 +58,18 @@ pub struct Appearance {
     pub density: Density,
     #[serde(default = "default_tagline")]
     pub tagline: String,
+    #[serde(default = "default_tint")]
+    pub tint: Tint,
+    #[serde(default = "default_avatars")]
+    pub avatars: bool,
+}
+
+fn default_tint() -> Tint {
+    Tint::Neutral
+}
+
+fn default_avatars() -> bool {
+    true
 }
 
 fn default_scheme() -> Scheme {
@@ -71,6 +91,8 @@ impl Default for Appearance {
             scheme: Scheme::System,
             density: Density::Comfortable,
             tagline: default_tagline(),
+            tint: Tint::Neutral,
+            avatars: true,
         }
     }
 }
@@ -170,8 +192,22 @@ impl Appearance {
         } else {
             "16px"
         };
+        let tint = match self.tint {
+            Tint::Neutral => "",
+            Tint::Warm => {
+                ":root{--color-bg:#faf8f5;--color-surface:#fffefc;--color-line:#e8e4dd;}:root[data-scheme=\"dark\"]{--color-bg:#0d0c0b;--color-surface:#161412;--color-line:#2d2a26;}@media (prefers-color-scheme:dark){:root:not([data-scheme=\"light\"]){--color-bg:#0d0c0b;--color-surface:#161412;--color-line:#2d2a26;}}"
+            }
+            Tint::Cool => {
+                ":root{--color-bg:#f6f8fb;--color-surface:#fcfdff;--color-line:#dfe5ee;}:root[data-scheme=\"dark\"]{--color-bg:#090c10;--color-surface:#11151b;--color-line:#232a34;}@media (prefers-color-scheme:dark){:root:not([data-scheme=\"light\"]){--color-bg:#090c10;--color-surface:#11151b;--color-line:#232a34;}}"
+            }
+        };
+        let avatars = if self.avatars {
+            ""
+        } else {
+            "[data-avatar]{display:none !important;}"
+        };
         format!(
-            ":root{{--color-accent:{};--radius-control:{}px;--radius-card:{}px;--font-sans:{};}}:root[data-scheme=\"dark\"]{{--color-accent:{};}}@media (prefers-color-scheme:dark){{:root:not([data-scheme=\"light\"]){{--color-accent:{};}}}}html{{font-size:{size};}}",
+            ":root{{--color-accent:{};--radius-control:{}px;--radius-card:{}px;--font-sans:{};}}:root[data-scheme=\"dark\"]{{--color-accent:{};}}@media (prefers-color-scheme:dark){{:root:not([data-scheme=\"light\"]){{--color-accent:{};}}}}html{{font-size:{size};}}{tint}{avatars}",
             self.accent_light,
             self.radius,
             u16::from(self.radius) + 4,

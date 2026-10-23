@@ -90,6 +90,9 @@ function Minimap({ rects, content, view, viewport, onJump }: { rects: MapRect[];
 }
 
 /** A pannable, zoomable map: drag to move, Ctrl and wheel or pinch to zoom, arrows and +/- from the keyboard. */
+/** Space under the content so the control bar never covers the last row of cards. */
+const CONTROLS_ROOM = 48
+
 export function MapViewport({ width, height, rects, focus = null, label, hideControls = false, fill = false, children }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const [vp, setVp] = useState<Size>({ w: 0, h: 0 })
@@ -154,7 +157,7 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
   const baseScale = vp.w > 0 ? widthScale(width, vp.w) : 1
   // Leave room for the header, title and tabs above so the whole map, minimap included, fits on screen.
   const maxHeight = typeof window === 'undefined' ? 700 : window.innerWidth < 640 ? Math.max(320, window.innerHeight * 0.65) : Math.max(360, Math.min(window.innerHeight - 340, 900))
-  const boxHeight = fill ? undefined : Math.round(Math.min(Math.max(height * baseScale + 2 * PAD, 220), maxHeight))
+  const boxHeight = fill ? undefined : Math.round(Math.min(Math.max(height * baseScale + 2 * PAD + (hideControls ? 0 : CONTROLS_ROOM), 220), maxHeight))
 
   const zoomBy = useCallback(
     (factor: number, cx = vpRef.current.w / 2, cy = vpRef.current.h / 2, animate = true) => {

@@ -1015,7 +1015,8 @@ async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
     let token = login(&app).await;
     let look = json!({
         "site_name": "A</title><script>x</script>", "accent_light": "#aa2200", "accent_dark": "#ff8866",
-        "radius": 14, "font": "serif", "scheme": "dark", "density": "compact", "tagline": "Hello"
+        "radius": 14, "font": "serif", "scheme": "dark", "density": "compact", "tagline": "Hello",
+        "tint": "warm", "avatars": false
     });
     let (status, _) = call(
         &app,
@@ -1036,6 +1037,8 @@ async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
     assert!(html.contains("data-scheme=\"dark\""), "{html}");
     assert!(html.contains("--color-accent:#aa2200"));
     assert!(html.contains("font-size:14.5px"));
+    assert!(html.contains("--color-bg:#faf8f5"));
+    assert!(html.contains("[data-avatar]{display:none"));
     assert!(html.contains("id=\"kymo-appearance\""));
     assert!(
         !html.contains("</title><script>x"),

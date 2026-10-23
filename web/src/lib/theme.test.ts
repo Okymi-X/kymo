@@ -57,3 +57,16 @@ describe('presets', () => {
     expect(matchingPreset({ ...DEFAULT_APPEARANCE, accent_light: '#123456' })).toBeNull()
   })
 })
+
+describe('tint and avatars', () => {
+  it('adds nothing for the neutral tint with avatars shown', () => {
+    expect(themeCss(DEFAULT_APPEARANCE)).not.toContain('--color-bg')
+    expect(themeCss(DEFAULT_APPEARANCE)).not.toContain('data-avatar')
+  })
+
+  it('tints the page and hides avatars on request', () => {
+    const css = themeCss({ ...DEFAULT_APPEARANCE, tint: 'cool', avatars: false })
+    expect(css).toContain('--color-bg:#f6f8fb')
+    expect(css).toContain('[data-avatar]{display:none !important;}')
+  })
+})

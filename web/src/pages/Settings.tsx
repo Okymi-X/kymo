@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
-import type { Appearance, Density, FontChoice, Match, Scheme, Slot } from '../api/types'
+import type { Appearance, Density, FontChoice, Match, Scheme, Slot, Tint } from '../api/types'
 import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
 import { BackLink } from '../components/BackLink'
@@ -139,6 +139,17 @@ const SCHEMES: { value: Scheme; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
+const TINTS: { value: Tint; label: string }[] = [
+  { value: 'neutral', label: 'Neutral' },
+  { value: 'warm', label: 'Warm' },
+  { value: 'cool', label: 'Cool' },
+]
+
+const AVATAR_OPTIONS: { value: 'on' | 'off'; label: string }[] = [
+  { value: 'on', label: 'Show' },
+  { value: 'off', label: 'Hide' },
+]
+
 const DENSITIES: { value: Density; label: string }[] = [
   { value: 'comfortable', label: 'Comfortable' },
   { value: 'compact', label: 'Compact' },
@@ -224,6 +235,12 @@ export function Settings() {
               </Field>
               <Field label="Typeface">
                 <Segmented label="Typeface" value={current.font} options={fonts} onChange={(v) => set('font', v)} />
+              </Field>
+              <Field label="Page tint">
+                <Segmented label="Page tint" value={current.tint} options={TINTS} onChange={(v) => set('tint', v)} />
+              </Field>
+              <Field label="Team avatars">
+                <Segmented label="Team avatars" value={current.avatars ? 'on' : 'off'} options={AVATAR_OPTIONS} onChange={(v) => set('avatars', v === 'on')} />
               </Field>
               <Field label="Density">
                 <Segmented label="Density" value={current.density} options={DENSITIES} onChange={(v) => set('density', v)} />
