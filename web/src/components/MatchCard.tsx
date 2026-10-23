@@ -1,11 +1,13 @@
 import { Check } from 'lucide-react'
 import { motion } from 'motion/react'
+import type { CSSProperties } from 'react'
 import type { Match, Slot } from '../api/types'
 
 interface Props {
   match: Match
   teamName: (slot: Slot) => string
   onEdit?: (match: Match) => void
+  style?: CSSProperties
 }
 
 function isReady(match: Match) {
@@ -15,7 +17,7 @@ function isReady(match: Match) {
 function Row({ name, slot, score, won }: { name: string; slot: Slot; score: number | null; won: boolean }) {
   const dim = slot.kind !== 'team'
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2">
+    <div className="flex flex-1 items-center justify-between gap-3 px-3">
       <motion.span
         key={name}
         initial={{ opacity: 0, y: 4 }}
@@ -31,7 +33,7 @@ function Row({ name, slot, score, won }: { name: string; slot: Slot; score: numb
   )
 }
 
-export function MatchCard({ match, teamName, onEdit }: Props) {
+export function MatchCard({ match, teamName, onEdit, style }: Props) {
   const ready = isReady(match)
   const open = ready && match.winner === null
   const body = (
@@ -41,18 +43,23 @@ export function MatchCard({ match, teamName, onEdit }: Props) {
       <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} />
     </>
   )
-  const frame = `w-56 overflow-hidden rounded-card border bg-surface text-left ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
+  const frame = `flex h-[76px] w-56 flex-col overflow-hidden rounded-card border bg-surface text-left ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
   if (onEdit && ready) {
     return (
       <button
         type="button"
         onClick={() => onEdit(match)}
         className={`${frame} transition-colors hover:bg-line/30`}
+        style={style}
         aria-label={`Edit result for ${teamName(match.slots[0])} versus ${teamName(match.slots[1])}`}
       >
         {body}
       </button>
     )
   }
-  return <div className={frame}>{body}</div>
+  return (
+    <div className={frame} style={style}>
+      {body}
+    </div>
+  )
 }
