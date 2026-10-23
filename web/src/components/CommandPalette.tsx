@@ -17,6 +17,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const list: Command[] = [{ id: 'home', label: 'All tournaments', run: go('/') }]
     for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, run: go(`/t/${t.slug}`) })
     if (admin) {
+      list.push({ id: 'appearance', label: 'Appearance', run: go('/settings') })
       list.push({ id: 'tokens', label: 'API tokens', run: go('/tokens') })
       list.push({ id: 'out', label: 'Sign out', run: () => { session.clear(); navigate('/') } })
     } else {

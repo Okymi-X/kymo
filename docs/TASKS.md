@@ -1,6 +1,7 @@
 # Tasks
 
 ## Done
+- [x] Appearance settings in the DB (GET /settings, admin PUT and reset, migration 0005, 1 API test), Appearance page with live preview and AA contrast check, 4 theme tests, e2e
 - [x] Optional third place match for single elimination: engine (5 tests), tournament option (migration 0004, 1 API test), layout under the final (2 tests), create form checkbox, e2e
 - [x] Team avatars via blobatar (deterministic from team name) on match cards, roster rows and the champion banner
 - [x] Forfeit wins: engine (4 tests), PUT .../forfeit endpoint (1 test), dialog buttons, W/FF on the card, e2e test
@@ -23,4 +24,7 @@
 ## In progress
 
 ## Todo
+- [ ] More customization: logo upload, per tournament accent, card density, bracket line style
+- [ ] Challenge providers (CTFd, rCTF, HTB, webhook) and challenge kinds, see ARCHITECTURE
+- [ ] Sample data seed command based on the schema
 - [ ] README with quickstart

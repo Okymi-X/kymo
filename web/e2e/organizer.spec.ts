@@ -96,3 +96,22 @@ test('third place match is played after the semifinals', async ({ page }) => {
   await record(page, 'Edit result for Alpha versus Charlie', '2', '1')
   await expect(page.getByText('Champion')).toBeVisible()
 })
+
+test('appearance changes are saved for everyone and can be restored', async ({ page, browser }) => {
+  await signIn(page)
+  await page.goto('/settings')
+  await page.getByLabel('Site name').fill('HTB Club')
+  await page.getByLabel('Accent, light mode hex').fill('#aa2200')
+  await page.getByRole('button', { name: 'Save appearance' }).click()
+  await expect(page.getByRole('link', { name: 'HTB Club home' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Primary action' })).toHaveCSS('background-color', 'rgb(170, 34, 0)')
+
+  const visitor = await browser.newPage()
+  await visitor.goto('/')
+  await expect(visitor.getByRole('link', { name: 'HTB Club home' })).toBeVisible()
+  await expect(visitor).toHaveTitle('HTB Club')
+  await visitor.close()
+
+  await page.getByRole('button', { name: 'Restore defaults' }).click()
+  await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
+})

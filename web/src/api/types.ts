@@ -53,3 +53,13 @@ export interface ApiToken {
   label: string
   created_at: number
 }
+
+export type FontChoice = 'sans' | 'serif' | 'mono'
+
+export interface Appearance {
+  site_name: string
+  accent_light: string
+  accent_dark: string
+  radius: number
+  font: FontChoice
+}

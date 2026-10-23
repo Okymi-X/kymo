@@ -15,6 +15,7 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 - Public live bracket view, shareable URL, auto refresh via server sent events.
 - Self host in one command: single binary, SQLite by default.
 - Admin auth with a single organizer account per instance plus API tokens.
+- Customizable look saved in the database: site name, accent colors, radius, typeface. Professional, restrained design.
 
 ## Non goals (v1)
 - Hosting CTF challenges or flag submission.
