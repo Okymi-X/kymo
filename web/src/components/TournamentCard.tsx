@@ -42,6 +42,7 @@ function Progress({ played, total }: { played: number; total: number }) {
 }
 
 export function TournamentCard({ t }: { t: Tournament }) {
+  const teamCount = t.team_count ?? t.teams.length
   const names = t.teams.slice(0, STACK).map((team) => team.name)
   return (
     <Link
@@ -61,8 +62,8 @@ export function TournamentCard({ t }: { t: Tournament }) {
       <div className="mt-auto flex flex-col gap-3">
         {t.progress.total > 0 && <Progress played={t.progress.played} total={t.progress.total} />}
         <div className="flex items-center justify-between">
-          {t.team_count > 0 ? <AvatarStack names={names} total={t.team_count} /> : <span className="text-sm text-muted">No teams yet</span>}
-          <span className="text-sm text-muted">{t.team_count} teams</span>
+          {teamCount > 0 ? <AvatarStack names={names} total={teamCount} /> : <span className="text-sm text-muted">No teams yet</span>}
+          <span className="text-sm text-muted">{teamCount} teams</span>
         </div>
       </div>
     </Link>

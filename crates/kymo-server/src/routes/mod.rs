@@ -27,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments/{slug}/calendar.ics", get(public::calendar))
         .route("/settings", get(public::appearance))
         .route("/admin/demo", post(admin::load_demo))
+        .route("/admin/import", post(admin::import))
         .route(
             "/admin/settings",
             put(admin::save_appearance).delete(admin::reset_appearance),

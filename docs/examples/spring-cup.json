@@ -1,0 +1,14 @@
+{
+  "name": "Spring Cup Import",
+  "format": "single_elimination",
+  "third_place": true,
+  "teams": [
+    { "name": "Null Pointers", "score": 940 },
+    { "name": "Stack Smashers", "score": 910 },
+    { "name": "Root Shell", "score": 880 },
+    { "name": "Heap Spray", "score": 850 },
+    { "name": "Format String", "score": 790 },
+    { "name": "Zero Day Club", "score": 760 }
+  ],
+  "start": "score"
+}

@@ -233,6 +233,72 @@ pub async fn set_teams(
     Ok(Json(db::get(&state.pool, id).await?))
 }
 
+#[derive(Deserialize)]
+pub struct ImportBody {
+    name: String,
+    format: Format,
+    #[serde(default)]
+    third_place: bool,
+    #[serde(default = "default_groups")]
+    groups: u8,
+    #[serde(default = "default_advance")]
+    advance: u8,
+    #[serde(default)]
+    rounds: u8,
+    #[serde(default)]
+    teams: Vec<TeamInput>,
+    /// When present the tournament is started with this seeding right away.
+    #[serde(default)]
+    start: Option<Seeding>,
+}
+
+/// Creates a tournament, its roster and optionally starts it in one call, for sample data
+/// files and migrations from other tools. Nothing is kept when a step fails.
+pub async fn import(
+    _: Admin,
+    State(state): State<AppState>,
+    Json(body): Json<ImportBody>,
+) -> Result<(StatusCode, Json<Tournament>), ApiError> {
+    let create_body = CreateBody {
+        name: body.name,
+        format: body.format,
+        third_place: body.third_place,
+        groups: body.groups,
+        advance: body.advance,
+        rounds: body.rounds,
+    };
+    let (_, Json(made)) = create(Admin, State(state.clone()), Json(create_body)).await?;
+    let filled = async {
+        let _ = set_teams(
+            Admin,
+            State(state.clone()),
+            Path(made.id),
+            Json(TeamsBody { teams: body.teams }),
+        )
+        .await?;
+        if let Some(seeding) = body.start {
+            let _ = start(
+                Admin,
+                State(state.clone()),
+                Path(made.id),
+                Some(Json(StartBody { seeding })),
+            )
+            .await?;
+        }
+        Ok::<_, ApiError>(())
+    }
+    .await;
+    if let Err(e) = filled {
+        db::delete(&state.pool, made.id).await?;
+        state.notify(&made.slug);
+        return Err(e);
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(db::get(&state.pool, made.id).await?),
+    ))
+}
+
 pub async fn start(
     _: Admin,
     State(state): State<AppState>,

@@ -1563,3 +1563,58 @@ async fn swiss_plans_rounds_as_results_arrive_over_the_api() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn import_creates_a_tournament_with_roster_and_can_start_it() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let sample = json!({
+        "name": "Imported Cup", "format": "single_elimination", "third_place": true,
+        "teams": [{"name": "A", "score": 30}, {"name": "B", "score": 20}, {"name": "C"}, {"name": "D"}],
+        "start": "score"
+    });
+    let (status, made) = call(&app, "POST", "/api/v1/admin/import", t, Some(sample)).await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["status"], "live");
+    assert_eq!(made["teams"].as_array().unwrap().len(), 4);
+    assert_eq!(made["teams"][0]["name"], "A");
+
+    let bad = json!({"name": "Broken", "format": "single_elimination", "teams": [{"name": "X"}, {"name": "x"}]});
+    let (status, _) = call(&app, "POST", "/api/v1/admin/import", t, Some(bad)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    assert_eq!(
+        list.as_array().unwrap().len(),
+        1,
+        "failed import leaves nothing behind"
+    );
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/import",
+        None,
+        Some(json!({"name": "n", "format": "swiss"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn the_documented_example_file_imports() {
+    let app = app().await;
+    let token = login(&app).await;
+    let example: Value =
+        serde_json::from_str(include_str!("../../../docs/examples/spring-cup.json")).unwrap();
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/import",
+        Some(&token),
+        Some(example),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["teams"].as_array().unwrap().len(), 6);
+    assert_eq!(made["teams"][0]["name"], "Null Pointers");
+}

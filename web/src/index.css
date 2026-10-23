@@ -270,9 +270,19 @@ dialog[open]::backdrop {
   }
 
   select option {
-    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 12px;
+    margin: 0 0 2px;
     border-radius: var(--radius-control);
     font-size: 0.875rem;
+  }
+
+  select option::checkmark {
+    width: 14px;
+    color: var(--color-accent);
   }
 
   select option:hover,
