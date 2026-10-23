@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use kymo_engine::{Format, generate};
+use kymo_engine::{Format, Side, generate};
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 
@@ -53,6 +53,11 @@ pub enum Seeding {
 pub struct StartBody {
     #[serde(default)]
     seeding: Seeding,
+}
+
+#[derive(Deserialize)]
+pub struct ForfeitBody {
+    winner: Side,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +250,17 @@ pub async fn set_result(
     })
     .await?;
     Ok(Json(t))
+}
+
+pub async fn set_forfeit(
+    _: Admin,
+    State(state): State<AppState>,
+    Path((id, match_id)): Path<(i64, usize)>,
+    Json(body): Json<ForfeitBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    Ok(Json(
+        edit_bracket(&state, id, |b| b.set_forfeit(match_id, body.winner)).await?,
+    ))
 }
 
 pub async fn clear_result(

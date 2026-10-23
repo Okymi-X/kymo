@@ -396,3 +396,36 @@ async fn double_elimination_plays_to_a_champion_over_the_api() {
     let top_seed = done["teams"][0]["id"].as_i64().unwrap();
     assert_eq!(champion, top_seed);
 }
+
+#[tokio::test]
+async fn forfeit_over_the_api_advances_a_team_and_validates_the_side() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Walkover", "format": "single_elimination"})),
+    )
+    .await;
+    let teams = json!({"teams": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+
+    let uri = "/api/v1/admin/tournaments/1/matches/0/forfeit";
+    let (status, _) = call(&app, "PUT", uri, t, Some(json!({"winner": "C"}))).await;
+    assert!(status.is_client_error());
+    let (status, out) = call(&app, "PUT", uri, t, Some(json!({"winner": "B"}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(out["bracket"]["matches"][0]["forfeit"], true);
+    assert_eq!(out["bracket"]["matches"][2]["slots"][0]["kind"], "team");
+}

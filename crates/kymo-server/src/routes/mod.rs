@@ -34,6 +34,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/admin/tournaments/{id}/matches/{match_id}/result",
             delete(admin::clear_result),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/forfeit",
+            put(admin::set_forfeit),
         );
     let header = |name: &'static str, value: &'static str| {
         SetResponseHeaderLayer::if_not_present(
