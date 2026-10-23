@@ -102,7 +102,7 @@ function Preview({ look }: { look: Appearance }) {
     <div className="flex flex-col gap-4 rounded-card border border-line bg-surface p-5 shadow-[var(--shadow-card)]" aria-label="Live preview">
       <p className="text-xs font-medium text-muted">Live preview</p>
       <div className="flex items-center justify-between border-b border-line pb-3">
-        <span className="font-semibold tracking-tight">{look.site_name || 'Site name'}</span>
+        {look.logo ? <img src={look.logo} alt={look.site_name} className="h-8 w-auto max-w-40 object-contain" /> : <span className="font-semibold tracking-tight">{look.site_name || 'Site name'}</span>}
         <span className="text-sm text-muted">Organizer sign in</span>
       </div>
       <div>
@@ -266,7 +266,7 @@ export function Settings() {
           </Section>
 
           <Section title="Shape and type">
-            <div className="flex flex-wrap items-start gap-8">
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 sm:grid-cols-2">
               <Field label={`Corner radius, ${current.radius}px`}>
                 <input type="range" min={0} max={20} value={current.radius} onChange={(e) => set('radius', Number(e.target.value))} className="h-10 w-56 accent-accent" />
               </Field>
