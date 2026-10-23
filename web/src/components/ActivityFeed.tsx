@@ -1,15 +1,22 @@
 import { ArrowRight, CalendarClock, CircleSlash, Flag, History, Pencil, Play, RotateCcw, Trophy } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { EventKind, LogEvent, Slot, Tournament } from '../api/types'
+import type { EventKind, LogEvent, Match, Slot, Tournament } from '../api/types'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useActivity } from '../api/hooks'
 import { roundNamer } from '../lib/labels'
 import { formatSlot } from '../lib/schedule'
 import { slicePage, usePagination } from '../lib/paginate'
 import { timeAgo } from '../lib/time'
+import { api, useIsAdmin } from '../api/client'
+import { ConfirmDialog } from './ConfirmDialog'
 import { Pager } from './Pager'
+import { Button, ErrorText } from './ui'
 import { Avatar } from './Avatar'
 
 const ACTIVITY_PAGE = 12
+
+const isPlayed = (m: Match | undefined) => m !== undefined && (m.score !== null || m.forfeit)
 
 const ICONS: Record<EventKind, ReactNode> = {
   started: <Play size={16} />,
@@ -71,8 +78,25 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
   const all = (data ?? []).slice(0, limit)
   const paging = usePagination(all.length, ACTIVITY_PAGE)
   const events = paged ? slicePage(all, paging.page, ACTIVITY_PAGE) : all
+  const admin = useIsAdmin()
+  const client = useQueryClient()
+  const [undoing, setUndoing] = useState(false)
+  const undo = useMutation({
+    mutationFn: (match: number) => api.clearResult(tournament.id, match),
+    onSuccess: (next) => {
+      client.setQueryData(['tournament', next.slug], next)
+      void client.invalidateQueries({ queryKey: ['activity', next.slug] })
+      setUndoing(false)
+    },
+  })
 
   if (isPending) return <p className="text-muted">Loading activity</p>
+  const newest = (data ?? [])[0]
+  const undoable =
+    admin && paged && newest && newest.match_id !== null && ['result', 'corrected', 'forfeit'].includes(newest.kind) && isPlayed(tournament.bracket?.matches[newest.match_id])
+      ? newest
+      : null
+
   if (error) return <p role="alert" className="text-danger">Activity could not be loaded.</p>
   if (events.length === 0)
     return (
@@ -109,6 +133,11 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
                 {detail && <span>{detail}</span>}
               </p>
             </div>
+            {undoable?.id === e.id && (
+              <Button variant="ghost" onClick={() => setUndoing(true)}>
+                Undo
+              </Button>
+            )}
             {!large && teams.length > 0 && (
               <div className="hidden items-center sm:flex" aria-hidden="true">
                 {teams.map((id) => (
@@ -122,6 +151,18 @@ export function ActivityFeed({ tournament, teamName, limit, large = false, paged
         )
       })}
     </ol>
+      {undoing && undoable && (
+        <ConfirmDialog
+          title="Undo the latest result?"
+          message="The result is removed and the match can be played again. This fails if a later match already depends on it."
+          confirmLabel="Undo result"
+          danger
+          pending={undo.isPending}
+          onConfirm={() => undo.mutate(undoable.match_id!)}
+          onClose={() => setUndoing(false)}
+        />
+      )}
+      <ErrorText error={undo.error} />
       {paged && <Pager {...paging} total={all.length} onChange={paging.setPage} noun="events" />}
     </>
   )
