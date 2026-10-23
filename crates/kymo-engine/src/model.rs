@@ -64,11 +64,19 @@ pub struct Match {
     pub slots: [Slot; 2],
     pub score: Option<[u32; 2]>,
     pub winner: Option<Side>,
+    #[serde(default)]
+    pub forfeit: bool,
     pub next_win: Option<Dest>,
     pub next_lose: Option<Dest>,
 }
 
 impl Match {
+    /// True once a person decided the match, by score or by forfeit. Byes resolve on their own
+    /// and do not count.
+    pub fn is_played(&self) -> bool {
+        self.score.is_some() || self.forfeit
+    }
+
     pub fn is_ready(&self) -> bool {
         matches!(self.slots, [Slot::Team(_), Slot::Team(_)])
     }

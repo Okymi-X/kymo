@@ -61,6 +61,7 @@ fn add_round(matches: &mut Vec<Match>, stage: Stage, round: usize, count: usize)
                 slots: [Slot::Empty; 2],
                 score: None,
                 winner: None,
+                forfeit: false,
                 next_win: None,
                 next_lose: None,
             });

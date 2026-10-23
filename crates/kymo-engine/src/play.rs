@@ -24,7 +24,26 @@ impl Bracket {
             return Err(EngineError::Tie);
         }
         m.score = Some([a, b]);
+        m.forfeit = false;
         m.winner = Some(if a > b { Side::A } else { Side::B });
+        next.settle(id)?;
+        *self = next;
+        Ok(())
+    }
+
+    /// Awards a ready match to one side without a score.
+    pub fn set_forfeit(&mut self, id: MatchId, winner: Side) -> Result<(), EngineError> {
+        let mut next = self.clone();
+        let m = next
+            .matches
+            .get_mut(id)
+            .ok_or(EngineError::UnknownMatch(id))?;
+        if !m.is_ready() {
+            return Err(EngineError::NotReady(id));
+        }
+        m.score = None;
+        m.forfeit = true;
+        m.winner = Some(winner);
         next.settle(id)?;
         *self = next;
         Ok(())
@@ -37,10 +56,11 @@ impl Bracket {
             .matches
             .get_mut(id)
             .ok_or(EngineError::UnknownMatch(id))?;
-        if m.score.is_none() {
+        if !m.is_played() {
             return Err(EngineError::NoResult(id));
         }
         m.score = None;
+        m.forfeit = false;
         m.winner = None;
         next.settle(id)?;
         *self = next;
@@ -49,7 +69,7 @@ impl Bracket {
 
     pub(crate) fn settle(&mut self, id: MatchId) -> Result<(), EngineError> {
         let m = &mut self.matches[id];
-        if m.score.is_none() {
+        if !m.is_played() {
             m.winner = auto_winner(m.slots);
         }
         for (dest, slot) in self.route(id) {
@@ -63,7 +83,7 @@ impl Bracket {
         if target.slots[dest.side.index()] == slot {
             return Ok(());
         }
-        if target.score.is_some() {
+        if target.is_played() {
             return Err(EngineError::DownstreamPlayed);
         }
         target.slots[dest.side.index()] = slot;

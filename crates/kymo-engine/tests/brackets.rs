@@ -152,3 +152,48 @@ fn bracket_round_trips_through_json() {
     let json = serde_json::to_string(&b).unwrap();
     assert_eq!(serde_json::from_str::<Bracket>(&json).unwrap(), b);
 }
+
+#[test]
+fn forfeit_advances_the_chosen_side_without_a_score() {
+    let mut b = generate(&teams(4), Format::SingleElimination).unwrap();
+    b.set_forfeit(0, Side::B).unwrap();
+    assert_eq!(b.matches[0].score, None);
+    assert!(b.matches[0].forfeit);
+    assert_eq!(b.matches[2].slots[0], Slot::Team(4));
+}
+
+#[test]
+fn forfeit_needs_two_teams_and_respects_played_matches_downstream() {
+    let mut b = generate(&teams(4), Format::SingleElimination).unwrap();
+    assert_eq!(b.set_forfeit(2, Side::A), Err(EngineError::NotReady(2)));
+    b.set_forfeit(0, Side::A).unwrap();
+    b.set_result(1, 1, 0).unwrap();
+    b.set_result(2, 3, 1).unwrap();
+    assert_eq!(
+        b.set_forfeit(0, Side::B),
+        Err(EngineError::DownstreamPlayed)
+    );
+}
+
+#[test]
+fn forfeit_can_be_cleared_and_replaced_by_a_score() {
+    let mut b = generate(&teams(4), Format::SingleElimination).unwrap();
+    b.set_forfeit(0, Side::A).unwrap();
+    b.set_result(0, 0, 2).unwrap();
+    assert!(!b.matches[0].forfeit);
+    assert_eq!(b.matches[2].slots[0], Slot::Team(4));
+    b.set_forfeit(0, Side::A).unwrap();
+    b.clear_result(0).unwrap();
+    assert_eq!(b.matches[0].winner, None);
+    assert_eq!(b.matches[2].slots[0], Slot::Empty);
+}
+
+#[test]
+fn old_stored_matches_without_the_forfeit_field_still_load() {
+    let b = generate(&teams(4), Format::SingleElimination).unwrap();
+    let mut value = serde_json::to_value(&b).unwrap();
+    for m in value["matches"].as_array_mut().unwrap() {
+        m.as_object_mut().unwrap().remove("forfeit");
+    }
+    assert_eq!(serde_json::from_value::<Bracket>(value).unwrap(), b);
+}
