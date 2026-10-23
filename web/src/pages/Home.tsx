@@ -3,10 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
+import { useAppearance } from '../components/ThemeLoader'
 import type { Format, Status } from '../api/types'
 import { CardSkeleton, TournamentCard } from '../components/TournamentCard'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
 import { formatLabel } from '../lib/labels'
+import { DEFAULT_APPEARANCE } from '../lib/theme'
 
 function CreateForm() {
   const [name, setName] = useState('')
@@ -107,6 +109,7 @@ export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
   const [filter, setFilter] = useState<Filter>('all')
+  const tagline = useAppearance().data?.tagline ?? DEFAULT_APPEARANCE.tagline
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = { all: data?.length ?? 0, live: 0, draft: 0, done: 0 }
@@ -120,7 +123,8 @@ export function Home() {
       <div className="flex flex-col gap-3">
         <PageTitle>Tournaments</PageTitle>
         <p className="max-w-xl text-lg text-muted">
-          {counts.live > 0 ? `${counts.live} live now. ` : ''}Knockout brackets for CTF events, updated as results come in.
+          {counts.live > 0 ? `${counts.live} live now. ` : ''}
+          {tagline}
         </p>
       </div>
       {admin && <CreateForm />}

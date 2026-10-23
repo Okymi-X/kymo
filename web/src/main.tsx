@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MotionConfig } from 'motion/react'
 import { BrowserRouter, Route, Routes } from 'react-router'
-import { ThemeLoader } from './components/ThemeLoader'
+import { ThemeLoader, appearanceKey } from './components/ThemeLoader'
+import type { Appearance } from './api/types'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
@@ -13,6 +14,17 @@ import { TournamentPage } from './pages/TournamentPage'
 import './index.css'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5_000 } } })
+
+/** The server inlines the saved look in index.html, so the first render needs no request. */
+function seedAppearance() {
+  try {
+    const raw = document.getElementById('kymo-appearance')?.textContent
+    if (raw) queryClient.setQueryData<Appearance>(appearanceKey, JSON.parse(raw) as Appearance)
+  } catch {
+    /* fall back to fetching /settings */
+  }
+}
+seedAppearance()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

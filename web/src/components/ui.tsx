@@ -82,3 +82,30 @@ export function ErrorText({ error }: { error: unknown }) {
 export function PageTitle({ children }: { children: ReactNode }) {
   return <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">{children}</h1>
 }
+
+interface SegmentedProps<T extends string> {
+  label: string
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (value: T) => void
+}
+
+/** A single choice among a few options, shown as one pill with a sliding highlight. */
+export function Segmented<T extends string>({ label, value, options, onChange }: SegmentedProps<T>) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex gap-0.5 self-start rounded-control border border-field-line bg-field p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`h-9 rounded-[calc(var(--radius-control)-2px)] px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-150 ${value === o.value ? 'bg-ink text-bg shadow-[var(--shadow-card)]' : 'text-muted hover:text-ink'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}

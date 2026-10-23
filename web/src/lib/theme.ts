@@ -6,6 +6,9 @@ export const DEFAULT_APPEARANCE: Appearance = {
   accent_dark: '#4da3ff',
   radius: 8,
   font: 'sans',
+  scheme: 'system',
+  density: 'comfortable',
+  tagline: 'Knockout brackets for CTF events, updated as results come in.',
 }
 
 export const FONT_STACKS: Record<FontChoice, string> = {
@@ -23,16 +26,47 @@ export const FONT_LABELS: Record<FontChoice, string> = {
 const HEX = /^#[0-9a-fA-F]{6}$/
 export const isHex = (value: string) => HEX.test(value)
 
-/** Builds the override stylesheet. Only validated values reach the CSS text. */
+/** Builds the override stylesheet. Only validated values reach the CSS text. Mirrors `Appearance::css` on the server. */
 export function themeCss(a: Appearance): string {
   const light = isHex(a.accent_light) ? a.accent_light : DEFAULT_APPEARANCE.accent_light
   const dark = isHex(a.accent_dark) ? a.accent_dark : DEFAULT_APPEARANCE.accent_dark
   const radius = Math.min(20, Math.max(0, Math.round(a.radius)))
   const font = FONT_STACKS[a.font] ?? FONT_STACKS.sans
+  const size = a.density === 'compact' ? '14.5px' : '16px'
   return [
     `:root{--color-accent:${light};--radius-control:${radius}px;--radius-card:${radius + 4}px;--font-sans:${font};}`,
-    `@media (prefers-color-scheme:dark){:root{--color-accent:${dark};}}`,
+    `:root[data-scheme="dark"]{--color-accent:${dark};}`,
+    `@media (prefers-color-scheme:dark){:root:not([data-scheme="light"]){--color-accent:${dark};}}`,
+    `html{font-size:${size};}`,
   ].join('')
+}
+
+export interface Preset {
+  id: string
+  name: string
+  values: Pick<Appearance, 'accent_light' | 'accent_dark' | 'radius' | 'font'>
+}
+
+/** Ready made looks. Every accent keeps at least 4.5:1 against the page for button text. */
+export const PRESETS: Preset[] = [
+  { id: 'kymo', name: 'Kymo', values: { accent_light: '#0a6fe0', accent_dark: '#4da3ff', radius: 8, font: 'sans' } },
+  { id: 'graphite', name: 'Graphite', values: { accent_light: '#3f3f46', accent_dark: '#d4d4d8', radius: 6, font: 'sans' } },
+  { id: 'ocean', name: 'Ocean', values: { accent_light: '#0369a1', accent_dark: '#38bdf8', radius: 10, font: 'sans' } },
+  { id: 'forest', name: 'Forest', values: { accent_light: '#15803d', accent_dark: '#4ade80', radius: 8, font: 'sans' } },
+  { id: 'ember', name: 'Ember', values: { accent_light: '#c2410c', accent_dark: '#fb923c', radius: 10, font: 'sans' } },
+  { id: 'rose', name: 'Rose', values: { accent_light: '#be123c', accent_dark: '#fb7185', radius: 12, font: 'sans' } },
+  { id: 'terminal', name: 'Terminal', values: { accent_light: '#15803d', accent_dark: '#4ade80', radius: 2, font: 'mono' } },
+]
+
+export function matchingPreset(a: Appearance): string | null {
+  const found = PRESETS.find(
+    (p) =>
+      p.values.accent_light.toLowerCase() === a.accent_light.toLowerCase() &&
+      p.values.accent_dark.toLowerCase() === a.accent_dark.toLowerCase() &&
+      p.values.radius === a.radius &&
+      p.values.font === a.font,
+  )
+  return found?.id ?? null
 }
 
 const STYLE_ID = 'kymo-theme'
@@ -45,6 +79,7 @@ export function applyAppearance(a: Appearance) {
     document.head.appendChild(el)
   }
   el.textContent = themeCss(a)
+  document.documentElement.dataset.scheme = a.scheme
   document.title = a.site_name
 }
 

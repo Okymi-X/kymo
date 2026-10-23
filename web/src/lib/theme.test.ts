@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_APPEARANCE, contrastRatio, themeCss } from './theme'
+import { DEFAULT_APPEARANCE, PAGE_BACKGROUND, PRESETS, contrastRatio, matchingPreset, themeCss } from './theme'
 
 describe('themeCss', () => {
   it('writes accent, radius and font for both color schemes', () => {
@@ -27,5 +27,33 @@ describe('contrastRatio', () => {
 
   it('flags a pale accent on a light page', () => {
     expect(contrastRatio('#ffee88', '#fafafa')).toBeLessThan(4.5)
+  })
+})
+
+describe('scheme and density', () => {
+  it('writes dark rules that respect a forced light scheme', () => {
+    const css = themeCss(DEFAULT_APPEARANCE)
+    expect(css).toContain(':root[data-scheme="dark"]{--color-accent:#4da3ff;}')
+    expect(css).toContain('@media (prefers-color-scheme:dark){:root:not([data-scheme="light"])')
+  })
+
+  it('shrinks the root size for compact density', () => {
+    expect(themeCss({ ...DEFAULT_APPEARANCE, density: 'compact' })).toContain('html{font-size:14.5px;}')
+    expect(themeCss(DEFAULT_APPEARANCE)).toContain('html{font-size:16px;}')
+  })
+})
+
+describe('presets', () => {
+  it('keep button text readable in both color schemes', () => {
+    for (const p of PRESETS) {
+      expect(contrastRatio(p.values.accent_light, PAGE_BACKGROUND.light), `${p.name} light`).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(p.values.accent_dark, PAGE_BACKGROUND.dark), `${p.name} dark`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('are recognised from the current values', () => {
+    const ember = PRESETS.find((p) => p.id === 'ember')!
+    expect(matchingPreset({ ...DEFAULT_APPEARANCE, ...ember.values })).toBe('ember')
+    expect(matchingPreset({ ...DEFAULT_APPEARANCE, accent_light: '#123456' })).toBeNull()
   })
 })

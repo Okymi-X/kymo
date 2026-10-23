@@ -104,7 +104,7 @@ test('appearance changes are saved for everyone and can be restored', async ({ p
   await page.getByLabel('Accent, light mode hex').fill('#aa2200')
   await page.getByRole('button', { name: 'Save appearance' }).click()
   await expect(page.getByRole('link', { name: 'HTB Club home' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Primary action' })).toHaveCSS('background-color', 'rgb(170, 34, 0)')
+  await expect(page.getByRole('button', { name: 'Start tournament' })).toHaveCSS('background-color', 'rgb(170, 34, 0)')
 
   const visitor = await browser.newPage()
   await visitor.goto('/')
@@ -248,4 +248,39 @@ test('groups then knockout plays the groups, fills the knockout and crowns a cha
   await expect(page.getByText('Finished')).toBeVisible()
   await page.getByRole('tab', { name: 'Knockout' }).click()
   await expect(page.getByText('Final', { exact: true }).first()).toBeVisible()
+})
+
+test('a saved look is in the very first paint, so a refresh never flips', async ({ page, browser }) => {
+  await signIn(page)
+  await page.goto('/settings')
+  await page.getByRole('radio', { name: /Ember/ }).click()
+  await page.getByRole('radio', { name: 'Dark' }).click()
+  await page.getByLabel('Site name').fill('Night Club')
+  await page.getByRole('button', { name: 'Save appearance' }).click()
+  await expect(page.getByText('All changes saved')).toBeVisible()
+
+  // A fresh visitor with JavaScript disabled still receives the saved look in the HTML itself.
+  const context = await browser.newContext({ javaScriptEnabled: false })
+  const response = await context.request.get('/')
+  const html = await response.text()
+  expect(html).toContain('data-scheme="dark"')
+  expect(html).toContain('--color-accent:#c2410c')
+  expect(html).toContain('<title>Night Club</title>')
+
+  await context.close()
+
+  // With JavaScript on, the saved look is already there while the settings request is still
+  // in flight, so the page cannot flip when that request returns.
+  const visitor = await browser.newPage()
+  await visitor.route('**/api/v1/settings', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    await route.continue()
+  })
+  await visitor.goto('/')
+  await expect(visitor.getByRole('link', { name: 'Night Club home' })).toBeVisible({ timeout: 1500 })
+  await expect(visitor.locator('html')).toHaveAttribute('data-scheme', 'dark')
+  await visitor.close()
+
+  await page.getByRole('button', { name: 'Restore defaults' }).click()
+  await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
 })

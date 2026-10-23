@@ -60,12 +60,18 @@ export interface ApiToken {
 
 export type FontChoice = 'sans' | 'serif' | 'mono'
 
+export type Scheme = 'system' | 'light' | 'dark'
+export type Density = 'comfortable' | 'compact'
+
 export interface Appearance {
   site_name: string
   accent_light: string
   accent_dark: string
   radius: number
   font: FontChoice
+  scheme: Scheme
+  density: Density
+  tagline: string
 }
 
 export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared'
