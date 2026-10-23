@@ -21,6 +21,7 @@ pub struct Team {
     pub id: i64,
     pub name: String,
     pub seed: i64,
+    pub score: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -92,12 +93,12 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
 }
 
 async fn teams_of(pool: &SqlitePool, id: i64) -> Result<Vec<Team>, ApiError> {
-    Ok(
-        sqlx::query_as("SELECT id, name, seed FROM team WHERE tournament_id = ? ORDER BY seed")
-            .bind(id)
-            .fetch_all(pool)
-            .await?,
+    Ok(sqlx::query_as(
+        "SELECT id, name, seed, score FROM team WHERE tournament_id = ? ORDER BY seed",
     )
+    .bind(id)
+    .fetch_all(pool)
+    .await?)
 }
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Tournament>, ApiError> {
@@ -170,18 +171,24 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
     }
 }
 
+pub struct NewTeam {
+    pub name: String,
+    pub score: i64,
+}
+
 /// Replaces the whole roster; list order defines the seeds.
-pub async fn replace_teams(pool: &SqlitePool, id: i64, names: &[String]) -> Result<(), ApiError> {
+pub async fn replace_teams(pool: &SqlitePool, id: i64, teams: &[NewTeam]) -> Result<(), ApiError> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM team WHERE tournament_id = ?")
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    for (index, name) in names.iter().enumerate() {
-        sqlx::query("INSERT INTO team (tournament_id, name, seed) VALUES (?, ?, ?)")
+    for (index, team) in teams.iter().enumerate() {
+        sqlx::query("INSERT INTO team (tournament_id, name, seed, score) VALUES (?, ?, ?, ?)")
             .bind(id)
-            .bind(name)
+            .bind(&team.name)
             .bind(index as i64 + 1)
+            .bind(team.score)
             .execute(&mut *tx)
             .await?;
     }

@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 use serde::Deserialize;
 
 use crate::auth::Admin;
-use crate::db::{self, Status, Tournament};
+use crate::db::{self, NewTeam, Status, Tournament};
 use crate::error::ApiError;
 use crate::state::AppState;
 
@@ -29,7 +29,14 @@ pub struct NameBody {
 
 #[derive(Deserialize)]
 pub struct TeamsBody {
-    names: Vec<String>,
+    teams: Vec<TeamInput>,
+}
+
+#[derive(Deserialize)]
+pub struct TeamInput {
+    name: String,
+    #[serde(default)]
+    score: u32,
 }
 
 #[derive(Deserialize, Default, Clone, Copy)]
@@ -38,6 +45,7 @@ pub enum Seeding {
     #[default]
     Manual,
     Random,
+    Score,
 }
 
 #[derive(Deserialize, Default)]
@@ -126,22 +134,30 @@ pub async fn set_teams(
             "teams can only change before the tournament starts".into(),
         ));
     }
-    if body.names.len() > kymo_engine::MAX_TEAMS {
+    if body.teams.len() > kymo_engine::MAX_TEAMS {
         return Err(ApiError::BadRequest(format!(
             "at most {} teams",
             kymo_engine::MAX_TEAMS
         )));
     }
-    let names = body
-        .names
+    let teams = body
+        .teams
         .iter()
-        .map(|n| clean_name(n, MAX_TEAM_NAME))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|t| {
+            Ok(NewTeam {
+                name: clean_name(&t.name, MAX_TEAM_NAME)?,
+                score: i64::from(t.score.min(MAX_SCORE)),
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
     let mut seen = HashSet::new();
-    if let Some(dup) = names.iter().find(|n| !seen.insert(n.to_lowercase())) {
-        return Err(ApiError::BadRequest(format!("duplicate team: {dup}")));
+    if let Some(dup) = teams.iter().find(|t| !seen.insert(t.name.to_lowercase())) {
+        return Err(ApiError::BadRequest(format!(
+            "duplicate team: {}",
+            dup.name
+        )));
     }
-    db::replace_teams(&state.pool, id, &names).await?;
+    db::replace_teams(&state.pool, id, &teams).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
 }
@@ -158,12 +174,20 @@ pub async fn start(
         return Err(ApiError::Conflict("tournament already started".into()));
     }
     let mut teams = t.teams.clone();
-    if matches!(body.map(|b| b.0.seeding), Some(Seeding::Random)) {
-        teams.shuffle(&mut rand::rng());
-        let names: Vec<String> = teams.iter().map(|team| team.name.clone()).collect();
-        db::replace_teams(&state.pool, id, &names).await?;
-        teams = db::get(&state.pool, id).await?.teams;
+    match body.map(|b| b.0.seeding).unwrap_or_default() {
+        Seeding::Manual => {}
+        Seeding::Random => teams.shuffle(&mut rand::rng()),
+        Seeding::Score => teams.sort_by_key(|team| std::cmp::Reverse(team.score)),
     }
+    let reseeded: Vec<NewTeam> = teams
+        .iter()
+        .map(|team| NewTeam {
+            name: team.name.clone(),
+            score: team.score,
+        })
+        .collect();
+    db::replace_teams(&state.pool, id, &reseeded).await?;
+    teams = db::get(&state.pool, id).await?.teams;
     let ids: Vec<u32> = teams.iter().map(|team| team.id as u32).collect();
     let bracket = generate(&ids, t.format)?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;

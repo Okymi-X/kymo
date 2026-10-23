@@ -99,7 +99,7 @@ async fn full_single_elimination_flow() {
         "PUT",
         &format!("/api/v1/admin/tournaments/{id}/teams"),
         t,
-        Some(json!({"names": ["a", "A"]})),
+        Some(json!({"teams": [{"name": "a"}, {"name": "A"}]})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -109,7 +109,7 @@ async fn full_single_elimination_flow() {
         "PUT",
         &format!("/api/v1/admin/tournaments/{id}/teams"),
         t,
-        Some(json!({"names": ["a", "b", "c", "d"]})),
+        Some(json!({"teams": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]})),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -170,7 +170,7 @@ async fn full_single_elimination_flow() {
         "PUT",
         &format!("/api/v1/admin/tournaments/{id}/teams"),
         t,
-        Some(json!({"names": ["x", "y"]})),
+        Some(json!({"teams": [{"name": "x"}, {"name": "y"}]})),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -225,4 +225,44 @@ async fn repeated_bad_passwords_are_throttled() {
     )
     .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn score_seeding_orders_teams_by_points() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Qualifier", "format": "single_elimination"})),
+    )
+    .await;
+    let teams = json!({"teams": [{"name": "low", "score": 10}, {"name": "top", "score": 900}, {"name": "mid", "score": 400}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "score"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let order: Vec<_> = started["teams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(order, ["top", "mid", "low"]);
 }
