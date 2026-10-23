@@ -538,3 +538,18 @@ test('the bracket is a map: drag, zoom at the cursor, keys, minimap, and no acci
   await map.getByRole('button', { name: 'Show everything' }).click()
   await expect.poll(async () => (await mapTransform(page)).s).toBeLessThan(start.s)
 })
+
+test('an organizer can rename a tournament, and unknown pages show a 404', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Old Name')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByRole('button', { name: 'Rename' }).click()
+  await page.getByLabel('Tournament name').fill('Fresh Name')
+  await page.getByRole('button', { name: 'Save name' }).click()
+  await expect(page.getByRole('heading', { name: 'Fresh Name' })).toBeVisible()
+
+  await page.goto('/nowhere/at/all')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await page.keyboard.press('Shift+Slash')
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
+})

@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
 import { GroupsView } from '../components/GroupsView'
 import { StatusPill } from '../components/ui'
+import { stageFits } from '../lib/layout'
 import { formatLabel, roundNamer } from '../lib/labels'
 import { bySchedule, planLine } from '../lib/schedule'
 import { computeTeamRows, isRealMatch, matchState, type TeamRow } from '../lib/stats'
@@ -17,8 +18,6 @@ const ROTATE_MS = 15_000
 const ROUND_PAGE = 8
 const TABLE_PAGE = 10
 const TABLE_PAGES_MAX = 3
-/** Larger brackets are unreadable on one screen, so only small ones get an overview slide. */
-const OVERVIEW_MAX = 31
 
 type Slide =
   | { id: string; label: string; kind: 'round'; title: string; matches: Match[] }
@@ -64,7 +63,7 @@ function buildSlides(t: Tournament, rows: TeamRow[]): Slide[] {
       slides.push({ id: `round-${i}`, label: pages.length > 1 ? `${title} ${i + 1}/${pages.length}` : title, kind: 'round', title, matches: page }),
     )
   }
-  if (real.length <= OVERVIEW_MAX) slides.push({ id: 'bracket', label: 'Bracket', kind: 'bracket' })
+  if (stageFits(bracket.matches.filter((m) => m.stage !== 'league'))) slides.push({ id: 'bracket', label: 'Bracket', kind: 'bracket' })
   if (t.format !== 'group_knockout') tableSlides(TABLE_PAGES_MAX)
   return slides
 }

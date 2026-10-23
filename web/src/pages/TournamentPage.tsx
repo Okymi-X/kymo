@@ -20,7 +20,9 @@ import { StandingsTable } from '../components/StandingsTable'
 import { Tabs, type TabItem } from '../components/Tabs'
 import { TeamDialog } from '../components/TeamDialog'
 import { TeamsGrid } from '../components/TeamsGrid'
-import { Button, ErrorText, PageTitle, StatusPill } from '../components/ui'
+import { ExportButton } from '../components/ExportButton'
+import { Modal } from '../components/Modal'
+import { Button, ErrorText, Field, Input, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { relativeStart } from '../lib/schedule'
@@ -47,7 +49,7 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
   )
 }
 
-type Pending = 'reset' | 'delete' | null
+type Pending = 'reset' | 'delete' | 'rename' | null
 
 function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; teamId: number; teamName: (s: Slot) => string; onOpen: () => void; onStop: () => void }) {
   const row = computeTeamRows(t).find((r) => r.team.id === teamId)
@@ -90,6 +92,15 @@ function AdminActions({ t }: { t: Tournament }) {
       setAsking(null)
     },
   })
+  const [name, setName] = useState(t.name)
+  const rename = useMutation({
+    mutationFn: () => api.rename(t.id, name.trim()),
+    onSuccess: (next) => {
+      client.setQueryData(['tournament', next.slug], next)
+      void client.invalidateQueries({ queryKey: ['tournaments'] })
+      setAsking(null)
+    },
+  })
   const remove = useMutation({
     mutationFn: () => api.remove(t.id),
     onSuccess: () => {
@@ -99,11 +110,44 @@ function AdminActions({ t }: { t: Tournament }) {
   })
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <Button
+        onClick={() => {
+          setName(t.name)
+          setAsking('rename')
+        }}
+      >
+        Rename
+      </Button>
+      <ExportButton filename={`${t.slug}-backup.json`} build={() => JSON.stringify(t, null, 2)} label="Backup JSON" type="application/json" />
       {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
       <Button variant="danger" onClick={() => setAsking('delete')}>
         Delete
       </Button>
       <ErrorText error={reset.error ?? remove.error} />
+      {asking === 'rename' && (
+        <Modal label="Rename tournament" onClose={() => setAsking(null)}>
+          <form
+            className="flex flex-col gap-4 p-6"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (name.trim()) rename.mutate()
+            }}
+          >
+            <Field label="Tournament name">
+              <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
+            </Field>
+            <ErrorText error={rename.error} />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={rename.isPending || !name.trim()}>
+                Save name
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {asking === 'reset' && (
         <ConfirmDialog
           title="Reset the bracket?"

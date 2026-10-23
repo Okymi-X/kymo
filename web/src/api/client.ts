@@ -87,6 +87,7 @@ export const api = {
       groups: options.groups,
       advance: options.advance,
     }),
+  rename: (id: number, name: string) => request<Tournament>('PUT', admin(id), { name }),
   remove: (id: number) => request<void>('DELETE', admin(id)),
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),

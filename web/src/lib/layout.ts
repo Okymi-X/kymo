@@ -130,3 +130,17 @@ export function layoutBracket(matches: Match[]): BracketLayout {
     height: all.reduce((max, p) => Math.max(max, p.y + CARD_H), 0),
   }
 }
+
+/** Reference projector area for the stage bracket slide, in px (a 1080p screen minus header and sidebar). */
+export const STAGE_AREA = { w: 1440, h: 880 }
+/** Below this zoom a card is too small to read from across a room. */
+export const STAGE_MIN_SCALE = 0.55
+
+/** Zoom at which the whole bracket fits the stage area. */
+export function stageScale(matches: Match[]): number {
+  const { width, height } = layoutBracket(matches)
+  if (width <= 0 || height <= 0) return 1
+  return Math.min(1, STAGE_AREA.w / width, STAGE_AREA.h / height)
+}
+
+export const stageFits = (matches: Match[]) => stageScale(matches) >= STAGE_MIN_SCALE

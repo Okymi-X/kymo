@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Match, Stage } from '../api/types'
-import { CARD_H, CARD_W, ROW_GAP, layoutBracket } from './layout'
+import { CARD_H, CARD_W, ROW_GAP, layoutBracket, stageFits } from './layout'
 
 const match = (id: number, round: number, position: number, next: number | null, stage: Stage = 'winners'): Match => ({
   id,
@@ -87,5 +87,30 @@ describe('third place match', () => {
 
   it('adds no column of its own', () => {
     expect(new Set(layout.heads.map((h) => h.x)).size).toBe(2)
+  })
+})
+
+describe('stageFits', () => {
+  /** A single elimination knockout for `teams` (a power of two): matches ids run round by round. */
+  const knockout = (teams: number): Match[] => {
+    const out: Match[] = []
+    let id = 0
+    let count = teams / 2
+    let round = 1
+    let firstOfRound = 0
+    while (count >= 1) {
+      const nextStart = firstOfRound + count
+      for (let p = 0; p < count; p++) out.push(match(id++, round, p, count === 1 ? null : nextStart + Math.floor(p / 2)))
+      firstOfRound = nextStart
+      count /= 2
+      round++
+    }
+    return out
+  }
+
+  it('fits up to 32 teams and no more', () => {
+    expect(stageFits(knockout(16))).toBe(true)
+    expect(stageFits(knockout(32))).toBe(true)
+    expect(stageFits(knockout(64))).toBe(false)
   })
 })

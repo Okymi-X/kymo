@@ -6,6 +6,7 @@ import { useIsAdmin } from '../api/client'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 import { AccountMenu } from './AccountMenu'
 import { CommandPalette } from './CommandPalette'
+import { ShortcutsDialog } from './ShortcutsDialog'
 import { HeaderProvider, useHeaderInfo } from './HeaderContext'
 import { ThemeToggle } from './ThemeToggle'
 import { useAppearance } from './ThemeLoader'
@@ -130,12 +131,15 @@ function Header({ onSearch }: { onSearch: () => void }) {
 
 export function Shell({ children }: { children?: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [help, setHelp] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (e.key === '?' && !(e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]'))) {
+        setHelp(true)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -147,6 +151,7 @@ export function Shell({ children }: { children?: ReactNode }) {
       <div className="min-h-screen">
         <Header onSearch={() => setPaletteOpen(true)} />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+        {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
         <main className="mx-auto max-w-6xl px-4 py-10">{children ?? <Outlet />}</main>
       </div>
     </HeaderProvider>

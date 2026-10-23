@@ -8,6 +8,7 @@ import type { Appearance } from './api/types'
 import { resolveScheme } from './lib/scheme'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
+import { NotFound } from './pages/NotFound'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
@@ -49,6 +50,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </BrowserRouter>
