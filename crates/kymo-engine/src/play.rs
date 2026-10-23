@@ -37,6 +37,22 @@ impl Bracket {
         Ok(())
     }
 
+    /// Plans when and where a match is played. Passing `None` for both clears the plan.
+    pub fn set_schedule(
+        &mut self,
+        id: MatchId,
+        at: Option<i64>,
+        venue: Option<String>,
+    ) -> Result<(), EngineError> {
+        let m = self
+            .matches
+            .get_mut(id)
+            .ok_or(EngineError::UnknownMatch(id))?;
+        m.scheduled_at = at;
+        m.venue = venue;
+        Ok(())
+    }
+
     /// Awards a ready match to one side without a score.
     pub fn set_forfeit(&mut self, id: MatchId, winner: Side) -> Result<(), EngineError> {
         let mut next = self.clone();

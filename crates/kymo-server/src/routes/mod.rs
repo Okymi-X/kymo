@@ -23,6 +23,7 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))
         .route("/tournaments/{slug}/activity", get(public::activity))
+        .route("/tournaments/{slug}/calendar.ics", get(public::calendar))
         .route("/settings", get(public::appearance))
         .route("/admin/demo", post(admin::load_demo))
         .route(
@@ -48,6 +49,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/admin/tournaments/{id}/matches/{match_id}/result",
             delete(admin::clear_result),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/schedule",
+            put(admin::set_schedule),
         )
         .route(
             "/admin/tournaments/{id}/matches/{match_id}/forfeit",

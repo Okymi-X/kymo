@@ -1,5 +1,6 @@
 mod assets;
 pub mod auth;
+pub mod calendar;
 pub mod db;
 pub mod demo;
 pub mod error;

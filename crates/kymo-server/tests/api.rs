@@ -1090,3 +1090,134 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
     let (_, worlds) = call(&app, "GET", "/api/v1/tournaments/worlds-2026", None, None).await;
     assert!(worlds["progress"]["played"].as_u64().unwrap() >= 18);
 }
+
+#[tokio::test]
+async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Plan, Cup", "format": "single_elimination"})),
+    )
+    .await;
+    let teams: Vec<_> = ["a;b", "c", "d", "e"]
+        .iter()
+        .map(|n| json!({"name": n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": teams})),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    let uri = "/api/v1/admin/tournaments/1/matches/0/schedule";
+
+    let (status, _) = call(&app, "PUT", uri, None, Some(json!({"at": 1_800_000_000}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    for bad in [
+        json!({"at": 5}),
+        json!({"at": 99_999_999_999_i64}),
+        json!({"venue": "x".repeat(41)}),
+        json!({"venue": "a\u{202E}b"}),
+    ] {
+        let (status, _) = call(&app, "PUT", uri, t, Some(bad)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/99/schedule",
+        t,
+        Some(json!({"at": 1_800_000_000})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, out) = call(
+        &app,
+        "PUT",
+        uri,
+        t,
+        Some(json!({"at": 1_800_000_000, "venue": "  Room, A  "})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(out["bracket"]["matches"][0]["venue"], "Room, A");
+
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/result",
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+    let (_, after) = call(&app, "GET", "/api/v1/tournaments/plan-cup", None, None).await;
+    assert_eq!(
+        after["bracket"]["matches"][0]["scheduled_at"],
+        1_800_000_000
+    );
+
+    let (_, log) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/plan-cup/activity",
+        None,
+        None,
+    )
+    .await;
+    let kinds: Vec<_> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["result", "scheduled", "started"],
+        "scheduling a played match is not a correction"
+    );
+
+    let (status, kind, ics) = raw(
+        &app,
+        "GET",
+        "/api/v1/tournaments/plan-cup/calendar.ics",
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(kind.starts_with("text/calendar"));
+    assert!(ics.starts_with("BEGIN:VCALENDAR\r\n") && ics.ends_with("END:VCALENDAR\r\n"));
+    assert!(ics.contains("DTSTART:20270115T080000Z"), "{ics}");
+    assert!(ics.contains("SUMMARY:a\\;b vs e"), "{ics}");
+    assert!(ics.contains("LOCATION:Room\\, A"));
+    assert_eq!(ics.matches("BEGIN:VEVENT").count(), 1);
+
+    let (status, cleared) = call(
+        &app,
+        "PUT",
+        uri,
+        t,
+        Some(json!({"at": null, "venue": null})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cleared["bracket"]["matches"][0]["scheduled_at"].is_null());
+    let (_, _, empty) = raw(
+        &app,
+        "GET",
+        "/api/v1/tournaments/plan-cup/calendar.ics",
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(empty.matches("BEGIN:VEVENT").count(), 0);
+}

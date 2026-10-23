@@ -111,6 +111,8 @@ fn add_round(matches: &mut Vec<Match>, stage: Stage, round: usize, count: usize)
                 winner: None,
                 forfeit: false,
                 group: None,
+                scheduled_at: None,
+                venue: None,
                 next_win: None,
                 next_lose: None,
             });
@@ -258,6 +260,8 @@ fn robin_matches(teams: &[TeamId], group: Option<u32>, matches: &mut Vec<Match>)
                     winner: None,
                     forfeit: false,
                     group,
+                    scheduled_at: None,
+                    venue: None,
                     next_win: None,
                     next_lose: None,
                 });

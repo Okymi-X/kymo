@@ -84,6 +84,8 @@ pub async fn record_match_at(
         "score_b": m.score.map(|s| s[1]),
         "winner": m.winner.map(|s| if s == Side::A { "A" } else { "B" }),
         "forfeit": m.forfeit,
+        "scheduled_at": m.scheduled_at,
+        "venue": m.venue,
     });
     insert(pool, tournament_id, at, kind, Some(match_id), data).await
 }

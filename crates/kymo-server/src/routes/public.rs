@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
@@ -99,4 +100,19 @@ pub async fn activity(
 ) -> Result<Json<Vec<LogEvent>>, ApiError> {
     let t = db::get_by_slug(&state.pool, &slug).await?;
     Ok(Json(events::list(&state.pool, t.id).await?))
+}
+
+pub async fn calendar(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let t = db::get_by_slug(&state.pool, &slug).await?;
+    let body = crate::calendar::ics(&t, crate::tokens::now());
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/calendar; charset=utf-8",
+        )],
+        body,
+    ))
 }

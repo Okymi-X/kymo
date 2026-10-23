@@ -564,3 +564,47 @@ fn group_tables_are_separate_per_group() {
     assert_eq!(a[0].team, 1);
     assert_eq!(c[0].team, 2);
 }
+
+#[test]
+fn schedule_is_stored_cleared_and_never_changes_the_bracket() {
+    let mut b = generate(&teams(4), Format::SingleElimination).unwrap();
+    let before = b
+        .matches
+        .iter()
+        .map(|m| (m.slots, m.winner))
+        .collect::<Vec<_>>();
+    b.set_schedule(0, Some(1_800_000_000), Some("Room A".into()))
+        .unwrap();
+    assert_eq!(b.matches[0].scheduled_at, Some(1_800_000_000));
+    assert_eq!(b.matches[0].venue.as_deref(), Some("Room A"));
+    b.set_result(0, 2, 1).unwrap();
+    assert_eq!(
+        b.matches[0].scheduled_at,
+        Some(1_800_000_000),
+        "a result keeps the plan"
+    );
+    b.set_schedule(0, None, None).unwrap();
+    assert_eq!(b.matches[0].venue, None);
+    assert_eq!(
+        b.set_schedule(99, None, None),
+        Err(EngineError::UnknownMatch(99))
+    );
+    let after = b
+        .matches
+        .iter()
+        .map(|m| (m.slots, m.winner))
+        .collect::<Vec<_>>();
+    assert_eq!(before.len(), after.len());
+}
+
+#[test]
+fn old_stored_matches_without_schedule_fields_still_load() {
+    let b = generate(&teams(4), Format::SingleElimination).unwrap();
+    let mut value = serde_json::to_value(&b).unwrap();
+    for m in value["matches"].as_array_mut().unwrap() {
+        let m = m.as_object_mut().unwrap();
+        m.remove("scheduled_at");
+        m.remove("venue");
+    }
+    assert_eq!(serde_json::from_value::<Bracket>(value).unwrap(), b);
+}

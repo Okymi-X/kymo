@@ -77,6 +77,12 @@ pub struct ForfeitBody {
 }
 
 #[derive(Deserialize)]
+pub struct ScheduleBody {
+    at: Option<i64>,
+    venue: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct ResultBody {
     score_a: u32,
     score_b: u32,
@@ -415,4 +421,40 @@ pub async fn load_demo(
     let _guard = state.write_lock.lock().await;
     let added = crate::demo::seed(&state.pool).await?;
     Ok(Json(serde_json::json!({ "added": added })))
+}
+
+const MAX_VENUE: usize = 40;
+/// 2000-01-01 and 2100-01-01 in unix seconds: anything else is a typo, not a plan.
+const EARLIEST: i64 = 946_684_800;
+const LATEST: i64 = 4_102_444_800;
+
+pub async fn set_schedule(
+    _: Admin,
+    State(state): State<AppState>,
+    Path((id, match_id)): Path<(i64, usize)>,
+    Json(body): Json<ScheduleBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    if body.at.is_some_and(|at| !(EARLIEST..=LATEST).contains(&at)) {
+        return Err(ApiError::BadRequest("the time is out of range".into()));
+    }
+    let venue = match body
+        .venue
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        Some(v) if v.chars().count() > MAX_VENUE || v.chars().any(crate::text::is_hidden_char) => {
+            return Err(ApiError::BadRequest(format!(
+                "the place must be at most {MAX_VENUE} characters without control characters"
+            )));
+        }
+        other => other.map(str::to_owned),
+    };
+    let at = body.at;
+    Ok(Json(
+        edit_bracket(&state, id, match_id, "scheduled", |b| {
+            b.set_schedule(match_id, at, venue)
+        })
+        .await?,
+    ))
 }

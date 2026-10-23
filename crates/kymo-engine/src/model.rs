@@ -73,6 +73,12 @@ pub struct Match {
     /// Group index (0 is group A) for league matches of a groups then knockout tournament.
     #[serde(default)]
     pub group: Option<u32>,
+    /// Planned start, unix seconds. Set by the organizer, never used for bracket logic.
+    #[serde(default)]
+    pub scheduled_at: Option<i64>,
+    /// Where the match is played: a room, a table, a server name.
+    #[serde(default)]
+    pub venue: Option<String>,
     pub next_win: Option<Dest>,
     pub next_lose: Option<Dest>,
 }
