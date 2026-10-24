@@ -714,8 +714,17 @@ async fn unknown_slugs_and_files_return_404_and_logout_ends_the_session() {
         let (status, _, _) = raw(&app, "GET", path, None, "").await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
     }
+    // A client side route gets the web app when it is built, and a 404 in a checkout without it.
+    let built = std::path::Path::new("../../web/dist/index.html").exists();
     let (status, _, _) = raw(&app, "GET", "/t/some-route", None, "").await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        status,
+        if built {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_FOUND
+        }
+    );
 
     let token = login(&app).await;
     let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", Some(&token), None).await;
