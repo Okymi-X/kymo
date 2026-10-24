@@ -51,3 +51,14 @@ export function fromLocalInput(value: string): number | null {
   const ms = new Date(value).getTime()
   return Number.isNaN(ms) ? null : Math.floor(ms / 1000)
 }
+
+/** Minutes past its planned start that a ready, unplayed match is allowed before it counts as late. */
+export const LATE_AFTER_MINUTES = 10
+
+/** Whole minutes a ready match is overdue, or null when it is on time, has no plan or was played. */
+export function lateMinutes(m: Pick<Match, 'scheduled_at' | 'score' | 'forfeit' | 'slots'>, nowMs: number = Date.now()): number | null {
+  if (m.scheduled_at === null || m.score !== null || m.forfeit) return null
+  if (!m.slots.every((s) => s.kind === 'team')) return null
+  const minutes = Math.floor((nowMs - m.scheduled_at * 1000) / 60_000)
+  return minutes >= LATE_AFTER_MINUTES ? minutes : null
+}

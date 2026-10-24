@@ -12,6 +12,7 @@ import { BackLink } from '../components/BackLink'
 import { EmbedDialog } from '../components/EmbedDialog'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { usePublishHeader } from '../components/HeaderContext'
+import { LateMatches } from '../components/LateMatches'
 import { MatchList } from '../components/MatchList'
 import { ScheduleBoard } from '../components/ScheduleBoard'
 import { RosterEditor } from '../components/RosterEditor'
@@ -375,6 +376,11 @@ export function TournamentPage() {
           {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={canScore ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
+          {view === 'matches' && canScore && (
+            <div className="mb-6">
+              <LateMatches tournament={t} teamName={teamName} label={t.bracket ? roundNamer(t.bracket) : () => ''} />
+            </div>
+          )}
           {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
           {view === 'activity' && (

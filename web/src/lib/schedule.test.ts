@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bySchedule, formatSlot, fromLocalInput, planLine, relativeStart, toLocalInput } from './schedule'
+import { bySchedule, formatSlot, fromLocalInput, lateMinutes, planLine, relativeStart, toLocalInput } from './schedule'
 
 const NOW = new Date(2026, 10, 7, 12, 0, 0).getTime()
 const at = (d: Date) => Math.floor(d.getTime() / 1000)
@@ -42,5 +42,19 @@ describe('datetime-local conversion', () => {
     expect(fromLocalInput('2026-11-07T09:05')).toBe(seconds)
     expect(fromLocalInput('')).toBeNull()
     expect(toLocalInput(null)).toBe('')
+  })
+})
+
+describe('lateMinutes', () => {
+  const team = (id: number) => ({ kind: 'team' as const, team: id })
+  const base = { score: null, forfeit: false, slots: [team(1), team(2)] as [ReturnType<typeof team>, ReturnType<typeof team>] }
+  it('counts only ready unplayed planned matches past the grace period', () => {
+    const planned = (minutesAgo: number) => ({ ...base, scheduled_at: (NOW - minutesAgo * 60_000) / 1000 })
+    expect(lateMinutes(planned(5), NOW)).toBeNull()
+    expect(lateMinutes(planned(12), NOW)).toBe(12)
+    expect(lateMinutes({ ...planned(30), score: [1, 0] as [number, number] }, NOW)).toBeNull()
+    expect(lateMinutes({ ...planned(30), forfeit: true }, NOW)).toBeNull()
+    expect(lateMinutes({ ...planned(30), slots: [team(1), { kind: 'empty' as const }] as never }, NOW)).toBeNull()
+    expect(lateMinutes({ ...base, scheduled_at: null }, NOW)).toBeNull()
   })
 })
