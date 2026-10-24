@@ -2,7 +2,7 @@ import { ChevronLeft, Search } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useTournaments } from '../api/hooks'
-import { useIsAdmin } from '../api/client'
+import { session, useIsAdmin, useIsReferee } from '../api/client'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 import { AccountMenu } from './AccountMenu'
 import { CommandPalette } from './CommandPalette'
@@ -73,6 +73,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
   const admin = useIsAdmin()
+  const referee = useIsReferee()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const look = useAppearance().data
@@ -120,6 +121,17 @@ function Header({ onSearch }: { onSearch: () => void }) {
           <ThemeToggle />
           {admin ? (
             <AccountMenu />
+          ) : referee ? (
+            <button
+              type="button"
+              onClick={() => {
+                session.clear()
+                navigate('/')
+              }}
+              className="whitespace-nowrap rounded-control border border-line px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-ink"
+            >
+              Referee, sign out
+            </button>
           ) : (
             <Link to="/login" className="whitespace-nowrap rounded-control px-2.5 py-1.5 text-sm text-muted transition-colors hover:bg-line/40 hover:text-ink">
               <span className="sm:hidden">Sign in</span>

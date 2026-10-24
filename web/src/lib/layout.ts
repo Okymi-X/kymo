@@ -19,6 +19,8 @@ export interface Link {
   path: string
   /** The same connection drawn as a smooth curve. */
   curve: string
+  /** Round robin and Swiss draw each team's path from one round to the next. */
+  team?: number
 }
 
 export interface ColumnHead {
@@ -50,6 +52,8 @@ const stageRank: Record<Stage, number> = { winners: 0, losers: 1, grand_final: 2
 const columnKey = (m: Match) => `${m.stage === 'third_place' ? 'winners' : m.stage}-${m.round}`
 
 const THIRD_PLACE_CAPTION = 20
+/** Most league matches that still get team path lines. */
+const LEAGUE_LINK_MAX = 60
 
 const GROUPS: { title: string; stages: Stage[] }[] = [
   { title: 'Winners bracket', stages: ['winners', 'third_place'] },
@@ -121,6 +125,33 @@ export function layoutBracket(matches: Match[]): BracketLayout {
     const y2 = to.y + CARD_H / 2
     const mid = x2 - COL_GAP / 2
     links.push({ key: `${from.match.id}-${to.match.id}`, path: `M${x1} ${y1}H${mid}V${y2}H${x2}`, curve: `M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}` })
+  }
+
+  // Leagues have no tree, so each team's own path is drawn from its match in one round to the next.
+  // Past a few dozen matches the lines would only be noise, and the hover highlight remains.
+  const leaguePlaced = [...placed.values()].filter((p) => p.match.stage === 'league')
+  if (leaguePlaced.length > 0 && leaguePlaced.length <= LEAGUE_LINK_MAX) {
+    const rowY = (p: Placed, team: number) => p.y + (p.match.slots[0].kind === 'team' && p.match.slots[0].team === team ? CARD_H / 4 : (CARD_H * 3) / 4)
+    const byTeam = new Map<number, Placed[]>()
+    for (const p of leaguePlaced) {
+      for (const slot of p.match.slots) {
+        if (slot.kind === 'team') byTeam.set(slot.team, [...(byTeam.get(slot.team) ?? []), p])
+      }
+    }
+    for (const [team, list] of byTeam) {
+      list.sort((a, b) => a.match.round - b.match.round)
+      for (let i = 0; i + 1 < list.length; i++) {
+        const from = list[i]
+        const to = list[i + 1]
+        if (from.x >= to.x) continue
+        const x1 = from.x + CARD_W
+        const y1 = rowY(from, team)
+        const x2 = to.x
+        const y2 = rowY(to, team)
+        const mid = x2 - COL_GAP / 2
+        links.push({ key: `t${team}-${from.match.id}-${to.match.id}`, team, path: `M${x1} ${y1}H${mid}V${y2}H${x2}`, curve: `M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}` })
+      }
+    }
   }
 
   const all = [...placed.values()]

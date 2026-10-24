@@ -52,7 +52,14 @@ function Canvas({
       ))}
       <svg className="absolute left-0 top-0 text-muted/40" width={layout.width} height={layout.height} fill="none" aria-hidden="true">
         {layout.links.map((link) => (
-          <path key={link.key} d={curved ? link.curve : link.path} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+          <path
+            key={link.key}
+            d={curved || link.team !== undefined ? link.curve : link.path}
+            stroke={link.team !== undefined && link.team === highlight ? 'var(--color-accent)' : 'currentColor'}
+            strokeWidth={link.team !== undefined && link.team === highlight ? 2.5 : link.team !== undefined ? 1 : 1.5}
+            strokeOpacity={link.team !== undefined && highlight !== null && link.team !== highlight ? 0.35 : 1}
+            strokeLinejoin="round"
+          />
         ))}
       </svg>
       {layout.placed

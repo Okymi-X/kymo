@@ -29,6 +29,10 @@ pub struct ApiToken {
     pub label: String,
     pub created_at: i64,
     pub expires_at: Option<i64>,
+    /// A referee token can only record results and schedules, for the listed tournaments.
+    pub referee: bool,
+    #[sqlx(json(nullable))]
+    pub scope: Option<Vec<i64>>,
 }
 
 pub fn now() -> i64 {
@@ -83,6 +87,45 @@ pub async fn issue(
     Ok(secret)
 }
 
+/// What a valid token may do. `scope` is only meaningful for referees.
+pub struct Access {
+    pub referee: bool,
+    pub scope: Vec<i64>,
+}
+
+pub async fn access(pool: &SqlitePool, secret: &str) -> Result<Option<Access>, ApiError> {
+    let row: Option<(bool, Option<String>)> = sqlx::query_as(
+        "SELECT referee, scope FROM token WHERE hash = ? AND (expires_at IS NULL OR expires_at > ?)",
+    )
+    .bind(hash(secret))
+    .bind(now())
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(referee, scope)| Access {
+        referee,
+        scope: scope
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
+    }))
+}
+
+/// Creates an API token limited to recording results and schedules for `tournaments`.
+pub async fn issue_referee(
+    pool: &SqlitePool,
+    label: &str,
+    api_days: Option<u32>,
+    tournaments: &[i64],
+) -> Result<String, ApiError> {
+    let secret = issue(pool, Kind::Api, label, api_days).await?;
+    let scope = serde_json::to_string(tournaments).map_err(|_| ApiError::Internal)?;
+    sqlx::query("UPDATE token SET referee = 1, scope = ? WHERE hash = ?")
+        .bind(scope)
+        .bind(hash(&secret))
+        .execute(pool)
+        .await?;
+    Ok(secret)
+}
+
 pub async fn is_valid(pool: &SqlitePool, secret: &str) -> Result<bool, ApiError> {
     let found: Option<i64> = sqlx::query_scalar(
         "SELECT id FROM token WHERE hash = ? AND (expires_at IS NULL OR expires_at > ?)",
@@ -108,7 +151,7 @@ pub async fn is_session(pool: &SqlitePool, secret: &str) -> Result<bool, ApiErro
 
 pub async fn list_api(pool: &SqlitePool) -> Result<Vec<ApiToken>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT id, label, created_at, expires_at FROM token WHERE kind = 'api' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id DESC",
+        "SELECT id, label, created_at, expires_at, referee, scope FROM token WHERE kind = 'api' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id DESC",
     )
     .bind(now())
     .fetch_all(pool)

@@ -20,6 +20,7 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/auth/login", post(public::login))
         .route("/auth/logout", post(public::logout))
+        .route("/auth/me", get(public::me))
         .route("/tournaments", get(public::list).post(admin::create))
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))

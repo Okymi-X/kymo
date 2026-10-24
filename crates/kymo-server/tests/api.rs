@@ -1774,3 +1774,137 @@ async fn webhooks_are_validated_hidden_and_receive_events() {
     let (status, _) = call(&app, "DELETE", "/api/v1/admin/webhooks/1", t, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn referee_tokens_only_record_results_for_their_tournaments() {
+    let app = app().await;
+    let session = login(&app).await;
+    let t = Some(session.as_str());
+    for name in ["One", "Two"] {
+        call(
+            &app,
+            "POST",
+            "/api/v1/tournaments",
+            t,
+            Some(json!({"name": name, "format": "single_elimination"})),
+        )
+        .await;
+    }
+    let roster = json!({"teams": [{"name": "A"}, {"name": "B"}]});
+    for id in [1, 2] {
+        call(
+            &app,
+            "PUT",
+            &format!("/api/v1/admin/tournaments/{id}/teams"),
+            t,
+            Some(roster.clone()),
+        )
+        .await;
+        call(
+            &app,
+            "POST",
+            &format!("/api/v1/admin/tournaments/{id}/start"),
+            t,
+            Some(json!({"seeding": "manual"})),
+        )
+        .await;
+    }
+    let (status, bad) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        t,
+        Some(json!({"label": "ref", "tournaments": []})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        t,
+        Some(json!({"label": "ref", "tournaments": [99]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        t,
+        Some(json!({"label": "Referee one", "expires_days": 1, "tournaments": [1]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    let referee = made["token"].as_str().unwrap().to_owned();
+    let r = Some(referee.as_str());
+
+    let score = json!({"score_a": 2, "score_b": 1});
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/result",
+        r,
+        Some(score.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/2/matches/0/result",
+        r,
+        Some(score),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(&app, "POST", "/api/v1/admin/tournaments/1/reset", r, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(&app, "DELETE", "/api/v1/admin/tournaments/1", r, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(&app, "GET", "/api/v1/admin/tokens", r, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        r,
+        Some(json!({"label": "child"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (_, list) = call(&app, "GET", "/api/v1/admin/tokens", t, None).await;
+    assert_eq!(list[0]["referee"], true);
+    assert_eq!(list[0]["scope"], json!([1]));
+}
+
+#[tokio::test]
+async fn me_reports_the_role_of_the_token() {
+    let app = app().await;
+    let session = login(&app).await;
+    let (status, _) = call(&app, "GET", "/api/v1/auth/me", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (_, org) = call(&app, "GET", "/api/v1/auth/me", Some(&session), None).await;
+    assert_eq!(org["role"], "organizer");
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        Some(&session),
+        Some(json!({"name": "One", "format": "swiss"})),
+    )
+    .await;
+    let (_, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tokens",
+        Some(&session),
+        Some(json!({"label": "r", "tournaments": [1]})),
+    )
+    .await;
+    let referee = made["token"].as_str().unwrap().to_owned();
+    let (_, me) = call(&app, "GET", "/api/v1/auth/me", Some(&referee), None).await;
+    assert_eq!(me["role"], "referee");
+    assert_eq!(me["tournaments"], json!([1]));
+}

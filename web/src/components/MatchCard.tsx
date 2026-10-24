@@ -67,33 +67,35 @@ export function MatchCard({ match, teamName, onEdit, style, highlight = null, qu
   const open = !quiet && ready && !match.forfeit && match.score === null
   const body = (
     <>
-      {plan && match.winner === null && (
-        <span title={plan} className="absolute right-2 top-0.5 max-w-[11rem] truncate text-[10px] font-medium text-accent">
-          {plan}
-        </span>
-      )}
       <Row name={teamName(match.slots[0])} slot={match.slots[0]} score={match.score?.[0] ?? null} won={match.winner === 'A'} forfeit={match.forfeit} lit={highlight !== null && match.slots[0].kind === 'team' && (match.slots[0] as { team: number }).team === highlight} onHover={onHoverTeam} />
       <div className="border-t border-line" />
       <Row name={teamName(match.slots[1])} slot={match.slots[1]} score={match.score?.[1] ?? null} won={match.winner === 'B'} forfeit={match.forfeit} lit={highlight !== null && match.slots[1].kind === 'team' && (match.slots[1] as { team: number }).team === highlight} onHover={onHoverTeam} />
     </>
   )
-  const frame = `relative flex h-[76px] ${quiet ? 'w-full' : 'w-56'} flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
-  if (onEdit && ready) {
-    return (
+  const frame = `relative flex h-[76px] w-full flex-col overflow-hidden rounded-card border bg-surface text-left shadow-[var(--shadow-card)] ${open ? 'border-accent ring-1 ring-accent' : 'border-line'}`
+  // The planned time sits in the gap above the card so it never covers a team name.
+  const label = plan && match.winner === null && (
+    <span title={plan} className="absolute bottom-full right-1 mb-px max-w-full truncate text-[10px] font-medium leading-4 text-accent">
+      {plan}
+    </span>
+  )
+  const card =
+    onEdit && ready ? (
       <button
         type="button"
         onClick={() => onEdit(match)}
         className={`${frame} transition-colors hover:bg-line/30`}
-        style={style}
         aria-label={`Edit result for ${teamName(match.slots[0])} versus ${teamName(match.slots[1])}`}
       >
         {body}
       </button>
+    ) : (
+      <div className={frame}>{body}</div>
     )
-  }
   return (
-    <div className={frame} style={style}>
-      {body}
+    <div className={`relative ${quiet ? 'w-full' : 'w-56'}`} style={style}>
+      {label}
+      {card}
     </div>
   )
 }

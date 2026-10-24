@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, useIsAdmin } from '../api/client'
+import { api, useCanScore, useIsAdmin } from '../api/client'
 import { useLiveUpdates, useTournament } from '../api/hooks'
 import type { Match, Slot, Tournament } from '../api/types'
 import { Avatar } from '../components/Avatar'
@@ -278,6 +278,7 @@ export function TournamentPage() {
   const { slug = '' } = useParams()
   const admin = useIsAdmin()
   const { data: t, isPending, error } = useTournament(slug)
+  const canScore = useCanScore(t?.id)
   usePageTitle(t?.name)
   const teamName = useTeamName(t)
   const [editing, setEditing] = useState<Match | null>(null)
@@ -370,11 +371,11 @@ export function TournamentPage() {
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}
       {t.bracket ? (
         <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
-          {view === 'bracket' && mapBracket && <BracketView bracket={mapBracket} teamName={teamName} onEdit={admin ? setEditing : undefined} pinned={followed} />}
-          {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={admin ? setEditing : undefined} />}
-          {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'bracket' && mapBracket && <BracketView bracket={mapBracket} teamName={teamName} onEdit={canScore ? setEditing : undefined} pinned={followed} />}
+          {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={canScore ? setEditing : undefined} />}
+          {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
           {view === 'standings' && <StandingsTable tournament={t} rows={rows} onSelect={setTeamId} />}
-          {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={admin ? setEditing : undefined} />}
+          {view === 'matches' && <MatchList tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
           {view === 'teams' && <TeamsGrid rows={rows} onSelect={setTeamId} />}
           {view === 'activity' && (
             <div className="max-w-2xl">

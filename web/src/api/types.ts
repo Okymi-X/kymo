@@ -76,6 +76,9 @@ export interface ApiToken {
   label: string
   created_at: number
   expires_at: number | null
+  /** A referee token only records results and schedules for the tournaments in `scope`. */
+  referee: boolean
+  scope: number[] | null
 }
 
 export type FontChoice = 'sans' | 'serif' | 'mono'

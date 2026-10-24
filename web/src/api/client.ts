@@ -3,6 +3,7 @@ import type { ApiToken, Webhook, Appearance, LogEvent, Format, Seeding, Side, To
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
+const SCOPE_KEY = 'kymo.referee'
 
 const listeners = new Set<() => void>()
 
@@ -14,11 +15,24 @@ function readToken(): string | null {
   }
 }
 
+/** Tournament ids a referee token covers, or null for the organizer. */
+function readScope(): number[] | null {
+  try {
+    const raw = sessionStorage.getItem(SCOPE_KEY)
+    return raw === null ? null : (JSON.parse(raw) as number[])
+  } catch {
+    return null
+  }
+}
+
 export const session = {
   token: readToken,
-  set(token: string) {
+  scope: readScope,
+  set(token: string, scope: number[] | null = null) {
     try {
       sessionStorage.setItem(TOKEN_KEY, token)
+      if (scope === null) sessionStorage.removeItem(SCOPE_KEY)
+      else sessionStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
     } catch {
       /* storage unavailable: session lasts until reload */
     }
@@ -27,6 +41,7 @@ export const session = {
   clear() {
     try {
       sessionStorage.removeItem(TOKEN_KEY)
+      sessionStorage.removeItem(SCOPE_KEY)
     } catch {
       /* nothing stored */
     }
@@ -38,8 +53,21 @@ export const session = {
   },
 }
 
+/** Signed in as the organizer, with every tool. A referee is not an admin. */
 export function useIsAdmin(): boolean {
-  return useSyncExternalStore(session.subscribe, () => session.token() !== null)
+  return useSyncExternalStore(session.subscribe, () => session.token() !== null && sessionStorage.getItem(SCOPE_KEY) === null)
+}
+
+/** Signed in as a referee, who can only record results and schedules for some tournaments. */
+export function useIsReferee(): boolean {
+  return useSyncExternalStore(session.subscribe, () => sessionStorage.getItem(SCOPE_KEY) !== null && session.token() !== null)
+}
+
+/** Whether this visitor can enter results for a tournament: the organizer, or a referee covering it. */
+export function useCanScore(tournamentId: number | undefined): boolean {
+  const admin = useIsAdmin()
+  const referee = useIsReferee()
+  return admin || (referee && tournamentId !== undefined && (session.scope() ?? []).includes(tournamentId))
 }
 
 export class ApiError extends Error {
@@ -97,6 +125,7 @@ export const api = {
   createWebhook: (label: string, url: string) => request<Webhook>('POST', '/admin/webhooks', { label, url }),
   deleteWebhook: (id: number) => request<void>('DELETE', `/admin/webhooks/${id}`),
   testWebhook: (id: number) => request<{ status: number }>('POST', `/admin/webhooks/${id}/test`),
+  me: () => request<{ role: 'organizer' | 'referee'; tournaments: number[] | null }>('GET', '/auth/me'),
   importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),
@@ -107,8 +136,8 @@ export const api = {
   saveAppearance: (a: Appearance) => request<Appearance>('PUT', '/admin/settings', a),
   resetAppearance: () => request<Appearance>('DELETE', '/admin/settings'),
   listTokens: () => request<ApiToken[]>('GET', '/admin/tokens'),
-  createToken: (label: string, expiresDays: number | null) =>
-    request<{ label: string; token: string }>('POST', '/admin/tokens', { label, expires_days: expiresDays }),
+  createToken: (label: string, expiresDays: number | null, tournaments: number[] | null = null) =>
+    request<{ label: string; token: string }>('POST', '/admin/tokens', { label, expires_days: expiresDays, ...(tournaments ? { tournaments } : {}) }),
   revokeToken: (id: number) => request<void>('DELETE', `/admin/tokens/${id}`),
   setForfeit: (id: number, match: number, winner: Side) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/forfeit`, { winner }),

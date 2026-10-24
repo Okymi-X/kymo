@@ -61,6 +61,26 @@ pub async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Tells a signed in caller what its token is: the organizer, or a referee for some tournaments.
+pub async fn me(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let secret = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or(ApiError::Unauthorized)?;
+    let access = tokens::access(&state.pool, secret)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
+    Ok(Json(if access.referee {
+        serde_json::json!({ "role": "referee", "tournaments": access.scope })
+    } else {
+        serde_json::json!({ "role": "organizer", "tournaments": null })
+    }))
+}
+
 /// The list only needs a few names for the avatar stack, not every roster.
 const LIST_TEAMS: usize = 4;
 

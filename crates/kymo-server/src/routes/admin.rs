@@ -7,7 +7,7 @@ use kymo_engine::{Format, Options, Side, generate_with};
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 
-use crate::auth::{Admin, SessionAdmin};
+use crate::auth::{Admin, Official, SessionAdmin};
 use crate::db::{self, NewTeam, NewTournament, Status, Tournament};
 use crate::error::ApiError;
 use crate::events;
@@ -423,11 +423,12 @@ async fn edit_bracket(
 }
 
 pub async fn set_result(
-    _: Admin,
+    official: Official,
     State(state): State<AppState>,
     Path((id, match_id)): Path<(i64, usize)>,
     Json(body): Json<ResultBody>,
 ) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
     if body.score_a > MAX_SCORE || body.score_b > MAX_SCORE {
         return Err(ApiError::BadRequest(format!(
             "scores must be at most {MAX_SCORE}"
@@ -441,11 +442,12 @@ pub async fn set_result(
 }
 
 pub async fn set_forfeit(
-    _: Admin,
+    official: Official,
     State(state): State<AppState>,
     Path((id, match_id)): Path<(i64, usize)>,
     Json(body): Json<ForfeitBody>,
 ) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
     Ok(Json(
         edit_bracket(&state, id, match_id, "forfeit", |b| {
             b.set_forfeit(match_id, body.winner)
@@ -483,10 +485,11 @@ pub async fn set_tiebreak(
 }
 
 pub async fn clear_result(
-    _: Admin,
+    official: Official,
     State(state): State<AppState>,
     Path((id, match_id)): Path<(i64, usize)>,
 ) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
     Ok(Json(
         edit_bracket(&state, id, match_id, "cleared", |b| {
             b.clear_result(match_id)
@@ -501,6 +504,9 @@ pub struct TokenBody {
     /// Days until the token stops working, 1 to 365. Missing means it never expires.
     #[serde(default)]
     expires_days: Option<u32>,
+    /// Makes a referee token: it can only record results and schedules for these tournaments.
+    #[serde(default)]
+    tournaments: Option<Vec<i64>>,
 }
 
 pub async fn list_tokens(
@@ -520,7 +526,20 @@ pub async fn create_token(
     if body.expires_days.is_some_and(|d| !(1..=365).contains(&d)) {
         return Err(ApiError::BadRequest("expiry must be 1 to 365 days".into()));
     }
-    let secret = tokens::issue(&state.pool, Kind::Api, &label, body.expires_days).await?;
+    let secret = match body.tournaments.as_deref() {
+        Some([]) => {
+            return Err(ApiError::BadRequest(
+                "pick at least one tournament for a referee token".into(),
+            ));
+        }
+        Some(ids) => {
+            for id in ids {
+                db::get(&state.pool, *id).await?;
+            }
+            tokens::issue_referee(&state.pool, &label, body.expires_days, ids).await?
+        }
+        None => tokens::issue(&state.pool, Kind::Api, &label, body.expires_days).await?,
+    };
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "label": label, "token": secret })),
@@ -616,11 +635,12 @@ const EARLIEST: i64 = 946_684_800;
 const LATEST: i64 = 4_102_444_800;
 
 pub async fn set_schedule(
-    _: Admin,
+    official: Official,
     State(state): State<AppState>,
     Path((id, match_id)): Path<(i64, usize)>,
     Json(body): Json<ScheduleBody>,
 ) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
     if body.at.is_some_and(|at| !(EARLIEST..=LATEST).contains(&at)) {
         return Err(ApiError::BadRequest("the time is out of range".into()));
     }
