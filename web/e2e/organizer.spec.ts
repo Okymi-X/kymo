@@ -832,3 +832,19 @@ test('the ladder adds results across tournaments', async ({ page }) => {
   const row = page.getByRole('row', { name: /Ladybug/ })
   await expect(row).toContainText('26')
 })
+
+test('the bracket can be saved as an image', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Image Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  const svg = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'SVG' }).click()
+  const file = await svg
+  expect(file.suggestedFilename()).toBe('image-cup-bracket.svg')
+  const png = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Save image' }).click()
+  expect((await png).suggestedFilename()).toBe('image-cup-bracket.png')
+})

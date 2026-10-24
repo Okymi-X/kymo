@@ -12,6 +12,7 @@ import { BackLink } from '../components/BackLink'
 import { EmbedDialog } from '../components/EmbedDialog'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { usePublishHeader } from '../components/HeaderContext'
+import { BracketDownload } from '../components/BracketDownload'
 import { PendingReports } from '../components/PendingReports'
 import { LateMatches } from '../components/LateMatches'
 import { MatchList } from '../components/MatchList'
@@ -381,6 +382,11 @@ export function TournamentPage() {
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}
       {t.bracket ? (
         <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
+          {view === 'bracket' && mapBracket && (
+            <div className="mb-3 flex justify-end">
+              <BracketDownload bracket={mapBracket} teamName={teamName} title={t.name} slug={t.slug} />
+            </div>
+          )}
           {view === 'bracket' && mapBracket && <BracketView bracket={mapBracket} teamName={teamName} onEdit={canScore ? setEditing : undefined} pinned={followed} />}
           {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={canScore ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
