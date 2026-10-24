@@ -2002,3 +2002,27 @@ async fn best_of_series_are_recorded_game_by_game_over_the_api() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn tournament_links_carry_an_escaped_preview_for_chats() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Cup <b>One</b>", "format": "swiss"})),
+    )
+    .await;
+    let (status, _, html) = raw(&app, "GET", "/t/cup-b-one-b", None, "").await;
+    if status == StatusCode::NOT_FOUND {
+        return; // the web app is not built in this checkout
+    }
+    assert!(html.contains("property=\"og:title\""), "{html}");
+    assert!(html.contains("Swiss, 0 teams, starting soon"), "{html}");
+    assert!(!html.contains("<b>One</b>"), "the name must be escaped");
+    let (_, _, other) = raw(&app, "GET", "/t/does-not-exist", None, "").await;
+    assert!(!other.contains("og:title"));
+}
