@@ -32,6 +32,7 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   advance: 2,
   rounds: 0,
   best_of: 1,
+  description: '',
   accent: null,
   status: 'live',
   created_at: '',

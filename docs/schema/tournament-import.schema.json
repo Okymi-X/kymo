@@ -4,29 +4,101 @@
   "title": "Kymo tournament import",
   "description": "Body of POST /api/v1/admin/import. Creates a tournament with its roster and can start it.",
   "type": "object",
-  "required": ["name", "format"],
+  "required": [
+    "name",
+    "format"
+  ],
   "additionalProperties": false,
   "properties": {
-    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
-    "format": { "enum": ["single_elimination", "double_elimination", "round_robin", "group_knockout", "swiss"] },
-    "third_place": { "type": "boolean", "default": false, "description": "Single elimination only." },
-    "groups": { "type": "integer", "minimum": 2, "maximum": 8, "default": 2, "description": "Groups then knockout only." },
-    "advance": { "type": "integer", "minimum": 1, "maximum": 4, "default": 2, "description": "Teams per group that reach the knockout." },
-    "rounds": { "type": "integer", "minimum": 0, "maximum": 12, "default": 0, "description": "Swiss only. Zero picks the usual count." },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "format": {
+      "enum": [
+        "single_elimination",
+        "double_elimination",
+        "round_robin",
+        "group_knockout",
+        "swiss"
+      ]
+    },
+    "third_place": {
+      "type": "boolean",
+      "default": false,
+      "description": "Single elimination only."
+    },
+    "groups": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 8,
+      "default": 2,
+      "description": "Groups then knockout only."
+    },
+    "advance": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Teams per group that reach the knockout."
+    },
+    "rounds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12,
+      "default": 0,
+      "description": "Swiss only. Zero picks the usual count."
+    },
     "teams": {
       "type": "array",
       "default": [],
       "description": "Seed order when started with manual seeding. Names are unique ignoring case.",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 64 },
-          "score": { "type": "integer", "minimum": 0, "maximum": 1000000, "default": 0, "description": "Qualifier score, used by score seeding." }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "default": 0,
+            "description": "Qualifier score, used by score seeding."
+          }
         }
       }
     },
-    "start": { "enum": ["manual", "random", "score"], "description": "Start right away with this seeding. Leave out to keep the tournament a draft." }
+    "start": {
+      "enum": [
+        "manual",
+        "random",
+        "score"
+      ],
+      "description": "Start right away with this seeding. Leave out to keep the tournament a draft."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 600,
+      "default": "",
+      "description": "Rules or notes shown under the title."
+    },
+    "best_of": {
+      "enum": [
+        1,
+        3,
+        5,
+        7
+      ],
+      "default": 1,
+      "description": "Games per match."
+    }
   }
 }

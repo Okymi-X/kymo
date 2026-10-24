@@ -556,8 +556,10 @@ test('an organizer can rename a tournament, and unknown pages show a 404', async
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByRole('button', { name: 'Rename' }).click()
   await page.getByLabel('Tournament name').fill('Fresh Name')
+  await page.getByLabel(/^Description/).fill('Bring a laptop.')
   await page.getByRole('button', { name: 'Save name' }).click()
   await expect(page.getByRole('heading', { name: 'Fresh Name' })).toBeVisible()
+  await expect(page.getByText('Bring a laptop.')).toBeVisible()
 
   await page.goto('/nowhere/at/all')
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()

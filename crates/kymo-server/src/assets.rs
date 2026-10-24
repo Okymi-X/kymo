@@ -86,9 +86,15 @@ async fn link_preview(state: &AppState, path: &str) -> Option<Preview> {
             format!("finished{champion}")
         }
     };
+    let summary = format!("{format}, {} teams, {status}", t.team_count);
+    let note: String = t.description.chars().take(160).collect();
     Some(Preview {
         title: t.name.clone(),
-        description: format!("{format}, {} teams, {status}", t.team_count),
+        description: if note.is_empty() {
+            summary
+        } else {
+            format!("{note} ({summary})")
+        },
     })
 }
 

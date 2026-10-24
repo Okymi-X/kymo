@@ -117,7 +117,7 @@ export const api = {
       rounds: options.rounds,
       best_of: options.bestOf,
     }),
-  rename: (id: number, name: string) => request<Tournament>('PUT', admin(id), { name }),
+  rename: (id: number, name: string, description?: string) => request<Tournament>('PUT', admin(id), { name, ...(description === undefined ? {} : { description }) }),
   remove: (id: number) => request<void>('DELETE', admin(id)),
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),

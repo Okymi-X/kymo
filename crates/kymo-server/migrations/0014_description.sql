@@ -1,0 +1,1 @@
+ALTER TABLE tournament ADD COLUMN description TEXT NOT NULL DEFAULT '';

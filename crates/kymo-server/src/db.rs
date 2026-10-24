@@ -41,6 +41,7 @@ struct Row {
     advance: i64,
     rounds: i64,
     best_of: i64,
+    description: String,
     accent: Option<String>,
     status: Status,
     bracket: Option<String>,
@@ -60,6 +61,8 @@ pub struct Tournament {
     pub rounds: u8,
     /// Games per match: 1, 3, 5 or 7.
     pub best_of: u8,
+    /// Rules, venue or any note the organizer wants players to read.
+    pub description: String,
     /// Optional #rrggbb accent that tints this tournament's pages.
     pub accent: Option<String>,
     pub status: Status,
@@ -128,6 +131,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         advance: u8::try_from(row.advance).unwrap_or(2),
         rounds: u8::try_from(row.rounds).unwrap_or(0),
         best_of: u8::try_from(row.best_of).unwrap_or(1),
+        description: row.description,
         accent: row.accent,
         status: row.status,
         created_at: row.created_at,
@@ -216,12 +220,20 @@ pub async fn set_accent(pool: &SqlitePool, id: i64, accent: Option<&str>) -> Res
     }
 }
 
-pub async fn rename(pool: &SqlitePool, id: i64, name: &str) -> Result<(), ApiError> {
-    let done = sqlx::query("UPDATE tournament SET name = ? WHERE id = ?")
-        .bind(name)
-        .bind(id)
-        .execute(pool)
-        .await?;
+pub async fn rename(
+    pool: &SqlitePool,
+    id: i64,
+    name: &str,
+    description: Option<&str>,
+) -> Result<(), ApiError> {
+    let done = sqlx::query(
+        "UPDATE tournament SET name = ?, description = COALESCE(?, description) WHERE id = ?",
+    )
+    .bind(name)
+    .bind(description)
+    .bind(id)
+    .execute(pool)
+    .await?;
     if done.rows_affected() == 0 {
         Err(ApiError::NotFound)
     } else {

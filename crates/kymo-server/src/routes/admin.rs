@@ -20,6 +20,7 @@ use crate::webhooks;
 const MAX_NAME: usize = 80;
 const MAX_TEAM_NAME: usize = 64;
 const MAX_SCORE: u32 = 1_000_000;
+const MAX_DESCRIPTION: usize = 600;
 
 #[derive(Deserialize)]
 pub struct CreateBody {
@@ -54,6 +55,9 @@ fn default_advance() -> u8 {
 #[derive(Deserialize)]
 pub struct NameBody {
     name: String,
+    /// Rules or notes shown under the title. Leave out to keep the current text.
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -180,7 +184,27 @@ pub async fn rename(
     Path(id): Path<i64>,
     Json(body): Json<NameBody>,
 ) -> Result<Json<Tournament>, ApiError> {
-    db::rename(&state.pool, id, &clean_name(&body.name, MAX_NAME)?).await?;
+    let description = match body.description.as_deref() {
+        None => None,
+        Some(text) => {
+            let text = text.trim();
+            if text.chars().count() > MAX_DESCRIPTION
+                || text.chars().any(|c| c.is_control() && c != '\n')
+            {
+                return Err(ApiError::BadRequest(format!(
+                    "the description is at most {MAX_DESCRIPTION} characters of plain text"
+                )));
+            }
+            Some(text.to_owned())
+        }
+    };
+    db::rename(
+        &state.pool,
+        id,
+        &clean_name(&body.name, MAX_NAME)?,
+        description.as_deref(),
+    )
+    .await?;
     let t = db::get(&state.pool, id).await?;
     state.notify(&t.slug);
     Ok(Json(t))
@@ -289,6 +313,8 @@ pub struct ImportBody {
     #[serde(default = "default_best_of")]
     best_of: u8,
     #[serde(default)]
+    description: String,
+    #[serde(default)]
     teams: Vec<TeamInput>,
     /// When present the tournament is started with this seeding right away.
     #[serde(default)]
@@ -313,6 +339,18 @@ pub async fn import(
     };
     let (_, Json(made)) = create(Admin, State(state.clone()), Json(create_body)).await?;
     let filled = async {
+        if !body.description.trim().is_empty() {
+            let _ = rename(
+                Admin,
+                State(state.clone()),
+                Path(made.id),
+                Json(NameBody {
+                    name: made.name.clone(),
+                    description: Some(body.description.clone()),
+                }),
+            )
+            .await?;
+        }
         let _ = set_teams(
             Admin,
             State(state.clone()),

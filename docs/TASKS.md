@@ -69,6 +69,8 @@
 
 - [x] Ladder across tournaments, installable manifest, README feature list
 
+- [x] Tournament description (rules, venue) shown under the title, in link previews and kept on duplicate and import
+
 ## Todo
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema

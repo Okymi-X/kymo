@@ -2190,3 +2190,71 @@ async fn the_ladder_adds_wins_draws_and_titles_across_tournaments() {
         "alpha and Alpha are one team"
     );
 }
+
+#[tokio::test]
+async fn a_tournament_description_is_stored_validated_and_kept_on_rename() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Notes", "format": "swiss"})),
+    )
+    .await;
+    let (status, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1",
+        t,
+        Some(json!({"name": "Notes", "description": "Bring a laptop.\nRoom 4."})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(out["description"], "Bring a laptop.\nRoom 4.");
+    let (_, kept) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1",
+        t,
+        Some(json!({"name": "Notes v2"})),
+    )
+    .await;
+    assert_eq!(
+        kept["description"], "Bring a laptop.\nRoom 4.",
+        "a rename without a description keeps it"
+    );
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1",
+        t,
+        Some(json!({"name": "x", "description": "a".repeat(601)})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1",
+        t,
+        Some(json!({"name": "x", "description": "bad\u{7}bell"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, cleared) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1",
+        t,
+        Some(json!({"name": "Notes v2", "description": ""})),
+    )
+    .await;
+    assert_eq!(cleared["description"], "");
+    let imported = json!({"name": "Imported Notes", "format": "swiss", "description": "From a file", "teams": []});
+    let (status, made) = call(&app, "POST", "/api/v1/admin/import", t, Some(imported)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(made["description"], "From a file");
+}

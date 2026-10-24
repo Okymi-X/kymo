@@ -58,6 +58,8 @@ export interface Tournament {
   rounds: number
   /** Games per match: 1, 3, 5 or 7. */
   best_of: number
+  /** Rules or notes from the organizer, shown under the title. */
+  description: string
   /** Optional #rrggbb accent for this tournament's pages. */
   accent: string | null
   status: Status

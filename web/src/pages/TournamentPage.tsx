@@ -24,7 +24,7 @@ import { TeamDialog } from '../components/TeamDialog'
 import { TeamsGrid } from '../components/TeamsGrid'
 import { ExportButton } from '../components/ExportButton'
 import { Modal } from '../components/Modal'
-import { Button, ErrorText, Field, Input, PageTitle, StatusPill } from '../components/ui'
+import { Button, ErrorText, Field, Input, PageTitle, StatusPill, Textarea } from '../components/ui'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { usePageTitle } from '../lib/usePageTitle'
@@ -97,6 +97,7 @@ function AdminActions({ t }: { t: Tournament }) {
     },
   })
   const [name, setName] = useState(t.name)
+  const [description, setDescription] = useState(t.description)
   const duplicate = useMutation({
     mutationFn: () =>
       api.importSetup({
@@ -106,6 +107,8 @@ function AdminActions({ t }: { t: Tournament }) {
         groups: t.groups,
         advance: t.advance,
         rounds: t.rounds,
+        best_of: t.best_of,
+        description: t.description,
         teams: t.teams.map((team) => ({ name: team.name, score: team.score })),
       }),
     onSuccess: (copy) => {
@@ -122,7 +125,7 @@ function AdminActions({ t }: { t: Tournament }) {
     },
   })
   const rename = useMutation({
-    mutationFn: () => api.rename(t.id, name.trim()),
+    mutationFn: () => api.rename(t.id, name.trim(), description),
     onSuccess: (next) => {
       client.setQueryData(['tournament', next.slug], next)
       void client.invalidateQueries({ queryKey: ['tournaments'] })
@@ -141,6 +144,7 @@ function AdminActions({ t }: { t: Tournament }) {
       <Button
         onClick={() => {
           setName(t.name)
+          setDescription(t.description)
           setAsking('rename')
         }}
       >
@@ -210,6 +214,9 @@ function AdminActions({ t }: { t: Tournament }) {
           >
             <Field label="Tournament name">
               <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
+            </Field>
+            <Field label="Description, shown under the title">
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} rows={4} placeholder="Rules, venue, check in time" />
             </Field>
             <ErrorText error={rename.error} />
             <div className="flex justify-end gap-2">
@@ -333,6 +340,7 @@ export function TournamentPage() {
             </span>
             <StatusPill status={t.status} />
           </p>
+          {t.description && <p className="mt-3 max-w-prose whitespace-pre-line text-sm text-muted">{t.description}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {t.bracket?.matches.some((m) => m.scheduled_at !== null) && (
