@@ -15,6 +15,7 @@ const match = (id: number, a: Slot, b: Slot, score: [number, number] | null, win
   winner,
   forfeit: false,
   games: [],
+  started_at: null,
   group: null,
   scheduled_at: null,
   venue: null,

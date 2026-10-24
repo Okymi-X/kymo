@@ -31,6 +31,7 @@ impl Bracket {
         }
         let m = &mut next.matches[id];
         m.score = Some([a, b]);
+        m.started_at = None;
         m.games = Vec::new();
         m.forfeit = false;
         m.winner = match a.cmp(&b) {
@@ -72,6 +73,19 @@ impl Bracket {
         Ok(())
     }
 
+    /// Marks a ready, unplayed match as being played right now, or clears the mark.
+    pub fn set_live(&mut self, id: MatchId, at: Option<i64>) -> Result<(), EngineError> {
+        let m = self
+            .matches
+            .get_mut(id)
+            .ok_or(EngineError::UnknownMatch(id))?;
+        if at.is_some() && (!m.is_ready() || m.is_played()) {
+            return Err(EngineError::NotReady(id));
+        }
+        m.started_at = at;
+        Ok(())
+    }
+
     /// Plans when and where a match is played. Passing `None` for both clears the plan.
     pub fn set_schedule(
         &mut self,
@@ -101,6 +115,7 @@ impl Bracket {
         }
         m.score = None;
         m.games = Vec::new();
+        m.started_at = None;
         m.forfeit = true;
         m.winner = Some(winner);
         next.settle(id)?;

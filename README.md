@@ -45,6 +45,8 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 - **Webhooks** that post results, corrections, forfeits and schedules to Discord, Slack or any URL that accepts JSON.
 - **Referee tokens**: a token that can only record results and schedules for the tournaments you choose, with its own sign in.
 - **Captain reporting**: each team can get a private link to submit its score, which waits for your approval.
+- **Playing now**: mark a match as started, and spectators see a LIVE badge while chat gets a message.
+- **Bracket image**: save the whole bracket as a PNG or SVG to post or print.
 - **Late match panel**: planned matches that should have started, with one click forfeits.
 - **Ladder** at `/ladder`: points across every tournament on the site.
 - **Link previews** when a tournament link is pasted in chat, and an installable app on phones.

@@ -95,6 +95,12 @@ export function MatchCard({ match, teamName, onEdit, style, highlight = null, qu
   return (
     <div className={`relative ${quiet ? 'w-full' : 'w-56'}`} style={style}>
       {label}
+      {match.started_at !== null && match.score === null && !match.forfeit && (
+        <span className="pointer-events-none absolute -left-1 -top-1 z-10 flex items-center gap-1 rounded-full bg-danger px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider text-white">
+          <span className="size-1 rounded-full bg-white" aria-hidden="true" />
+          Live
+        </span>
+      )}
       {card}
     </div>
   )

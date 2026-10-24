@@ -182,6 +182,7 @@ pub async fn describe(
             }
         }
         "forfeit" => format!("{tournament}: {winner} advanced by forfeit against {loser}"),
+        "live" => format!("{tournament}: {a} versus {b} is starting now"),
         "cleared" => format!("{tournament}: result cleared for {a} versus {b}"),
         "scheduled" => match id("scheduled_at") {
             Some(at) => {

@@ -149,6 +149,8 @@ export const api = {
   createToken: (label: string, expiresDays: number | null, tournaments: number[] | null = null) =>
     request<{ label: string; token: string }>('POST', '/admin/tokens', { label, expires_days: expiresDays, ...(tournaments ? { tournaments } : {}) }),
   revokeToken: (id: number) => request<void>('DELETE', `/admin/tokens/${id}`),
+  setLive: (id: number, match: number, live: boolean) =>
+    request<Tournament>('PUT', `${admin(id)}/matches/${match}/live`, { live }),
   setForfeit: (id: number, match: number, winner: Side) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/forfeit`, { winner }),
   setSchedule: (id: number, match: number, at: number | null, venue: string | null) =>

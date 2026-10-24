@@ -81,6 +81,7 @@ fn match_data(bracket: &Bracket, match_id: usize) -> Option<Value> {
         "winner": m.winner.map(|s| if s == Side::A { "A" } else { "B" }),
         "forfeit": m.forfeit,
         "games": m.games,
+        "started_at": m.started_at,
         "scheduled_at": m.scheduled_at,
         "venue": m.venue,
     }))

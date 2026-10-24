@@ -17,8 +17,9 @@ interface Props {
 
 const PAGE_SIZE = 10
 
-const groups: { state: MatchState; title: string; empty: string }[] = [
-  { state: 'ready', title: 'Up next', empty: 'No match is waiting for a result.' },
+const groups: { state: MatchState; title: string; empty: string; live?: boolean }[] = [
+  { state: 'ready', title: 'Playing now', empty: '', live: true },
+  { state: 'ready', title: 'Up next', empty: 'No match is waiting for a result.', live: false },
   { state: 'waiting', title: 'Waiting for teams', empty: 'Every match has both teams.' },
   { state: 'played', title: 'Played', empty: 'No result recorded yet.' },
 ]
@@ -36,7 +37,7 @@ function Row({ match, label, teamName, onEdit }: { match: Match; label: string; 
   const [a, b] = match.slots
   const plan = planLine(match)
   const editable = onEdit !== undefined && matchState(match) !== 'waiting'
-  const score = match.forfeit ? 'Forfeit' : match.score ? `${match.score[0]} : ${match.score[1]}` : 'vs'
+  const score = match.forfeit ? 'Forfeit' : match.score ? `${match.score[0]} : ${match.score[1]}` : match.started_at !== null ? 'LIVE' : 'vs'
   const content = (
     <>
       <span className="w-28 shrink-0 text-xs text-muted">
@@ -44,7 +45,7 @@ function Row({ match, label, teamName, onEdit }: { match: Match; label: string; 
         {plan && <span className="block text-accent">{plan}</span>}
       </span>
       <TeamCell slot={a} name={teamName(a)} won={match.winner === 'A'} />
-      <span className="shrink-0 text-center font-mono text-xs tabular-nums text-muted" title={match.games.length > 0 ? match.games.map(([x, y]) => `${x}:${y}`).join(', ') : undefined}>
+      <span className={`shrink-0 text-center font-mono text-xs tabular-nums ${match.started_at !== null && match.score === null ? 'font-semibold text-danger' : 'text-muted'}`} title={match.games.length > 0 ? match.games.map(([x, y]) => `${x}:${y}`).join(', ') : undefined}>
         {score}
         {match.games.length > 0 && <span className="block text-[10px]">{match.games.map(([x, y]) => `${x}:${y}`).join(' ')}</span>}
       </span>
@@ -81,7 +82,9 @@ export function MatchList({ tournament, teamName, onEdit }: Props) {
         <ExportButton filename={`${tournament.slug}-results.csv`} build={() => resultsCsv(tournament, label)} />
       </div>
       {groups.map((g) => {
-        const items = g.state === 'played' ? matches.filter((m) => matchState(m) === g.state) : bySchedule(matches.filter((m) => matchState(m) === g.state))
+        const inGroup = matches.filter((m) => matchState(m) === g.state && (g.state !== 'ready' || (m.started_at !== null) === (g.live === true)))
+        const items = g.state === 'played' ? inGroup : bySchedule(inGroup)
+        if (g.live && items.length === 0) return null
         return <MatchSection key={g.state} title={g.title} empty={needle ? 'No match fits that search.' : g.empty} items={items} resetKey={needle} label={label} teamName={teamName} onEdit={onEdit} />
       })}
     </div>

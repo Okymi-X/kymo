@@ -22,6 +22,8 @@ export interface Match {
   forfeit: boolean
   /** Games of a best of series as [a, b] scores. Empty for a single game. */
   games: [number, number][]
+  /** Unix seconds when the organizer marked the match as being played now. */
+  started_at: number | null
   group: number | null
   scheduled_at: number | null
   venue: string | null
@@ -146,7 +148,7 @@ export interface Appearance {
   lines: LineStyle
 }
 
-export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled'
+export type EventKind = 'started' | 'reset' | 'result' | 'corrected' | 'forfeit' | 'cleared' | 'scheduled' | 'live'
 
 export interface LogEvent {
   id: number

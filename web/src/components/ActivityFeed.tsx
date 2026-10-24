@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarClock, CircleSlash, Flag, History, Pencil, Play, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowRight, CalendarClock, CircleSlash, Flag, History, Pencil, Play, Radio, RotateCcw, Trophy } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { EventKind, LogEvent, Match, Slot, Tournament } from '../api/types'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -26,6 +26,7 @@ const ICONS: Record<EventKind, ReactNode> = {
   forfeit: <Flag size={16} />,
   cleared: <CircleSlash size={16} />,
   scheduled: <CalendarClock size={16} />,
+  live: <Radio size={16} />,
 }
 
 interface Props {
@@ -59,6 +60,8 @@ export function describeEvent(e: LogEvent, name: (id: number | null | undefined)
     }
     case 'forfeit':
       return { headline: <><strong>{winner ?? a}</strong> advanced by forfeit against {loser}</> }
+    case 'live':
+      return { headline: <>{a} versus {b} started playing</> }
     case 'scheduled': {
       const when = e.data.scheduled_at == null ? null : formatSlot(e.data.scheduled_at)
       const where = e.data.venue ? ` in ${e.data.venue}` : ''

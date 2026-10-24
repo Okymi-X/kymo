@@ -49,6 +49,10 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
     mutationFn: () => api.setGames(tournament.id, match.id, games.map(([x, y]) => [Number(x), Number(y)] as [number, number])),
     onSuccess: done,
   })
+  const live = useMutation({
+    mutationFn: (on: boolean) => api.setLive(tournament.id, match.id, on),
+    onSuccess: done,
+  })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
 
   const league = match.stage === 'league'
@@ -144,6 +148,14 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
         {!league && a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
           </>
         )}
+        {match.score === null && !match.forfeit && (
+          <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
+            <p className="text-sm text-muted">{match.started_at === null ? 'Tell spectators this match has started.' : 'Marked as being played now.'}</p>
+            <Button onClick={() => live.mutate(match.started_at === null)} disabled={live.isPending}>
+              {match.started_at === null ? 'Mark as playing' : 'Not playing'}
+            </Button>
+          </div>
+        )}
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <p className="text-xs font-medium text-muted">No game played</p>
           <div className="flex flex-col gap-2">
@@ -176,7 +188,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             )}
           </div>
         </div>
-        <ErrorText error={save.error ?? saveGames.error ?? clear.error ?? forfeit.error ?? schedule.error} />
+        <ErrorText error={live.error ?? save.error ?? saveGames.error ?? clear.error ?? forfeit.error ?? schedule.error} />
         <div className="flex items-center justify-between gap-2">
           {match.score || match.forfeit ? (
             <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>

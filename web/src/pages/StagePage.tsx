@@ -100,7 +100,7 @@ function useNames(t: Tournament | undefined) {
 
 function UpNext({ t, name }: { t: Tournament; name: (s: Slot) => string }) {
   const label = t.bracket ? roundNamer(t.bracket) : () => ''
-  const next = bySchedule((t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready')).slice(0, 3)
+  const next = [...bySchedule((t.bracket?.matches ?? []).filter((m) => isRealMatch(m) && matchState(m) === 'ready'))].sort((a, b) => Number(b.started_at !== null) - Number(a.started_at !== null)).slice(0, 3)
   return (
     <section aria-label="Up next" className="flex flex-col gap-3">
       <h2 className="text-sm font-medium uppercase tracking-wider text-muted">Up next</h2>
@@ -112,7 +112,7 @@ function UpNext({ t, name }: { t: Tournament; name: (s: Slot) => string }) {
             <li key={m.id} className="rounded-card border border-line bg-surface p-4">
               <p className="mb-2 flex items-center justify-between gap-2 text-xs text-muted">
                 <span>{label(m)}</span>
-                {planLine(m) && <span className="font-medium text-accent">{planLine(m)}</span>}
+                {m.started_at !== null ? <span className="font-semibold text-danger">LIVE</span> : planLine(m) && <span className="font-medium text-accent">{planLine(m)}</span>}
               </p>
               {m.slots.map((slot, i) => (
                 <div key={i} className="flex items-center gap-3 py-1 text-xl font-semibold tracking-tight">

@@ -75,6 +75,9 @@ pub struct Match {
     /// score was entered.
     #[serde(default)]
     pub games: Vec<[u32; 2]>,
+    /// Unix seconds when the organizer marked the match as being played. Cleared by any result.
+    #[serde(default)]
+    pub started_at: Option<i64>,
     /// Group index (0 is group A) for league matches of a groups then knockout tournament.
     #[serde(default)]
     pub group: Option<u32>,

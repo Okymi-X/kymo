@@ -67,6 +67,7 @@ fn round_matches(round: u32, pairs: &[Pair], bye: Option<TeamId>, first_id: usiz
             winner: (slots[1] == Slot::Bye).then_some(Side::A),
             forfeit: false,
             games: Vec::new(),
+            started_at: None,
             group: None,
             scheduled_at: None,
             venue: None,

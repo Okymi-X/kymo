@@ -29,6 +29,7 @@ const SAMPLE_MATCH: Match = {
   winner: 'A',
   forfeit: false,
   games: [],
+  started_at: null,
   group: null,
   scheduled_at: null,
   venue: null,

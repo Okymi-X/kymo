@@ -800,3 +800,25 @@ fn clearing_a_series_removes_its_games() {
     b.clear_result(0).unwrap();
     assert!(b.matches[0].games.is_empty());
 }
+
+#[test]
+fn a_match_can_be_marked_live_and_a_result_clears_the_mark() {
+    let mut b = generate(&teams(4), Format::SingleElimination).unwrap();
+    assert_eq!(
+        b.set_live(2, Some(100)),
+        Err(EngineError::NotReady(2)),
+        "the final waits for teams"
+    );
+    b.set_live(0, Some(100)).unwrap();
+    assert_eq!(b.matches[0].started_at, Some(100));
+    b.set_result(0, 2, 1).unwrap();
+    assert_eq!(b.matches[0].started_at, None);
+    assert_eq!(
+        b.set_live(0, Some(200)),
+        Err(EngineError::NotReady(0)),
+        "a played match cannot go live"
+    );
+    b.set_live(1, Some(5)).unwrap();
+    b.set_live(1, None).unwrap();
+    assert_eq!(b.matches[1].started_at, None);
+}

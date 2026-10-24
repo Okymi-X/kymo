@@ -528,6 +528,39 @@ pub async fn set_games(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct LiveBody {
+    /// True marks the match as being played now, false clears the mark.
+    live: bool,
+}
+
+/// Marks a match as being played right now, so spectators see it and chat is told it started.
+pub async fn set_live(
+    official: Official,
+    State(state): State<AppState>,
+    Path((id, match_id)): Path<(i64, usize)>,
+    Json(body): Json<LiveBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
+    let at = body.live.then(tokens::now);
+    let kind = if body.live { "live" } else { "scheduled" };
+    // Clearing the mark is not worth a line in the log, only starting is.
+    if body.live {
+        return Ok(Json(
+            edit_bracket(&state, id, match_id, kind, |b| b.set_live(match_id, at)).await?,
+        ));
+    }
+    let _guard = state.write_lock.lock().await;
+    let t = db::get(&state.pool, id).await?;
+    let mut bracket = t
+        .bracket
+        .ok_or_else(|| ApiError::Conflict("tournament has not started".into()))?;
+    bracket.set_live(match_id, None)?;
+    db::save_bracket(&state.pool, id, Some(&bracket), t.status).await?;
+    state.notify(&t.slug);
+    Ok(Json(db::get(&state.pool, id).await?))
+}
+
 pub async fn set_forfeit(
     official: Official,
     State(state): State<AppState>,

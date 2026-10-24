@@ -2258,3 +2258,77 @@ async fn a_tournament_description_is_stored_validated_and_kept_on_rename() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(made["description"], "From a file");
 }
+
+#[tokio::test]
+async fn a_match_can_be_marked_live_and_the_result_clears_it() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Live", "format": "single_elimination"})),
+    )
+    .await;
+    let teams: Vec<_> = ["A", "B", "C", "D"]
+        .iter()
+        .map(|n| json!({"name": n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({ "teams": teams })),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/2/live",
+        t,
+        Some(json!({"live": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "the final is not ready");
+    let (status, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/live",
+        t,
+        Some(json!({"live": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    assert!(out["bracket"]["matches"][0]["started_at"].is_number());
+    let (_, log) = call(&app, "GET", "/api/v1/tournaments/live/activity", None, None).await;
+    assert_eq!(log[0]["kind"], "live");
+    let (_, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/result",
+        t,
+        Some(json!({"score_a": 2, "score_b": 1})),
+    )
+    .await;
+    assert!(out["bracket"]["matches"][0]["started_at"].is_null());
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/1/live",
+        None,
+        Some(json!({"live": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

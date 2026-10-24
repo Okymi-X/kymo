@@ -71,6 +71,8 @@
 
 - [x] Tournament description (rules, venue) shown under the title, in link previews and kept on duplicate and import
 
+- [x] Bracket image download (PNG, SVG), Playing now marker with LIVE badge, activity line and chat message
+
 ## Todo
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema
