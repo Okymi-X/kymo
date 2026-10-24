@@ -87,6 +87,14 @@ pub async fn report_submit(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Points across every tournament: 3 per win, 1 per draw and 10 per title. Teams match by name.
+pub async fn ladder(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::ladder::Line>>, ApiError> {
+    let all = db::list(&state.pool).await?;
+    Ok(Json(crate::ladder::build(&all)))
+}
+
 /// Tells a signed in caller what its token is: the organizer, or a referee for some tournaments.
 pub async fn me(
     State(state): State<AppState>,

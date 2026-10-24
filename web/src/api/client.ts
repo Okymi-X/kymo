@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { ApiToken, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
+import type { ApiToken, LadderLine, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
@@ -133,6 +133,7 @@ export const api = {
   listReports: () => request<PendingReport[]>('GET', '/admin/reports'),
   approveReport: (id: number) => request<Tournament>('POST', `/admin/reports/${id}/approve`),
   rejectReport: (id: number) => request<void>('POST', `/admin/reports/${id}/reject`),
+  ladder: () => request<LadderLine[]>('GET', '/ladder'),
   importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),

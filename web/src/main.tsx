@@ -9,6 +9,7 @@ import { resolveScheme } from './lib/scheme'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { NotFound } from './pages/NotFound'
+import { Ladder } from './pages/Ladder'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
@@ -48,6 +49,7 @@ createRoot(document.getElementById('root')!).render(
             <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/ladder" element={<Ladder />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />

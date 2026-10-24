@@ -19,7 +19,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const commands = useMemo<Command[]>(() => {
     const go = (path: string) => () => navigate(path)
-    const list: Command[] = [{ id: 'home', label: 'All tournaments', group: 'Pages', run: go('/') }]
+    const list: Command[] = [
+      { id: 'home', label: 'All tournaments', group: 'Pages', run: go('/') },
+      { id: 'ladder', label: 'Ladder', group: 'Pages', run: go('/ladder') },
+    ]
     for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, group: 'Tournaments', run: go(`/t/${t.slug}`) })
     if (admin) {
       list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/settings') })

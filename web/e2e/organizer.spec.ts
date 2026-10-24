@@ -814,3 +814,19 @@ test('a captain reports a score from a private link and the organizer approves i
   await page.getByRole('tab', { name: 'Bracket' }).click()
   await expect(page.getByRole('button', { name: 'Edit result for Alpha versus Delta' })).toContainText('3')
 })
+
+test('the ladder adds results across tournaments', async ({ page }) => {
+  await signIn(page)
+  for (const name of ['Ladder One', 'Ladder Two']) {
+    await page.goto('/')
+    await page.getByLabel('New tournament').fill(name)
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByLabel(/Add teams/).fill('Ladybug\nOther' + name.slice(-3))
+    await page.getByRole('button', { name: 'Add to roster' }).click()
+    await page.getByRole('button', { name: 'Start tournament' }).click()
+    await record(page, `Edit result for Ladybug versus Other${name.slice(-3)}`, '2', '1')
+  }
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Ladder' }).click()
+  const row = page.getByRole('row', { name: /Ladybug/ })
+  await expect(row).toContainText('26')
+})

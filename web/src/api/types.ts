@@ -101,6 +101,17 @@ export interface PendingReport {
   created_at: number
 }
 
+/** One team's totals across every tournament: 3 per win, 1 per draw, 10 per title. */
+export interface LadderLine {
+  name: string
+  tournaments: number
+  played: number
+  wins: number
+  draws: number
+  titles: number
+  points: number
+}
+
 export interface ApiToken {
   id: number
   label: string

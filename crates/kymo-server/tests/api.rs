@@ -2129,3 +2129,64 @@ async fn captains_report_scores_that_wait_for_the_organizer() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn the_ladder_adds_wins_draws_and_titles_across_tournaments() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    for name in ["Cup One", "Cup Two"] {
+        call(
+            &app,
+            "POST",
+            "/api/v1/tournaments",
+            t,
+            Some(json!({"name": name, "format": "single_elimination"})),
+        )
+        .await;
+    }
+    for (id, roster) in [(1, ["Alpha", "Bravo"]), (2, ["alpha", "Charlie"])] {
+        let teams: Vec<_> = roster.iter().map(|n| json!({"name": n})).collect();
+        call(
+            &app,
+            "PUT",
+            &format!("/api/v1/admin/tournaments/{id}/teams"),
+            t,
+            Some(json!({ "teams": teams })),
+        )
+        .await;
+        call(
+            &app,
+            "POST",
+            &format!("/api/v1/admin/tournaments/{id}/start"),
+            t,
+            Some(json!({"seeding": "manual"})),
+        )
+        .await;
+        call(
+            &app,
+            "PUT",
+            &format!("/api/v1/admin/tournaments/{id}/matches/0/result"),
+            t,
+            Some(json!({"score_a": 2, "score_b": 1})),
+        )
+        .await;
+    }
+    let (status, ladder) = call(&app, "GET", "/api/v1/ladder", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let top = &ladder[0];
+    assert_eq!(
+        top["name"].as_str().unwrap().to_lowercase(),
+        "alpha",
+        "{ladder}"
+    );
+    assert_eq!(top["tournaments"], 2);
+    assert_eq!(top["wins"], 2);
+    assert_eq!(top["titles"], 2);
+    assert_eq!(top["points"], 2 * 3 + 2 * 10);
+    assert_eq!(
+        ladder.as_array().unwrap().len(),
+        3,
+        "alpha and Alpha are one team"
+    );
+}

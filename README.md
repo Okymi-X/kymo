@@ -33,7 +33,7 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 
 ## Features
 
-- **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss.
+- **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss. Any of them can be best of 1, 3, 5 or 7, entered game by game.
 - **Organizer tools:** enter and correct scores, forfeits, undo the newest result, schedule matches with a place, drag teams into seeding order, seed by qualifier score or at random, decide ties by hand, rename, duplicate, back up as JSON, import a setup file.
 - **A live map of the bracket:** drag it, zoom at the cursor, jump with the minimap. Every format has a Bracket tab.
 - **Standings, schedule, matches, teams, activity:** all paginated with search, so a 100 team event stays readable.
@@ -42,6 +42,12 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 - **Calendar feed** at `/api/v1/tournaments/{slug}/calendar.ics` for scheduled matches.
 - **Appearance in the database:** site name, logo, colors for light and dark, type, corner radius, density, page tint, bracket line style and team avatars. A tournament can also carry its own accent color.
 - **Live updates** over server sent events, with no page refresh.
+- **Webhooks** that post results, corrections, forfeits and schedules to Discord, Slack or any URL that accepts JSON.
+- **Referee tokens**: a token that can only record results and schedules for the tournaments you choose, with its own sign in.
+- **Captain reporting**: each team can get a private link to submit its score, which waits for your approval.
+- **Late match panel**: planned matches that should have started, with one click forfeits.
+- **Ladder** at `/ladder`: points across every tournament on the site.
+- **Link previews** when a tournament link is pasted in chat, and an installable app on phones.
 - **API tokens** with an expiry for scripts and score importers.
 - **Accessible by default:** keyboard operation, visible focus, a skip link, screen reader announcements while reordering teams, and light and dark themes that follow the device.
 

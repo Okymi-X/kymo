@@ -5,6 +5,7 @@ pub mod db;
 pub mod demo;
 pub mod error;
 pub mod events;
+pub mod ladder;
 pub mod reports;
 pub mod routes;
 pub mod settings;

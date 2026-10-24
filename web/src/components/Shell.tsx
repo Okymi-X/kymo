@@ -102,6 +102,13 @@ function Header({ onSearch }: { onSearch: () => void }) {
           >
             Tournaments
           </Link>
+          <Link
+            to="/ladder"
+            aria-current={pathname === '/ladder' ? 'page' : undefined}
+            className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${pathname === '/ladder' ? 'bg-line/60 text-ink' : 'text-muted hover:bg-line/40 hover:text-ink'}`}
+          >
+            Ladder
+          </Link>
         </nav>
         <div className="flex min-w-0 flex-1 justify-center">
           <Context />

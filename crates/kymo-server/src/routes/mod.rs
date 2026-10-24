@@ -21,6 +21,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/login", post(public::login))
         .route("/auth/logout", post(public::logout))
         .route("/auth/me", get(public::me))
+        .route("/ladder", get(public::ladder))
         .route(
             "/report/{code}",
             get(public::report_info).post(public::report_submit),
