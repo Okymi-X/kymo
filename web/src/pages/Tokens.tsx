@@ -5,6 +5,7 @@ import { Navigate } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import type { ApiToken } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { WebhooksSection } from '../components/WebhooksSection'
 import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
 
@@ -114,6 +115,7 @@ export function Tokens() {
           </li>
         ))}
       </ul>
+      <WebhooksSection />
       {revoking && (
         <ConfirmDialog
           title={`Revoke ${revoking.label}?`}

@@ -38,6 +38,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/admin/tokens/{id}", delete(admin::revoke_token))
         .route(
+            "/admin/webhooks",
+            get(admin::list_webhooks).post(admin::create_webhook),
+        )
+        .route("/admin/webhooks/{id}", delete(admin::delete_webhook))
+        .route("/admin/webhooks/{id}/test", post(admin::test_webhook))
+        .route(
             "/admin/tournaments/{id}",
             put(admin::rename).delete(admin::remove),
         )

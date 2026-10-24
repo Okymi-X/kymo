@@ -14,6 +14,7 @@ use crate::events;
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, ApiToken, Kind};
+use crate::webhooks;
 
 const MAX_NAME: usize = 80;
 const MAX_TEAM_NAME: usize = 64;
@@ -524,6 +525,52 @@ pub async fn create_token(
         StatusCode::CREATED,
         Json(serde_json::json!({ "label": label, "token": secret })),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct WebhookBody {
+    label: String,
+    url: String,
+}
+
+pub async fn list_webhooks(
+    _: Admin,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<webhooks::HookView>>, ApiError> {
+    Ok(Json(webhooks::list(&state.pool).await?))
+}
+
+pub async fn create_webhook(
+    _: SessionAdmin,
+    State(state): State<AppState>,
+    Json(body): Json<WebhookBody>,
+) -> Result<(StatusCode, Json<webhooks::HookView>), ApiError> {
+    let label = clean_name(&body.label, MAX_NAME)?;
+    let url = body.url.trim();
+    webhooks::validate_url(url)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(webhooks::add(&state.pool, &label, url).await?),
+    ))
+}
+
+pub async fn delete_webhook(
+    _: SessionAdmin,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    webhooks::remove(&state.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Sends a sample message so the organizer can see it arrive.
+pub async fn test_webhook(
+    _: SessionAdmin,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let status = webhooks::send_test(&state.pool, id).await?;
+    Ok(Json(serde_json::json!({ "status": status })))
 }
 
 pub async fn revoke_token(

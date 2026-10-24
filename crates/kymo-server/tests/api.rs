@@ -1688,3 +1688,89 @@ async fn a_tournament_can_carry_its_own_accent() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn webhooks_are_validated_hidden_and_receive_events() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let receiver = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let n = socket.read(&mut buf).await.unwrap();
+        socket
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap();
+        String::from_utf8_lossy(&buf[..n]).into_owned()
+    });
+
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/webhooks",
+        t,
+        Some(json!({"label": "bad", "url": "ftp://x/y"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let url = format!("http://127.0.0.1:{port}/secret-path");
+    let (status, made) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/webhooks",
+        t,
+        Some(json!({"label": "Chat", "url": url})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["host"], format!("127.0.0.1:{port}"));
+    let (_, list) = call(&app, "GET", "/api/v1/admin/webhooks", t, None).await;
+    assert!(
+        !list.to_string().contains("secret-path"),
+        "the path is a secret and is never listed"
+    );
+    let (status, _) = call(&app, "GET", "/api/v1/admin/webhooks", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Hooked", "format": "single_elimination"})),
+    )
+    .await;
+    let teams = json!({"teams": [{"name": "Alpha"}, {"name": "Bravo"}]});
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(teams),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+    // The start event is sent first and consumes the only accepted connection.
+    let request = tokio::time::timeout(std::time::Duration::from_secs(5), receiver)
+        .await
+        .expect("webhook delivered")
+        .unwrap();
+    assert!(request.starts_with("POST /secret-path"), "{request}");
+    assert!(request.contains("Hooked started with 2 teams"), "{request}");
+
+    let (status, _) = call(&app, "DELETE", "/api/v1/admin/webhooks/1", t, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(&app, "DELETE", "/api/v1/admin/webhooks/1", t, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

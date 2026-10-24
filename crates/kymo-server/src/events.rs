@@ -47,7 +47,9 @@ pub async fn record_tournament(
     kind: &str,
     data: Value,
 ) -> Result<(), ApiError> {
-    insert(pool, tournament_id, now(), kind, None, data).await
+    insert(pool, tournament_id, now(), kind, None, data.clone()).await?;
+    crate::webhooks::dispatch(pool.clone(), tournament_id, kind.to_owned(), data);
+    Ok(())
 }
 
 /// Records a change to one match using its state after the change.
@@ -58,7 +60,29 @@ pub async fn record_match(
     bracket: &Bracket,
     match_id: usize,
 ) -> Result<(), ApiError> {
-    record_match_at(pool, tournament_id, kind, bracket, match_id, now()).await
+    record_match_at(pool, tournament_id, kind, bracket, match_id, now()).await?;
+    if let Some(data) = match_data(bracket, match_id) {
+        crate::webhooks::dispatch(pool.clone(), tournament_id, kind.to_owned(), data);
+    }
+    Ok(())
+}
+
+fn match_data(bracket: &Bracket, match_id: usize) -> Option<Value> {
+    let m = bracket.matches.get(match_id)?;
+    let team = |slot: Slot| match slot {
+        Slot::Team(id) => Some(id),
+        _ => None,
+    };
+    Some(json!({
+        "team_a": team(m.slots[0]),
+        "team_b": team(m.slots[1]),
+        "score_a": m.score.map(|s| s[0]),
+        "score_b": m.score.map(|s| s[1]),
+        "winner": m.winner.map(|s| if s == Side::A { "A" } else { "B" }),
+        "forfeit": m.forfeit,
+        "scheduled_at": m.scheduled_at,
+        "venue": m.venue,
+    }))
 }
 
 /// Same as `record_match` with an explicit time, used to lay out demo data over a few hours.
@@ -70,23 +94,9 @@ pub async fn record_match_at(
     match_id: usize,
     at: i64,
 ) -> Result<(), ApiError> {
-    let Some(m) = bracket.matches.get(match_id) else {
+    let Some(data) = match_data(bracket, match_id) else {
         return Ok(());
     };
-    let team = |slot: Slot| match slot {
-        Slot::Team(id) => Some(id),
-        _ => None,
-    };
-    let data = json!({
-        "team_a": team(m.slots[0]),
-        "team_b": team(m.slots[1]),
-        "score_a": m.score.map(|s| s[0]),
-        "score_b": m.score.map(|s| s[1]),
-        "winner": m.winner.map(|s| if s == Side::A { "A" } else { "B" }),
-        "forfeit": m.forfeit,
-        "scheduled_at": m.scheduled_at,
-        "venue": m.venue,
-    });
     insert(pool, tournament_id, at, kind, Some(match_id), data).await
 }
 

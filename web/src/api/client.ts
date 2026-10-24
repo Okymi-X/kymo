@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { ApiToken, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
+import type { ApiToken, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
@@ -93,6 +93,10 @@ export const api = {
   setTeams: (id: number, teams: { name: string; score: number }[]) =>
     request<Tournament>('PUT', `${admin(id)}/teams`, { teams }),
   start: (id: number, seeding: Seeding) => request<Tournament>('POST', `${admin(id)}/start`, { seeding }),
+  listWebhooks: () => request<Webhook[]>('GET', '/admin/webhooks'),
+  createWebhook: (label: string, url: string) => request<Webhook>('POST', '/admin/webhooks', { label, url }),
+  deleteWebhook: (id: number) => request<void>('DELETE', `/admin/webhooks/${id}`),
+  testWebhook: (id: number) => request<{ status: number }>('POST', `/admin/webhooks/${id}/test`),
   importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),

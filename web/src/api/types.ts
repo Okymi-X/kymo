@@ -64,6 +64,13 @@ export interface Tournament {
   progress: { played: number; total: number }
 }
 
+/** A chat or automation endpoint. Only the host is known to the browser, the full URL is a secret. */
+export interface Webhook {
+  id: number
+  label: string
+  host: string
+}
+
 export interface ApiToken {
   id: number
   label: string

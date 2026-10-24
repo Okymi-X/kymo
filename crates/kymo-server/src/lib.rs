@@ -10,6 +10,7 @@ pub mod settings;
 pub mod state;
 pub mod text;
 pub mod tokens;
+pub mod webhooks;
 
 pub use routes::router;
 pub use state::AppState;
