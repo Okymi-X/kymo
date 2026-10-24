@@ -6,13 +6,12 @@ import { useLiveUpdates, useTournament } from '../api/hooks'
 import { ActivityFeed } from '../components/ActivityFeed'
 import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
-import { GroupsView } from '../components/GroupsView'
 import { StatusPill } from '../components/ui'
 import { accentProps } from '../lib/theme'
 import { stageFits } from '../lib/layout'
-import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
+import { formatLabel, groupName, isLeagueFormat, roundNamer } from '../lib/labels'
 import { bySchedule, planLine } from '../lib/schedule'
-import { computeTeamRows, isRealMatch, matchState, type TeamRow } from '../lib/stats'
+import { computeGroupTables, computeTeamRows, isRealMatch, matchState, type TeamRow } from '../lib/stats'
 
 const ROTATE_MS = 15_000
 
@@ -24,7 +23,7 @@ type Slide =
   | { id: string; label: string; kind: 'round'; title: string; matches: Match[] }
   | { id: string; label: string; kind: 'bracket' }
   | { id: string; label: string; kind: 'standings'; rows: TeamRow[]; offset: number }
-  | { id: string; label: string; kind: 'groups' }
+  | { id: string; label: string; kind: 'groups'; groups: { title: string; rows: TeamRow[] }[] }
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
@@ -59,7 +58,18 @@ function buildSlides(t: Tournament, rows: TeamRow[]): Slide[] {
     tableSlides(Math.ceil(32 / TABLE_PAGE))
     return slides
   }
-  if (t.format === 'group_knockout') slides.push({ id: 'groups', label: 'Groups', kind: 'groups' })
+  if (t.format === 'group_knockout') {
+    // Two group tables per screen keeps the rows large enough to read from the back of a room.
+    chunk(computeGroupTables(t), 2).forEach((pair, i) => {
+      const titles = pair.map((g) => groupName(g.group))
+      slides.push({
+        id: `groups-${i}`,
+        label: titles.length > 1 ? `${titles[0]} and ${titles[1].replace('Group ', '')}` : titles[0],
+        kind: 'groups',
+        groups: pair.map((g) => ({ title: groupName(g.group), rows: g.rows })),
+      })
+    })
+  }
   const label = roundNamer(bracket)
   const real = bracket.matches.filter((m) => m.stage !== 'league' && isRealMatch(m))
   const rounds = new Map<string, Match[]>()
@@ -140,15 +150,15 @@ function StageMatch({ match, name, title }: { match: Match; name: (s: Slot) => s
   )
 }
 
-function StageTable({ rows, offset, league }: { rows: TeamRow[]; offset: number; league: boolean }) {
+function StageTable({ rows, offset, league, advancing = 0 }: { rows: TeamRow[]; offset: number; league: boolean; advancing?: number }) {
   return (
     <ol className="flex flex-col divide-y divide-line overflow-hidden rounded-card border border-line bg-surface text-2xl">
       {rows.map((r, i) => (
-        <li key={r.team.id} className="flex items-center gap-4 px-5 py-3">
-          <span className="w-10 font-mono text-lg tabular-nums text-muted">{offset + i + 1}</span>
+        <li key={r.team.id} className={`flex items-center gap-4 px-5 py-3 ${offset + i < advancing ? 'bg-accent/10' : ''}`}>
+          <span className={`w-10 font-mono text-lg tabular-nums ${offset + i < advancing ? 'font-semibold text-accent' : 'text-muted'}`}>{offset + i + 1}</span>
           <Avatar name={r.team.name} size={32} />
           <span className="min-w-0 flex-1 truncate font-semibold tracking-tight">{r.team.name}</span>
-          <span className="font-mono text-lg tabular-nums text-muted">{r.wins}W {r.losses}L</span>
+          <span className="font-mono text-lg tabular-nums text-muted">{r.wins}W {league ? `${r.draws}D ` : ''}{r.losses}L</span>
           {league && <span className="w-16 text-right font-mono tabular-nums">{r.points}</span>}
         </li>
       ))}
@@ -277,7 +287,18 @@ export function StagePage() {
                   </div>
                 )}
                 {active?.kind === 'standings' && <StageTable rows={active.rows} offset={active.offset} league={isLeagueFormat(t.format)} />}
-                {active?.kind === 'groups' && <GroupsView tournament={t} teamName={name} onSelect={() => undefined} />}
+                {active?.kind === 'groups' && (
+                  <div className="grid gap-6 2xl:grid-cols-2">
+                    {active.groups.map((g) => (
+                      <section key={g.title} aria-label={g.title} className="flex min-w-0 flex-col gap-3">
+                        <h2 className="text-2xl font-semibold tracking-tight">
+                          {g.title} <span className="text-base font-normal text-muted">top {t.advance} advance</span>
+                        </h2>
+                        <StageTable rows={g.rows} offset={0} league advancing={t.advance} />
+                      </section>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </main>
