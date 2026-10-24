@@ -92,6 +92,8 @@ function Minimap({ rects, content, view, viewport, onJump }: { rects: MapRect[];
 /** A pannable, zoomable map: drag to move, Ctrl and wheel or pinch to zoom, arrows and +/- from the keyboard. */
 /** Space under the content so the control bar never covers the last row of cards. */
 const CONTROLS_ROOM = 48
+/** Below this zoom a card is too small to read, so a tall bracket is panned instead of shrunk. */
+const MILD_SHRINK = 0.75
 
 export function MapViewport({ width, height, rects, focus = null, label, hideControls = false, fill = false, children }: Props) {
   const box = useRef<HTMLDivElement>(null)
@@ -152,8 +154,11 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
       const s = fitAllScale(contentRef.current, viewport)
       return { s, x: (viewport.w - contentRef.current.w * s) / 2, y: (viewport.h - contentRef.current.h * s) / 2 }
     }
-    return { x: PAD, y: PAD, s: widthScale(contentRef.current.w, viewport.w) }
-  }, [fill])
+    const byWidth = widthScale(contentRef.current.w, viewport.w)
+    // A bracket only a little too tall for its box is shrunk to fit, so nothing hides under the controls.
+    const byHeight = fitAllScale(contentRef.current, { w: viewport.w, h: viewport.h - (hideControls ? 0 : CONTROLS_ROOM) })
+    return { x: PAD, y: PAD, s: byHeight >= MILD_SHRINK ? Math.min(byWidth, byHeight) : byWidth }
+  }, [fill, hideControls])
 
   useEffect(() => {
     if (!manual.current && vp.w > 0) commit(defaultView())
