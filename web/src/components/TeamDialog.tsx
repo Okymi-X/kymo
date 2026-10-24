@@ -1,3 +1,5 @@
+import { useIsAdmin } from '../api/client'
+import { CaptainLink } from './CaptainLink'
 import { Star } from 'lucide-react'
 import type { Slot, Tournament } from '../api/types'
 import { roundNamer } from '../lib/labels'
@@ -29,6 +31,7 @@ const resultLabel = { win: 'Won', loss: 'Lost', draw: 'Drew', next: 'Up next', w
 const resultStyle = { win: 'text-win', loss: 'text-danger', draw: 'text-muted', next: 'text-accent', waiting: 'text-muted' } as const
 
 export function TeamDialog({ tournament, teamId, teamName, onClose, followed = false, onToggleFollow }: Props) {
+  const admin = useIsAdmin()
   const row = computeTeamRows(tournament).find((r) => r.team.id === teamId)
   if (!row) return null
   const history = teamHistory(tournament, teamId)
@@ -73,6 +76,7 @@ export function TeamDialog({ tournament, teamId, teamName, onClose, followed = f
             </ol>
           )}
         </div>
+        {admin && tournament.bracket && <CaptainLink tournamentId={tournament.id} teamId={teamId} />}
         <div className="flex items-center justify-between gap-2">
           {onToggleFollow ? (
             <Button onClick={onToggleFollow} aria-pressed={followed}>

@@ -11,6 +11,7 @@ use crate::auth::{Admin, Official, SessionAdmin};
 use crate::db::{self, NewTeam, NewTournament, Status, Tournament};
 use crate::error::ApiError;
 use crate::events;
+use crate::reports;
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
 use crate::tokens::{self, ApiToken, Kind};
@@ -427,6 +428,12 @@ async fn edit_bracket(
         Status::Live
     };
     db::save_bracket(&state.pool, id, Some(&bracket), status).await?;
+    // Once the match has a decision, captain reports for it are moot.
+    sqlx::query("DELETE FROM report WHERE tournament_id = ? AND match_id = ?")
+        .bind(id)
+        .bind(match_id as i64)
+        .execute(&state.pool)
+        .await?;
     let kind = if had_result && kind != "cleared" {
         "corrected"
     } else {
@@ -632,6 +639,71 @@ pub async fn test_webhook(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let status = webhooks::send_test(&state.pool, id).await?;
     Ok(Json(serde_json::json!({ "status": status })))
+}
+
+/// Creates or replaces the private link code a team captain uses to report scores.
+pub async fn team_code(
+    _: Admin,
+    State(state): State<AppState>,
+    Path((id, team)): Path<(i64, i64)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let code = reports::issue_code(&state.pool, id, team).await?;
+    Ok(Json(serde_json::json!({ "code": code })))
+}
+
+pub async fn list_reports(
+    official: Official,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<reports::Pending>>, ApiError> {
+    let all = reports::pending(&state.pool).await?;
+    Ok(Json(
+        all.into_iter()
+            .filter(|r| official.allows(r.tournament_id).is_ok())
+            .collect(),
+    ))
+}
+
+/// Applies a captain's score to the match, as if the organizer had entered it.
+pub async fn approve_report(
+    official: Official,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Tournament>, ApiError> {
+    let report = reports::get(&state.pool, id).await?;
+    official.allows(report.tournament_id)?;
+    let current = db::get(&state.pool, report.tournament_id).await?;
+    let played = current
+        .bracket
+        .as_ref()
+        .and_then(|b| b.matches.get(report.match_id))
+        .is_some_and(|m| m.is_played());
+    if played {
+        reports::close(&state.pool, id).await?;
+        return Err(ApiError::Conflict(
+            "that match already has a result, the report was dropped".into(),
+        ));
+    }
+    let t = edit_bracket(
+        &state,
+        report.tournament_id,
+        report.match_id,
+        "result",
+        |b| b.set_result(report.match_id, report.score_a, report.score_b),
+    )
+    .await?;
+    // `edit_bracket` already dropped every report for this match.
+    Ok(Json(t))
+}
+
+pub async fn reject_report(
+    official: Official,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    let report = reports::get(&state.pool, id).await?;
+    official.allows(report.tournament_id)?;
+    reports::reject(&state.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn revoke_token(

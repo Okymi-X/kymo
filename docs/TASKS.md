@@ -65,6 +65,8 @@
 
 - [x] Best of 1, 3, 5 or 7 matches entered game by game (engine set_games, PUT .../games, score dialog, demo Grand Finals Bo5)
 
+- [x] Late match panel with one click forfeits, chat link previews, captain result reporting with organizer approval (private link per team)
+
 ## Todo
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [ ] Sample data seed command based on the schema

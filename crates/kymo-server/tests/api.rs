@@ -2026,3 +2026,106 @@ async fn tournament_links_carry_an_escaped_preview_for_chats() {
     let (_, _, other) = raw(&app, "GET", "/t/does-not-exist", None, "").await;
     assert!(!other.contains("og:title"));
 }
+
+#[tokio::test]
+async fn captains_report_scores_that_wait_for_the_organizer() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Reports", "format": "single_elimination"})),
+    )
+    .await;
+    let teams: Vec<_> = ["A", "B", "C", "D"]
+        .iter()
+        .map(|n| json!({"name": n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({ "teams": teams })),
+    )
+    .await;
+    let (_, started) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+    let team_a = started["teams"][0]["id"].as_i64().unwrap();
+
+    let (status, none) = call(&app, "GET", "/api/v1/report/not-a-code", None, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{none}");
+    let (status, code) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/admin/tournaments/1/teams/{team_a}/code"),
+        t,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let code = code["code"].as_str().unwrap().to_owned();
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/admin/tournaments/1/teams/{team_a}/code"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (_, info) = call(&app, "GET", &format!("/api/v1/report/{code}"), None, None).await;
+    assert_eq!(info["team"], "A");
+    assert_eq!(info["opponent"], "D");
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/report/{code}"),
+        None,
+        Some(json!({"own": 3, "other": 1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    // Nothing changed until the organizer approves.
+    let (_, shown) = call(&app, "GET", "/api/v1/tournaments/reports", None, None).await;
+    assert!(shown["bracket"]["matches"][0]["score"].is_null());
+    let (_, list) = call(&app, "GET", "/api/v1/admin/reports", t, None).await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["team"], "A");
+    let (status, _) = call(&app, "GET", "/api/v1/admin/reports", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let id = list[0]["id"].as_i64().unwrap();
+    let (status, approved) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/admin/reports/{id}/approve"),
+        t,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(approved["bracket"]["matches"][0]["score"], json!([3, 1]));
+    let (_, list) = call(&app, "GET", "/api/v1/admin/reports", t, None).await;
+    assert!(list.as_array().unwrap().is_empty());
+    // The match is decided, so the captain has nothing more to report for it.
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/report/{code}"),
+        None,
+        Some(json!({"own": 1, "other": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+}

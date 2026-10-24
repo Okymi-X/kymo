@@ -21,6 +21,10 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/login", post(public::login))
         .route("/auth/logout", post(public::logout))
         .route("/auth/me", get(public::me))
+        .route(
+            "/report/{code}",
+            get(public::report_info).post(public::report_submit),
+        )
         .route("/tournaments", get(public::list).post(admin::create))
         .route("/tournaments/{slug}", get(public::show))
         .route("/tournaments/{slug}/events", get(public::events))
@@ -43,6 +47,13 @@ pub fn router(state: AppState) -> Router {
             get(admin::list_webhooks).post(admin::create_webhook),
         )
         .route("/admin/webhooks/{id}", delete(admin::delete_webhook))
+        .route("/admin/reports", get(admin::list_reports))
+        .route("/admin/reports/{id}/approve", post(admin::approve_report))
+        .route("/admin/reports/{id}/reject", post(admin::reject_report))
+        .route(
+            "/admin/tournaments/{id}/teams/{team}/code",
+            post(admin::team_code),
+        )
         .route("/admin/webhooks/{id}/test", post(admin::test_webhook))
         .route(
             "/admin/tournaments/{id}",

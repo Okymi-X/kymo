@@ -13,6 +13,7 @@ import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
 import { EmbedPage } from './pages/EmbedPage'
+import { ReportPage } from './pages/ReportPage'
 import { StagePage } from './pages/StagePage'
 import { TournamentPage } from './pages/TournamentPage'
 import './index.css'
@@ -50,6 +51,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />
+              <Route path="/report/:code" element={<ReportPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

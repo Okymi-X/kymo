@@ -61,6 +61,32 @@ pub async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(serde::Deserialize)]
+pub struct ReportBody {
+    /// The reporting team's score.
+    own: u32,
+    /// The opponent's score.
+    other: u32,
+}
+
+/// A captain opens their private link to see which match to report.
+pub async fn report_info(
+    State(state): State<AppState>,
+    axum::extract::Path(code): axum::extract::Path<String>,
+) -> Result<Json<crate::reports::Assignment>, ApiError> {
+    Ok(Json(crate::reports::assignment(&state.pool, &code).await?))
+}
+
+/// A captain submits the score. It waits for the organizer and changes nothing until approved.
+pub async fn report_submit(
+    State(state): State<AppState>,
+    axum::extract::Path(code): axum::extract::Path<String>,
+    Json(body): Json<ReportBody>,
+) -> Result<StatusCode, ApiError> {
+    crate::reports::submit(&state.pool, &code, body.own, body.other).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 /// Tells a signed in caller what its token is: the organizer, or a referee for some tournaments.
 pub async fn me(
     State(state): State<AppState>,

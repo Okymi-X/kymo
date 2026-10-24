@@ -77,6 +77,30 @@ export interface Webhook {
   host: string
 }
 
+/** What a team captain sees on their private reporting link. */
+export interface ReportInfo {
+  tournament: string
+  slug: string
+  team: string
+  match_id: number | null
+  opponent: string | null
+  round: number | null
+  /** The score already submitted for the current match, own then opponent. */
+  reported: [number, number] | null
+}
+
+/** A captain's score waiting for approval. Scores are in the match's own order, side A then side B. */
+export interface PendingReport {
+  id: number
+  tournament_id: number
+  tournament: string
+  match_id: number
+  team: string
+  score_a: number
+  score_b: number
+  created_at: number
+}
+
 export interface ApiToken {
   id: number
   label: string

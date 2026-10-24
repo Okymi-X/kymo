@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { ApiToken, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
+import type { ApiToken, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
@@ -127,6 +127,12 @@ export const api = {
   deleteWebhook: (id: number) => request<void>('DELETE', `/admin/webhooks/${id}`),
   testWebhook: (id: number) => request<{ status: number }>('POST', `/admin/webhooks/${id}/test`),
   me: () => request<{ role: 'organizer' | 'referee'; tournaments: number[] | null }>('GET', '/auth/me'),
+  teamCode: (id: number, team: number) => request<{ code: string }>('POST', `${admin(id)}/teams/${team}/code`),
+  reportInfo: (code: string) => request<ReportInfo>('GET', `/report/${code}`),
+  submitReport: (code: string, own: number, other: number) => request<void>('POST', `/report/${code}`, { own, other }),
+  listReports: () => request<PendingReport[]>('GET', '/admin/reports'),
+  approveReport: (id: number) => request<Tournament>('POST', `/admin/reports/${id}/approve`),
+  rejectReport: (id: number) => request<void>('POST', `/admin/reports/${id}/reject`),
   importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),
