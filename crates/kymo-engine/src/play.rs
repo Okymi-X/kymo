@@ -22,10 +22,16 @@ impl Bracket {
         if !m.is_ready() {
             return Err(EngineError::NotReady(id));
         }
-        if a == b && m.stage != Stage::League {
+        if a == b && (m.stage != Stage::League || next.best_of > 1) {
             return Err(EngineError::Tie);
         }
+        let need = u32::from(next.best_of / 2 + 1);
+        if next.best_of > 1 && (a.max(b) != need || a.min(b) >= need) {
+            return Err(EngineError::BadSeries(next.best_of));
+        }
+        let m = &mut next.matches[id];
         m.score = Some([a, b]);
+        m.games = Vec::new();
         m.forfeit = false;
         m.winner = match a.cmp(&b) {
             std::cmp::Ordering::Greater => Some(Side::A),
@@ -34,6 +40,34 @@ impl Bracket {
         };
         next.settle(id)?;
         next.refresh_knockout()?;
+        *self = next;
+        Ok(())
+    }
+
+    /// Records a best of series game by game. The series must end exactly when one side reaches
+    /// a majority, no game may be tied, and every game after that is refused.
+    pub fn set_games(&mut self, id: MatchId, games: Vec<[u32; 2]>) -> Result<(), EngineError> {
+        if self.best_of < 2 {
+            return Err(EngineError::BadSeries(self.best_of));
+        }
+        let need = u32::from(self.best_of / 2 + 1);
+        let (mut a, mut b) = (0, 0);
+        for [x, y] in &games {
+            if x == y || a == need || b == need {
+                return Err(EngineError::BadSeries(self.best_of));
+            }
+            if x > y {
+                a += 1;
+            } else {
+                b += 1;
+            }
+        }
+        if a != need && b != need {
+            return Err(EngineError::BadSeries(self.best_of));
+        }
+        let mut next = self.clone();
+        next.set_result(id, a, b)?;
+        next.matches[id].games = games;
         *self = next;
         Ok(())
     }
@@ -66,6 +100,7 @@ impl Bracket {
             return Err(EngineError::NotReady(id));
         }
         m.score = None;
+        m.games = Vec::new();
         m.forfeit = true;
         m.winner = Some(winner);
         next.settle(id)?;
@@ -111,6 +146,7 @@ impl Bracket {
             return Err(EngineError::NoResult(id));
         }
         m.score = None;
+        m.games = Vec::new();
         m.forfeit = false;
         m.winner = None;
         next.settle(id)?;

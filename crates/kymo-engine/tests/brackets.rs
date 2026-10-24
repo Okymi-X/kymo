@@ -730,3 +730,73 @@ fn swiss_corrections_replan_an_unplayed_round_and_block_a_played_one() {
         Err(EngineError::TooFewTeams { min: 4 })
     );
 }
+
+fn best_of(n: u32, games: u8) -> Bracket {
+    generate_with(
+        &teams(n),
+        Format::SingleElimination,
+        Options {
+            best_of: games,
+            ..Options::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_best_of_three_is_won_by_a_majority_of_games() {
+    let mut b = best_of(4, 3);
+    assert_eq!(b.best_of, 3);
+    // A series score must end at the majority.
+    assert_eq!(b.set_result(0, 1, 0), Err(EngineError::BadSeries(3)));
+    assert_eq!(b.set_result(0, 3, 0), Err(EngineError::BadSeries(3)));
+    assert_eq!(b.set_result(0, 2, 2), Err(EngineError::Tie));
+    b.set_games(0, vec![[10, 4], [3, 9], [12, 11]]).unwrap();
+    let m = &b.matches[0];
+    assert_eq!(m.score, Some([2, 1]));
+    assert_eq!(m.winner, Some(Side::A));
+    assert_eq!(m.games.len(), 3);
+    // The winner moved on.
+    assert!(matches!(b.matches[2].slots[0], Slot::Team(_)));
+}
+
+#[test]
+fn series_games_must_stop_at_the_majority_and_never_tie() {
+    let mut b = best_of(4, 3);
+    assert_eq!(b.set_games(0, vec![[1, 0]]), Err(EngineError::BadSeries(3)));
+    assert_eq!(
+        b.set_games(0, vec![[1, 1], [2, 0], [2, 0]]),
+        Err(EngineError::BadSeries(3))
+    );
+    assert_eq!(
+        b.set_games(0, vec![[2, 0], [2, 0], [2, 0]]),
+        Err(EngineError::BadSeries(3)),
+        "a third game after the series was decided is refused"
+    );
+    assert!(b.matches[0].games.is_empty() && b.matches[0].score.is_none());
+    let mut single = best_of(4, 1);
+    assert_eq!(
+        single.set_games(0, vec![[1, 0]]),
+        Err(EngineError::BadSeries(1))
+    );
+    assert!(
+        generate_with(
+            &teams(4),
+            Format::SingleElimination,
+            Options {
+                best_of: 4,
+                ..Options::default()
+            }
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn clearing_a_series_removes_its_games() {
+    let mut b = best_of(4, 5);
+    b.set_games(0, vec![[1, 0], [1, 0], [1, 0]]).unwrap();
+    assert_eq!(b.matches[0].score, Some([3, 0]));
+    b.clear_result(0).unwrap();
+    assert!(b.matches[0].games.is_empty());
+}

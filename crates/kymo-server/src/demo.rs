@@ -68,13 +68,15 @@ struct Plan {
     groups: u8,
     advance: u8,
     rounds: u8,
+    /// Games per match.
+    best_of: u8,
     /// How many matches to play: `None` plays everything, `Some(0)` leaves the roster only.
     play: Option<usize>,
     started: bool,
     story: bool,
 }
 
-const PLANS: [Plan; 8] = [
+const PLANS: [Plan; 9] = [
     Plan {
         name: "Swiss Open",
         format: Format::Swiss,
@@ -83,7 +85,21 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 4,
+        best_of: 1,
         play: Some(14),
+        started: true,
+        story: false,
+    },
+    Plan {
+        name: "Grand Finals Bo5",
+        format: Format::SingleElimination,
+        teams: 4,
+        third_place: false,
+        groups: 2,
+        advance: 2,
+        rounds: 0,
+        best_of: 5,
+        play: Some(1),
         started: true,
         story: false,
     },
@@ -95,6 +111,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(7),
         started: true,
         story: false,
@@ -107,6 +124,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: None,
         started: true,
         story: false,
@@ -119,6 +137,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(11),
         started: true,
         story: false,
@@ -131,6 +150,7 @@ const PLANS: [Plan; 8] = [
         groups: 3,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(20),
         started: true,
         story: false,
@@ -143,6 +163,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(0),
         started: false,
         story: false,
@@ -155,6 +176,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(70),
         started: true,
         story: false,
@@ -167,6 +189,7 @@ const PLANS: [Plan; 8] = [
         groups: 2,
         advance: 2,
         rounds: 0,
+        best_of: 1,
         play: Some(2),
         started: true,
         story: true,
@@ -198,6 +221,28 @@ fn demo_score(bracket: &Bracket, id: usize) -> (u32, u32) {
     }
 }
 
+/// The stronger team clinches the series, after losing a game or two on the way.
+fn demo_series(bracket: &Bracket, id: usize) -> Vec<[u32; 2]> {
+    let [Slot::Team(a), Slot::Team(b)] = bracket.matches[id].slots else {
+        return Vec::new();
+    };
+    let need = usize::from(bracket.best_of / 2 + 1);
+    let lost = id % need;
+    let mut games = Vec::new();
+    for game in 0..need + lost {
+        // The weaker side takes its games early so the series stays alive.
+        let weaker_wins = game < lost;
+        let strong = 10 + (game as u32 * 3 + id as u32) % 5;
+        let weak = strong.saturating_sub(2 + game as u32 % 3);
+        let strong_is_a = a < b;
+        games.push(match (strong_is_a, weaker_wins) {
+            (true, false) | (false, true) => [strong, weak],
+            _ => [weak, strong],
+        });
+    }
+    games
+}
+
 fn next_ready(bracket: &Bracket) -> Option<usize> {
     bracket
         .matches
@@ -221,6 +266,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
             groups: plan.groups,
             advance: plan.advance,
             rounds: plan.rounds,
+            best_of: 1,
         },
     )
     .await?;
@@ -245,6 +291,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
         groups: plan.groups,
         advance: plan.advance,
         rounds: plan.rounds,
+        best_of: plan.best_of,
     };
     let mut bracket = generate_with(&ids, plan.format, options)?;
 
@@ -264,7 +311,11 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
             break;
         };
         let (a, b) = demo_score(&bracket, match_id);
-        bracket.set_result(match_id, a, b)?;
+        if bracket.best_of > 1 {
+            bracket.set_games(match_id, demo_series(&bracket, match_id))?;
+        } else {
+            bracket.set_result(match_id, a, b)?;
+        }
         at += 240;
         events::record_match_at(pool, id, "result", &bracket, match_id, at).await?;
         if plan.story && played == 0 {

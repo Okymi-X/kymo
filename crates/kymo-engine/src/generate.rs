@@ -18,6 +18,8 @@ pub struct Options {
     pub advance: u8,
     /// Swiss only: number of rounds, 1 to 12. Zero picks the usual log2 of the team count.
     pub rounds: u8,
+    /// Games per match: 1, 3, 5 or 7.
+    pub best_of: u8,
 }
 
 impl Default for Options {
@@ -27,6 +29,7 @@ impl Default for Options {
             groups: 2,
             advance: 2,
             rounds: 0,
+            best_of: 1,
         }
     }
 }
@@ -41,6 +44,17 @@ pub fn generate_with(
     format: Format,
     options: Options,
 ) -> Result<Bracket, EngineError> {
+    let best_of = match options.best_of {
+        0 | 1 => 1,
+        n @ (3 | 5 | 7) => n,
+        _ => return Err(bad_setup("a match is best of 1, 3, 5 or 7 games")),
+    };
+    let mut bracket = build(teams, format, options)?;
+    bracket.best_of = best_of;
+    Ok(bracket)
+}
+
+fn build(teams: &[TeamId], format: Format, options: Options) -> Result<Bracket, EngineError> {
     validate(teams, format)?;
     if options.third_place && format == Format::SingleElimination && teams.len() < MIN_THIRD_PLACE {
         return Err(EngineError::TooFewTeams {
@@ -76,6 +90,7 @@ pub fn generate_with(
         matches,
         tiebreak: Vec::new(),
         swiss_rounds: 0,
+        best_of: 1,
     };
     for id in winners[1].clone() {
         bracket.settle(id)?;
@@ -120,6 +135,7 @@ fn add_round(matches: &mut Vec<Match>, stage: Stage, round: usize, count: usize)
                 score: None,
                 winner: None,
                 forfeit: false,
+                games: Vec::new(),
                 group: None,
                 scheduled_at: None,
                 venue: None,
@@ -269,6 +285,7 @@ fn robin_matches(teams: &[TeamId], group: Option<u32>, matches: &mut Vec<Match>)
                     score: None,
                     winner: None,
                     forfeit: false,
+                    games: Vec::new(),
                     group,
                     scheduled_at: None,
                     venue: None,
@@ -290,6 +307,7 @@ fn round_robin(teams: &[TeamId]) -> Bracket {
         matches,
         tiebreak: Vec::new(),
         swiss_rounds: 0,
+        best_of: 1,
     }
 }
 
@@ -363,6 +381,7 @@ fn group_knockout(teams: &[TeamId], options: Options) -> Result<Bracket, EngineE
         matches,
         tiebreak: Vec::new(),
         swiss_rounds: 0,
+        best_of: 1,
     };
     for id in winners[1].clone() {
         bracket.settle(id)?;

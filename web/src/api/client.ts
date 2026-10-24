@@ -107,7 +107,7 @@ export const api = {
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
   loadDemo: () => request<{ added: number }>('POST', '/admin/demo'),
   activity: (slug: string) => request<LogEvent[]>('GET', `/tournaments/${encodeURIComponent(slug)}/activity`),
-  create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number; rounds: number }) =>
+  create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number; rounds: number; bestOf: number }) =>
     request<Tournament>('POST', '/tournaments', {
       name,
       format,
@@ -115,6 +115,7 @@ export const api = {
       groups: options.groups,
       advance: options.advance,
       rounds: options.rounds,
+      best_of: options.bestOf,
     }),
   rename: (id: number, name: string) => request<Tournament>('PUT', admin(id), { name }),
   remove: (id: number) => request<void>('DELETE', admin(id)),
@@ -130,6 +131,8 @@ export const api = {
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),
   reset: (id: number) => request<Tournament>('POST', `${admin(id)}/reset`),
+  setGames: (id: number, match: number, games: [number, number][]) =>
+    request<Tournament>('PUT', `${admin(id)}/matches/${match}/games`, { games }),
   setResult: (id: number, match: number, a: number, b: number) =>
     request<Tournament>('PUT', `${admin(id)}/matches/${match}/result`, { score_a: a, score_b: b }),
   getAppearance: () => request<Appearance>('GET', '/settings'),

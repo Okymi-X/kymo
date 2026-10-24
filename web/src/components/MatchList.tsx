@@ -44,7 +44,10 @@ function Row({ match, label, teamName, onEdit }: { match: Match; label: string; 
         {plan && <span className="block text-accent">{plan}</span>}
       </span>
       <TeamCell slot={a} name={teamName(a)} won={match.winner === 'A'} />
-      <span className="shrink-0 text-center font-mono text-xs tabular-nums text-muted">{score}</span>
+      <span className="shrink-0 text-center font-mono text-xs tabular-nums text-muted" title={match.games.length > 0 ? match.games.map(([x, y]) => `${x}:${y}`).join(', ') : undefined}>
+        {score}
+        {match.games.length > 0 && <span className="block text-[10px]">{match.games.map(([x, y]) => `${x}:${y}`).join(' ')}</span>}
+      </span>
       <TeamCell slot={b} name={teamName(b)} won={match.winner === 'B'} />
     </>
   )

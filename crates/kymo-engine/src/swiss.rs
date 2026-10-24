@@ -66,6 +66,7 @@ fn round_matches(round: u32, pairs: &[Pair], bye: Option<TeamId>, first_id: usiz
             score: None,
             winner: (slots[1] == Slot::Bye).then_some(Side::A),
             forfeit: false,
+            games: Vec::new(),
             group: None,
             scheduled_at: None,
             venue: None,
@@ -97,6 +98,7 @@ pub(crate) fn swiss(teams: &[TeamId], rounds: u8) -> Result<Bracket, EngineError
         matches: round_matches(1, &pairs, bye, 0),
         tiebreak: Vec::new(),
         swiss_rounds: total as u32,
+        best_of: 1,
     })
 }
 

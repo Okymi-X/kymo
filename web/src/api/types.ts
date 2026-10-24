@@ -20,6 +20,8 @@ export interface Match {
   score: [number, number] | null
   winner: Side | null
   forfeit: boolean
+  /** Games of a best of series as [a, b] scores. Empty for a single game. */
+  games: [number, number][]
   group: number | null
   scheduled_at: number | null
   venue: string | null
@@ -33,6 +35,8 @@ export interface Bracket {
   swiss_rounds?: number
   /** Organizer decided order for teams level on points, difference and goals. */
   tiebreak: number[]
+  /** Games per match: 1, 3, 5 or 7. */
+  best_of: number
 }
 
 export interface Team {
@@ -52,6 +56,8 @@ export interface Tournament {
   advance: number
   /** Swiss rounds, zero when the usual count is used. */
   rounds: number
+  /** Games per match: 1, 3, 5 or 7. */
+  best_of: number
   /** Optional #rrggbb accent for this tournament's pages. */
   accent: string | null
   status: Status

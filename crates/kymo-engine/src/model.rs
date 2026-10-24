@@ -71,6 +71,10 @@ pub struct Match {
     pub winner: Option<Side>,
     #[serde(default)]
     pub forfeit: bool,
+    /// Games of a best of series, in play order. Empty for a single game or when only the series
+    /// score was entered.
+    #[serde(default)]
+    pub games: Vec<[u32; 2]>,
     /// Group index (0 is group A) for league matches of a groups then knockout tournament.
     #[serde(default)]
     pub group: Option<u32>,
@@ -107,6 +111,13 @@ pub struct Bracket {
     /// Swiss only: how many rounds the event plays. Zero for every other format.
     #[serde(default)]
     pub swiss_rounds: u32,
+    /// Games per match: 1, 3, 5 or 7. A match is won by the side with a majority.
+    #[serde(default = "one")]
+    pub best_of: u8,
+}
+
+fn one() -> u8 {
+    1
 }
 
 /// One team's line in a round robin table. A win is worth 3 points, a draw 1.

@@ -66,6 +66,10 @@ pub fn router(state: AppState) -> Router {
             put(admin::set_schedule),
         )
         .route(
+            "/admin/tournaments/{id}/matches/{match_id}/games",
+            put(admin::set_games),
+        )
+        .route(
             "/admin/tournaments/{id}/matches/{match_id}/forfeit",
             put(admin::set_forfeit),
         );

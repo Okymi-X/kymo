@@ -1065,13 +1065,13 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
 
     let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(first["added"], 8);
+    assert_eq!(first["added"], 9);
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
     let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
     let list = list.as_array().unwrap();
-    assert_eq!(list.len(), 8);
+    assert_eq!(list.len(), 9);
     let formats: std::collections::HashSet<_> =
         list.iter().map(|t| t["format"].as_str().unwrap()).collect();
     assert_eq!(formats.len(), 5);
@@ -1907,4 +1907,98 @@ async fn me_reports_the_role_of_the_token() {
     let (_, me) = call(&app, "GET", "/api/v1/auth/me", Some(&referee), None).await;
     assert_eq!(me["role"], "referee");
     assert_eq!(me["tournaments"], json!([1]));
+}
+
+#[tokio::test]
+async fn best_of_series_are_recorded_game_by_game_over_the_api() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Bad", "format": "single_elimination", "best_of": 4})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Series", "format": "single_elimination", "best_of": 3})),
+    )
+    .await;
+    let teams: Vec<_> = ["A", "B", "C", "D"]
+        .iter()
+        .map(|n| json!({"name": n}))
+        .collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({ "teams": teams })),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        "/api/v1/admin/tournaments/1/start",
+        t,
+        Some(json!({"seeding": "manual"})),
+    )
+    .await;
+
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/result",
+        t,
+        Some(json!({"score_a": 1, "score_b": 0})),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a series score must reach the majority"
+    );
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/games",
+        t,
+        Some(json!({"games": [[5, 5], [5, 1]]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a tied game is refused");
+    let (status, out) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/games",
+        t,
+        Some(json!({"games": [[10, 4], [3, 9], [12, 11]]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    assert_eq!(out["bracket"]["matches"][0]["score"], json!([2, 1]));
+    assert_eq!(
+        out["bracket"]["matches"][0]["games"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(out["bracket"]["best_of"], 3);
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/matches/0/games",
+        None,
+        Some(json!({"games": []})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }

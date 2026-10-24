@@ -24,10 +24,11 @@ function CreateForm() {
   const [groups, setGroups] = useState(2)
   const [advance, setAdvance] = useState(2)
   const [rounds, setRounds] = useState(0)
+  const [bestOf, setBestOf] = useState(1)
   const client = useQueryClient()
   const navigate = useNavigate()
   const create = useMutation({
-    mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance, rounds: format === 'swiss' ? rounds : 0 }),
+    mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance, rounds: format === 'swiss' ? rounds : 0, bestOf }),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
       navigate(`/t/${t.slug}`)
@@ -82,6 +83,14 @@ function CreateForm() {
           </Field>
         </>
       )}
+      <Field label="Match">
+        <Select value={bestOf} onChange={(e) => setBestOf(Number(e.target.value))}>
+          <option value={1}>Single game</option>
+          <option value={3}>Best of 3</option>
+          <option value={5}>Best of 5</option>
+          <option value={7}>Best of 7</option>
+        </Select>
+      </Field>
       {format === 'swiss' && (
         <Field label="Rounds">
           <Select value={rounds} onChange={(e) => setRounds(Number(e.target.value))}>

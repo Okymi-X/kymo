@@ -33,6 +33,13 @@ pub struct CreateBody {
     /// Swiss only: rounds to play, 1 to 12. Zero picks log2 of the team count.
     #[serde(default)]
     rounds: u8,
+    /// Games per match: 1, 3, 5 or 7.
+    #[serde(default = "default_best_of")]
+    best_of: u8,
+}
+
+fn default_best_of() -> u8 {
+    1
 }
 
 fn default_groups() -> u8 {
@@ -142,6 +149,9 @@ pub async fn create(
     if body.format == Format::Swiss && body.rounds > 12 {
         return Err(ApiError::BadRequest("Swiss plays 1 to 12 rounds".into()));
     }
+    if !matches!(body.best_of, 1 | 3 | 5 | 7) {
+        return Err(ApiError::BadRequest("best of must be 1, 3, 5 or 7".into()));
+    }
     let id = db::create(
         &state.pool,
         NewTournament {
@@ -151,6 +161,7 @@ pub async fn create(
             third_place: body.third_place && body.format == Format::SingleElimination,
             groups: body.groups,
             advance: body.advance,
+            best_of: body.best_of,
             rounds: if body.format == Format::Swiss {
                 body.rounds
             } else {
@@ -274,6 +285,8 @@ pub struct ImportBody {
     advance: u8,
     #[serde(default)]
     rounds: u8,
+    #[serde(default = "default_best_of")]
+    best_of: u8,
     #[serde(default)]
     teams: Vec<TeamInput>,
     /// When present the tournament is started with this seeding right away.
@@ -295,6 +308,7 @@ pub async fn import(
         groups: body.groups,
         advance: body.advance,
         rounds: body.rounds,
+        best_of: body.best_of,
     };
     let (_, Json(made)) = create(Admin, State(state.clone()), Json(create_body)).await?;
     let filled = async {
@@ -363,6 +377,7 @@ pub async fn start(
             groups: t.groups,
             advance: t.advance,
             rounds: t.rounds,
+            best_of: t.best_of,
         },
     )?;
     db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;
@@ -439,6 +454,33 @@ pub async fn set_result(
     })
     .await?;
     Ok(Json(t))
+}
+
+#[derive(Deserialize)]
+pub struct GamesBody {
+    /// Each game as [score_a, score_b], in play order.
+    games: Vec<[u32; 2]>,
+}
+
+/// Records a best of series game by game.
+pub async fn set_games(
+    official: Official,
+    State(state): State<AppState>,
+    Path((id, match_id)): Path<(i64, usize)>,
+    Json(body): Json<GamesBody>,
+) -> Result<Json<Tournament>, ApiError> {
+    official.allows(id)?;
+    if body.games.len() > 7 || body.games.iter().flatten().any(|s| *s > MAX_SCORE) {
+        return Err(ApiError::BadRequest(format!(
+            "at most 7 games with scores up to {MAX_SCORE}"
+        )));
+    }
+    Ok(Json(
+        edit_bracket(&state, id, match_id, "result", |b| {
+            b.set_games(match_id, body.games)
+        })
+        .await?,
+    ))
 }
 
 pub async fn set_forfeit(

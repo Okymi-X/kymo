@@ -17,6 +17,11 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   const [a, setA] = useState(String(match.score?.[0] ?? ''))
   const [b, setB] = useState(String(match.score?.[1] ?? ''))
   const client = useQueryClient()
+  const bestOf = tournament.bracket?.best_of ?? 1
+  const need = Math.floor(bestOf / 2) + 1
+  const [games, setGames] = useState<[string, string][]>(() =>
+    match.games.length > 0 ? match.games.map(([x, y]) => [String(x), String(y)] as [string, string]) : [['', '']],
+  )
   const [when, setWhen] = useState(toLocalInput(match.scheduled_at))
   const [venue, setVenue] = useState(match.venue ?? '')
 
@@ -40,13 +45,35 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
     mutationFn: (clearIt: boolean) => api.setSchedule(tournament.id, match.id, clearIt ? null : fromLocalInput(when), clearIt ? null : venue.trim() || null),
     onSuccess: done,
   })
+  const saveGames = useMutation({
+    mutationFn: () => api.setGames(tournament.id, match.id, games.map(([x, y]) => [Number(x), Number(y)] as [number, number])),
+    onSuccess: done,
+  })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
 
   const league = match.stage === 'league'
   const valid = a !== '' && b !== '' && Number(a) >= 0 && Number(b) >= 0 && (league || Number(a) !== Number(b))
+  // A series is complete when one side has a majority, no game is tied, and nothing follows the last game.
+  const tally = (() => {
+    let a = 0
+    let b = 0
+    let bad = false
+    let over = false
+    for (const [x, y] of games) {
+      if (over || x === '' || y === '' || Number(x) === Number(y)) {
+        bad = true
+        continue
+      }
+      if (Number(x) > Number(y)) a++
+      else b++
+      over = a === need || b === need
+    }
+    return { a, b, bad, over }
+  })()
+  const seriesValid = bestOf > 1 && !tally.bad && tally.over
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (valid) save.mutate()
+    if (bestOf > 1 ? seriesValid : valid) (bestOf > 1 ? saveGames : save).mutate()
   }
 
   return (
@@ -58,6 +85,45 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
     >
       <form onSubmit={submit} className="flex flex-col gap-5 p-6">
         <h2 className="text-lg font-semibold tracking-tight">Match result</h2>
+        {bestOf > 1 ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-muted">
+            Best of {bestOf}: first to {need} games. Series{' '}
+            <span className="font-mono font-medium text-ink">
+              {tally.a}:{tally.b}
+            </span>
+          </p>
+          {games.map(([x, y], i) => (
+            <div key={i} className="grid grid-cols-[1fr_4.5rem_4.5rem] items-center gap-2">
+              <span className="text-sm font-medium">Game {i + 1}</span>
+              {[x, y].map((value, side) => (
+                <Input
+                  key={side}
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  aria-label={`Game ${i + 1} score for ${names[side]}`}
+                  value={value}
+                  onChange={(e) => setGames((g) => g.map((row, j) => (j === i ? (side === 0 ? [e.target.value, row[1]] : [row[0], e.target.value]) : row) as [string, string]))}
+                  className="text-center font-mono"
+                />
+              ))}
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button onClick={() => setGames((g) => [...g, ['', '']])} disabled={games.length >= bestOf || tally.over}>
+              Add game
+            </Button>
+            <Button variant="ghost" onClick={() => setGames((g) => g.slice(0, -1))} disabled={games.length <= 1}>
+              Remove last
+            </Button>
+          </div>
+          <p className="text-xs text-muted">
+            {names[0]} is the first score of each game, {names[1]} the second.
+          </p>
+        </div>
+        ) : (
+          <>
         <div className="flex flex-col gap-2">
           {([[names[0], a, setA], [names[1], b, setB]] as const).map(([name, value, set], i) => (
             <div key={i} className="flex items-center gap-3 rounded-control border border-line px-3 py-2">
@@ -76,6 +142,8 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
           ))}
         </div>
         {!league && a !== '' && a === b && <p className="text-sm text-muted">Knockout matches cannot end tied.</p>}
+          </>
+        )}
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <p className="text-xs font-medium text-muted">No game played</p>
           <div className="flex flex-col gap-2">
@@ -108,7 +176,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             )}
           </div>
         </div>
-        <ErrorText error={save.error ?? clear.error ?? forfeit.error ?? schedule.error} />
+        <ErrorText error={save.error ?? saveGames.error ?? clear.error ?? forfeit.error ?? schedule.error} />
         <div className="flex items-center justify-between gap-2">
           {match.score || match.forfeit ? (
             <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>
@@ -121,7 +189,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={!valid || save.isPending}>
+            <Button type="submit" variant="primary" disabled={(bestOf > 1 ? !seriesValid : !valid) || save.isPending || saveGames.isPending}>
               Save
             </Button>
           </div>

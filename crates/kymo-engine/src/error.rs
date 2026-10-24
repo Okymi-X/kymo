@@ -22,6 +22,8 @@ pub enum EngineError {
     NoResult(MatchId),
     #[error("{0}")]
     BadGroupSetup(String),
+    #[error("a best of {0} series needs a majority of games, with no tied game")]
+    BadSeries(u8),
     #[error("a later match depends on this result and was already played")]
     DownstreamPlayed,
 }

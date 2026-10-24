@@ -40,6 +40,7 @@ struct Row {
     groups: i64,
     advance: i64,
     rounds: i64,
+    best_of: i64,
     accent: Option<String>,
     status: Status,
     bracket: Option<String>,
@@ -57,6 +58,8 @@ pub struct Tournament {
     pub advance: u8,
     /// Swiss rounds, zero to pick the usual count at start.
     pub rounds: u8,
+    /// Games per match: 1, 3, 5 or 7.
+    pub best_of: u8,
     /// Optional #rrggbb accent that tints this tournament's pages.
     pub accent: Option<String>,
     pub status: Status,
@@ -124,6 +127,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         groups: u8::try_from(row.groups).unwrap_or(2),
         advance: u8::try_from(row.advance).unwrap_or(2),
         rounds: u8::try_from(row.rounds).unwrap_or(0),
+        best_of: u8::try_from(row.best_of).unwrap_or(1),
         accent: row.accent,
         status: row.status,
         created_at: row.created_at,
@@ -179,11 +183,12 @@ pub struct NewTournament<'a> {
     pub groups: u8,
     pub advance: u8,
     pub rounds: u8,
+    pub best_of: u8,
 }
 
 pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, ApiError> {
     let result = sqlx::query(
-        "INSERT INTO tournament (name, slug, format, third_place, groups, advance, rounds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tournament (name, slug, format, third_place, groups, advance, rounds, best_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(new.name)
     .bind(new.slug)
@@ -192,6 +197,7 @@ pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, Ap
     .bind(i64::from(new.groups))
     .bind(i64::from(new.advance))
     .bind(i64::from(new.rounds))
+    .bind(i64::from(new.best_of))
     .execute(pool)
     .await?;
     Ok(result.last_insert_rowid())

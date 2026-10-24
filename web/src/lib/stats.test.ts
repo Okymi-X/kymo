@@ -14,6 +14,7 @@ const match = (id: number, a: Slot, b: Slot, score: [number, number] | null, win
   score,
   winner,
   forfeit: false,
+  games: [],
   group: null,
   scheduled_at: null,
   venue: null,
@@ -30,12 +31,13 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   groups: 2,
   advance: 2,
   rounds: 0,
+  best_of: 1,
   accent: null,
   status: 'live',
   created_at: '',
   teams: [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}`, seed: id, score: 100 - id })),
   team_count: 4,
-  bracket: { format: 'single_elimination', matches, tiebreak: [] },
+  bracket: { format: 'single_elimination', matches, tiebreak: [], best_of: 1 },
   champion: null,
   progress: { played: 0, total: 0 },
   ...over,
@@ -105,7 +107,7 @@ describe('ranking after a third place match', () => {
 
 describe('round robin table', () => {
   const league = (matches: Match[]) =>
-    tournament(matches, { format: 'round_robin', bracket: { format: 'round_robin', matches, tiebreak: [] } })
+    tournament(matches, { format: 'round_robin', bracket: { format: 'round_robin', matches, tiebreak: [], best_of: 1 } })
   const lm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null) =>
     match(id, team(a), team(b), score, winner, { stage: 'league' })
 
@@ -187,7 +189,7 @@ describe('groups then knockout', () => {
   const gm = (id: number, a: number, b: number, score: [number, number] | null, winner: 'A' | 'B' | null, group: number) =>
     match(id, team(a), team(b), score, winner, { stage: 'league', group })
   const build = (matches: Match[], over: Partial<Tournament> = {}) =>
-    tournament(matches, { format: 'group_knockout', bracket: { format: 'group_knockout', matches, tiebreak: [] }, ...over })
+    tournament(matches, { format: 'group_knockout', bracket: { format: 'group_knockout', matches, tiebreak: [], best_of: 1 }, ...over })
 
   it('keeps one table per group and counts only group matches', () => {
     const tables = computeGroupTables(
