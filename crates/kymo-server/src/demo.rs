@@ -266,7 +266,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
             groups: plan.groups,
             advance: plan.advance,
             rounds: plan.rounds,
-            best_of: 1,
+            best_of: plan.best_of,
         },
     )
     .await?;
