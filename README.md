@@ -1,5 +1,9 @@
 # Kymo
 
+[![CI](https://github.com/Okymi-X/kymo/actions/workflows/ci.yml/badge.svg)](https://github.com/Okymi-X/kymo/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Okymi-X/kymo)](https://github.com/Okymi-X/kymo/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Open source tournament manager for CTF events. Run a knockout, double elimination, round robin, groups then knockout or Swiss tournament, show it live on a projector, and embed it on any site. A Rust API with a React interface and SQLite storage, in one small binary.
 
 ![Tournaments home with eight sample tournaments](docs/screenshots/tournaments.png)
