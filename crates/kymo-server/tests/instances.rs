@@ -707,7 +707,13 @@ impl InstanceRuntime for PortRuntime {
         let started = self.inner.start(request).await?;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let task = tokio::spawn(async move { while listener.accept().await.is_ok() {} });
+        // Like a real service: accept, keep the connection open, wait for the client to speak.
+        let task = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream);
+            }
+        });
         self.listeners
             .lock()
             .unwrap()
@@ -720,6 +726,8 @@ impl InstanceRuntime for PortRuntime {
             handle: started.handle,
             host_port: port,
             ip: None,
+            extra_ports: started.extra_ports,
+            ready_secs: started.ready_secs,
         })
     }
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {
@@ -1198,5 +1206,104 @@ async fn a_platform_with_no_local_containers_asks_for_a_lab_host_and_the_vpn_sta
     assert!(
         refused["error"].as_str().unwrap().contains("lab host"),
         "{refused}"
+    );
+}
+
+#[tokio::test]
+async fn a_machine_with_several_services_shows_them_all_and_gets_the_boot_time_it_asked_for() {
+    let c = Ctx::new(roomy()).await;
+    c.fake.set_extras(
+        vec![kymo_instances::ExtraPort {
+            name: "ssh".into(),
+            guest: 22,
+            host: 41022,
+        }],
+        Some(300),
+    );
+    let id = c.challenge(json!({})).await;
+    let alice = c.live_player("alice").await;
+    c.set_state("live").await;
+
+    // Answers at once: the address is shown together with every other service, by name.
+    let (status, started) = c.act(&alice, "POST", id, "").await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    assert_eq!(started["state"], "running", "{started}");
+    assert_eq!(
+        started["services"],
+        json!([{ "name": "ssh", "port": 41022 }])
+    );
+    let ready: Option<i64> =
+        sqlx::query_scalar("SELECT ready_secs FROM instance ORDER BY id DESC LIMIT 1")
+            .fetch_one(&c.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(ready, Some(300));
+    let (_, mine) = call(
+        &c.w.app,
+        "GET",
+        &format!("/api/v1/events/{}/instances", c.slug),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(
+        mine["instances"][0]["services"],
+        json!([{ "name": "ssh", "port": 41022 }])
+    );
+    c.act(&alice, "DELETE", id, "").await;
+    c.set_time_forward(40);
+
+    // Slow to answer: still starting after the usual minute, failed only after its own limit, and
+    // no address (and no extra services) is shown before it answers.
+    c.fake.set_unreachable(true);
+    let (_, slow) = c.act(&alice, "POST", id, "").await;
+    assert_eq!(slow["state"], "starting", "{slow}");
+    assert_eq!(
+        slow["services"],
+        json!([]),
+        "nothing is shown before the service answers"
+    );
+    assert!(slow["host"].is_null());
+    c.set_time_forward(100);
+    let (_, later) = c.act(&alice, "GET", id, "").await;
+    assert_eq!(
+        later["state"], "starting",
+        "a machine gets its boot time: {later}"
+    );
+    c.set_time_forward(250);
+    let (_, late) = c.act(&alice, "GET", id, "").await;
+    assert_eq!(late["state"], "failed", "{late}");
+    assert_eq!(late["failure"], "never_ready");
+}
+
+#[tokio::test]
+async fn the_console_view_is_for_admins_and_only_for_machines() {
+    let lab = lab_host().await;
+    let c = Ctx::new(roomy()).await;
+    let (_, added) = c.add_lab("Lab A", &lab.url, LAB_TOKEN).await;
+    let lab_id = added["lab"]["id"].as_i64().unwrap();
+    let id = c.challenge(json!({})).await;
+    let alice = c.live_player("alice").await;
+    c.set_state("live").await;
+    c.use_lab(Some(lab_id)).await;
+    c.act(&alice, "POST", id, "").await;
+    let name = lab.client.instances().await.unwrap().remove(0).name;
+
+    let uri = format!("/api/v1/admin/labs/{lab_id}/instances/{name}/screen");
+    let (status, _) = call(&c.w.app, "GET", &uri, Some(&alice), None).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a player cannot see a console"
+    );
+    let (status, body) = call(&c.w.app, "GET", &uri, Some(&c.admin), None).await;
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "a container has no screen: {body}"
+    );
+    assert!(
+        body["error"].as_str().unwrap().contains("virtual machine"),
+        "{body}"
     );
 }

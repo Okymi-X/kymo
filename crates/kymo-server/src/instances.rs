@@ -44,6 +44,16 @@ pub fn spec_of(challenge: &ChallengeRow, setup: &InstanceSetup) -> Result<Instan
     Ok(spec)
 }
 
+/// The other published services of a machine, by name, for the player to connect to.
+fn services(extra: Option<&str>) -> Value {
+    json!(
+        store::extra_services(extra)
+            .into_iter()
+            .map(|p| json!({ "name": p.name, "port": p.host }))
+            .collect::<Vec<_>>()
+    )
+}
+
 /// What a player sees. The container handle and environment are never included.
 pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64) -> Value {
     let state = row
@@ -66,6 +76,7 @@ pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64
         "network": if row.lab_ip.is_some() { "vpn" } else { "published" },
         "host": connect.then_some(host),
         "port": connect.then_some(row.host_port).flatten(),
+        "services": if connect { services(row.extra_ports.as_deref()) } else { json!([]) },
         "started_at": row.started_at,
         "expires_at": row.expires_at,
         "remaining_secs": if state.is_live() { (row.expires_at - now).max(0) } else { 0 },
@@ -132,6 +143,11 @@ async fn refresh(
     if now >= row.expires_at {
         return Ok(row);
     }
+    // A virtual machine says how long it needs to boot; a container gets the usual minute.
+    let ready_limit = row
+        .ready_secs
+        .unwrap_or(READY_TIMEOUT_SECS)
+        .max(READY_TIMEOUT_SECS);
     let Some(handle) = row.handle.clone() else {
         // The container is still being created. A start stuck here for too long is dropped.
         if now - row.started_at > READY_TIMEOUT_SECS {
@@ -153,7 +169,7 @@ async fn refresh(
     if row.state == "starting" {
         if probe(state, setup, &row).await {
             store::mark_ready(&state.pool, row.id).await?;
-        } else if now - row.started_at > READY_TIMEOUT_SECS {
+        } else if now - row.started_at > ready_limit {
             let _ = target.runtime.stop(&handle).await;
             store::mark_failed(&state.pool, row.id, now, "never_ready").await?;
         }
@@ -347,7 +363,7 @@ async fn begin(
     };
     match target.runtime.start(&request).await {
         Ok(started) => {
-            store::mark_started(&state.pool, run_id, &started.handle, started.host_port).await?;
+            store::mark_started(&state.pool, run_id, &started).await?;
             wait_ready(state, setup, run_id).await?;
         }
         Err(e) => {
@@ -535,6 +551,7 @@ pub async fn list_for(state: &AppState, play: &Play) -> Result<Value, ApiError> 
             "network": if row.lab_ip.is_some() { "vpn" } else { "published" },
             "host": shown.then_some(host),
             "port": shown.then_some(row.host_port).flatten(),
+            "services": if shown { services(row.extra_ports.as_deref()) } else { json!([]) },
             "remaining_secs": (row.expires_at - now).max(0),
         }));
     }

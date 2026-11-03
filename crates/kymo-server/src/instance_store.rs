@@ -24,6 +24,10 @@ pub struct InstanceRow {
     pub name: Option<String>,
     /// The address players connect to, as it was when the run started.
     pub public_host: Option<String>,
+    /// Further published services (JSON), for a machine that offers several.
+    pub extra_ports: Option<String>,
+    /// How long this run may take to answer; empty means the usual minute.
+    pub ready_secs: Option<i64>,
     pub state: String,
     pub started_at: i64,
     pub expires_at: i64,
@@ -136,12 +140,18 @@ pub async fn insert(pool: &SqlitePool, run: &NewRun<'_>) -> Result<i64, ApiError
 pub async fn mark_started(
     pool: &SqlitePool,
     id: i64,
-    handle: &str,
-    host_port: u16,
+    started: &kymo_instances::Started,
 ) -> Result<(), ApiError> {
-    sqlx::query("UPDATE instance SET handle = ?, host_port = ? WHERE id = ?")
-        .bind(handle)
-        .bind(i64::from(host_port))
+    let extra = if started.extra_ports.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&started.extra_ports).map_err(|_| ApiError::Internal)?)
+    };
+    sqlx::query("UPDATE instance SET handle = ?, host_port = ?, extra_ports = ?, ready_secs = ? WHERE id = ?")
+        .bind(&started.handle)
+        .bind(i64::from(started.host_port))
+        .bind(extra)
+        .bind(started.ready_secs.map(i64::from))
         .bind(id)
         .execute(pool)
         .await?;
@@ -225,6 +235,7 @@ pub struct ListRow {
     pub state: String,
     pub lab_ip: Option<String>,
     pub public_host: Option<String>,
+    pub extra_ports: Option<String>,
     pub host_port: Option<i64>,
     pub started_at: i64,
     pub expires_at: i64,
@@ -236,11 +247,17 @@ pub async fn live_of(
     scorer: Scorer,
 ) -> Result<Vec<ListRow>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.public_host, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
+        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.public_host, i.extra_ports, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
     )
     .bind(event_id)
     .bind(scorer.kind())
     .bind(scorer.id())
     .fetch_all(pool)
     .await?)
+}
+
+/// The extra services of a run, as stored.
+pub fn extra_services(json: Option<&str>) -> Vec<kymo_instances::ExtraPort> {
+    json.and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default()
 }

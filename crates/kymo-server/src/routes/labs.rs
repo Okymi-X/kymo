@@ -231,6 +231,33 @@ pub async fn instances(
     Ok(Json(json!({ "instances": list })))
 }
 
+/// A virtual machine's console on a lab host, as a PNG, for an organizer working out why a
+/// machine does not answer (stuck at a prompt, no network). The lab host's API is not reachable
+/// from a browser; the platform asks for it.
+pub async fn screen(
+    _: Require<needs::ManageSettings>,
+    State(state): State<AppState>,
+    Path((id, name)): Path<(i64, String)>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::http::{HeaderValue, header};
+    use axum::response::IntoResponse;
+    let row = store::get(&state.pool, id).await?;
+    let client = state.labs().client(&row)?;
+    let png = client
+        .screen(&name)
+        .await
+        .map_err(|e| ApiError::Unavailable(explain(&e.to_string())))?;
+    let mut response = png.into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
 /// Tells the lab host to drop everything the platform no longer lists.
 pub async fn reconcile(
     who: Require<needs::ManageSettings>,

@@ -106,6 +106,10 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/labs/{id}/test", post(labs::test))
         .route("/admin/labs/{id}/instances", get(labs::instances))
         .route("/admin/labs/{id}/reconcile", post(labs::reconcile))
+        .route(
+            "/admin/labs/{id}/instances/{name}/screen",
+            get(labs::screen),
+        )
         .route("/admin/events/{id}/lab", put(labs::set_event_lab))
         .route("/admin/vpn", get(vpn::admin_status))
         .route("/admin/vpn/sync", post(vpn::admin_sync))
