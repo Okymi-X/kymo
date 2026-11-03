@@ -1,0 +1,26 @@
+[package]
+name = "kymo-vpn"
+description = "Per player OpenVPN access to isolated challenge networks: PKI, profiles, gateway rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+docker = ["dep:bollard", "dep:futures-util"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+async-trait = "0.1"
+rcgen = { version = "0.14", default-features = false, features = ["pem", "crypto", "ring", "x509-parser"] }
+time = "0.3"
+rand = "0.9"
+tokio = { version = "1", features = ["sync"] }
+bollard = { version = "0.19", optional = true }
+futures-util = { version = "0.3", optional = true }
+
+[dev-dependencies]
+kymo-instances = { path = "../kymo-instances", features = ["docker"] }
+tempfile = "3"
+x509-parser = { version = "0.18", features = ["verify"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "process", "io-util", "net"] }
