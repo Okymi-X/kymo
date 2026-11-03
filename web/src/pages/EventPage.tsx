@@ -171,7 +171,7 @@ export function EventPage() {
         <Schedule e={event} />
       </div>
       {live !== 'archived' && <Registration event={event} />}
-      {event.network_mode === 'vpn' && event.registered && <VpnPanel />}
+      {event.network_mode === 'vpn' && event.registered && <VpnPanel labHost={event.lab_host_id} />}
       {event.registered && <MyInstances slug={event.slug} />}
       <Tabs<View> items={tabs} value={view} label="Event" onChange={(v) => setParams({ view: v }, { replace: true })}>
         {view === 'challenges' &&
@@ -179,7 +179,7 @@ export function EventPage() {
             live === 'draft' || live === 'registration_open' ? (
               <Empty>The challenges open when the event starts.</Empty>
             ) : (
-              <ChallengeBoard slug={event.slug} vpn={event.network_mode === 'vpn'} />
+              <ChallengeBoard slug={event.slug} vpn={event.network_mode === 'vpn'} labHost={event.lab_host_id} />
             )
           ) : !who ? (
             <Empty>Sign in and register to see the challenges.</Empty>

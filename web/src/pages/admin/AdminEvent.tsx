@@ -206,29 +206,37 @@ function Overview({ event }: { event: EventInfo }) {
 function InstanceHost({ event }: { event: EventInfo }) {
   const client = useQueryClient()
   const labs = useQuery({ queryKey: ['labs'], queryFn: platform.labs })
+  const vpn = useQuery({ queryKey: ['admin-vpn'], queryFn: platform.adminVpn })
   const [local, setLocal] = useState<string | null>(null)
+  const list = labs.data?.labs ?? []
   const set = useMutation({
-    mutationFn: (value: string) => platform.setEventLab(event.id, value === '' ? null : Number(value)),
+    mutationFn: (value: string) => {
+      const target = value === '' ? null : list.find((l) => l.id === Number(value))
+      // The mode goes with the host: a lab host that only runs instances through its VPN needs
+      // the event on the VPN, and a place with no gateway cannot have it.
+      const hasGateway = target ? target.vpn !== null : (vpn.data?.local ?? false)
+      const mode = target?.vpn?.only ? 'vpn' : event.network_mode === 'vpn' && !hasGateway ? 'published' : undefined
+      return platform.setEventLab(event.id, target ? target.id : null, mode)
+    },
     onSettled: async () => {
       await client.invalidateQueries({ queryKey: ['admin-event', event.id] })
       void client.invalidateQueries({ queryKey: ['labs'] })
       setLocal(null)
     },
   })
-  const list = labs.data?.labs ?? []
   const current = local ?? (event.lab_host_id === null ? '' : String(event.lab_host_id))
   return (
     <Panel className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Where instances run</h2>
       <p className="text-sm text-muted">
-        This server runs the challenge containers itself, or a separate lab host does, which keeps a broken-into challenge away from the platform. Players are told the lab host's address.{' '}
+        This server runs the challenge containers itself, or a separate lab host does, which keeps a broken-into challenge away from the platform. With the private VPN, players connect to the lab host's gateway and nothing is published on its ports.{' '}
         {list.length === 0 && (
           <>
             There is no lab host yet: <Link to="/admin/labs" className="font-medium text-accent hover:underline">add one</Link>.
           </>
         )}
       </p>
-      <Select aria-label="Where instances run" value={current} disabled={set.isPending} className="w-64" onChange={(e) => {
+      <Select aria-label="Where instances run" value={current} disabled={set.isPending} className="w-72" onChange={(e) => {
         setLocal(e.target.value)
         set.mutate(e.target.value)
       }}>
@@ -236,11 +244,11 @@ function InstanceHost({ event }: { event: EventInfo }) {
         {list.map((l) => (
           <option key={l.id} value={l.id} disabled={!l.enabled && event.lab_host_id !== l.id}>
             {l.name}
+            {l.vpn ? (l.vpn.only ? ' (VPN only)' : ' (VPN)') : ''}
             {l.enabled ? '' : ' (switched off)'}
           </option>
         ))}
       </Select>
-      {event.lab_host_id !== null && event.network_mode === 'vpn' && <p className="text-sm text-danger">The private VPN only works with instances on this server.</p>}
       <p className="text-xs text-muted">Stop all running instances before moving the event. Instances that are already running stay where they started.</p>
       <ErrorText error={set.error} />
     </Panel>
@@ -249,6 +257,7 @@ function InstanceHost({ event }: { event: EventInfo }) {
 
 function NetworkMode({ event }: { event: EventInfo }) {
   const vpn = useQuery({ queryKey: ['admin-vpn'], queryFn: platform.adminVpn })
+  const labs = useQuery({ queryKey: ['labs'], queryFn: platform.labs })
   const client = useQueryClient()
   const [local, setLocal] = useState<'published' | 'vpn' | null>(null)
   const set = useMutation({
@@ -258,18 +267,28 @@ function NetworkMode({ event }: { event: EventInfo }) {
       setLocal(null)
     },
   })
+  const lab = event.lab_host_id === null ? null : (labs.data?.labs ?? []).find((l) => l.id === event.lab_host_id) ?? null
+  // The gateway players would connect to: the lab host's own, or this server's.
+  const gateway = lab ? lab.vpn : vpn.data?.enabled && vpn.data.local ? { host: vpn.data.host ?? '', port: vpn.data.port ?? 1194, only: false } : null
   const enabled = vpn.data?.enabled ?? false
-  const loopback = enabled && /^(127\.|localhost$|::1$)/.test(vpn.data?.host ?? '')
+  const hasGateway = enabled && gateway !== null && gateway.host !== '' && gateway.host !== '-'
+  const loopback = hasGateway && /^(127\.|localhost$|::1$)/.test(gateway?.host ?? '')
+  const publishedAllowed = !gateway?.only
   return (
     <Panel className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Instance network</h2>
       {loopback && event.network_mode === 'vpn' && (
         <p role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
-          Players cannot connect: the VPN address is {vpn.data?.host}, which only works on the server itself. Set <code className="font-mono">KYMO_VPN_HOST</code> to the public address or name of this server and restart, then have players download a new profile.
+          Players cannot connect: the VPN address is {gateway?.host}, which only works on the machine itself. Set the VPN host ({lab ? <code className="font-mono">KYMO_LAB_VPN_HOST</code> : <code className="font-mono">KYMO_VPN_HOST</code>}) to its public address or name and restart, then have players download a new profile.
+        </p>
+      )}
+      {event.network_mode === 'vpn' && !hasGateway && (
+        <p role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          {lab ? `The lab host ${lab.name} has no VPN gateway.` : 'This server has no VPN gateway of its own.'} Players cannot reach instances until you pick a host with one.
         </p>
       )}
       <p className="text-sm text-muted">
-        <strong>Published ports</strong>: each instance gets a port on the server; anyone who can reach the server can reach it. <strong>Private VPN</strong>: each player or team gets an isolated network and connects through their own OpenVPN profile; instances cannot see each other.
+        <strong>Published ports</strong>: each instance gets a port on the machine that runs it; anyone who can reach that machine can reach it. <strong>Private VPN</strong>: each player or team gets an isolated network and connects through their own OpenVPN profile; nothing is published, and instances cannot see each other.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Select
@@ -280,13 +299,16 @@ function NetworkMode({ event }: { event: EventInfo }) {
             set.mutate(e.target.value as 'published' | 'vpn')
           }}
           disabled={set.isPending}
-          className="w-64"
+          className="w-72"
         >
-          <option value="published">Published ports</option>
-          <option value="vpn" disabled={!enabled && event.network_mode !== 'vpn'}>
-            Private VPN{enabled ? '' : ' (not enabled on this server)'}
+          <option value="published" disabled={!publishedAllowed && event.network_mode !== 'published'}>
+            Published ports{publishedAllowed ? '' : ' (this lab host refuses them)'}
+          </option>
+          <option value="vpn" disabled={!hasGateway && event.network_mode !== 'vpn'}>
+            Private VPN{hasGateway ? '' : !enabled ? ' (not enabled on this server)' : lab ? ' (this lab host has no gateway)' : ' (no gateway on this server)'}
           </option>
         </Select>
+        {event.network_mode === 'vpn' && gateway && <span className="text-sm text-muted">Players connect to <code className="font-mono text-ink">{gateway.host}:{gateway.port}</code> (UDP)</span>}
       </div>
       <p className="text-xs text-muted">Stop all running instances before switching. Players need to download their VPN profile from the event page.</p>
       <ErrorText error={set.error} />

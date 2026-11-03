@@ -462,6 +462,15 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
 
   await organizer(page)
   await fits()
+  // The Lab hosts page: long names and addresses wrap instead of widening the page.
+  const narrow = (await (await request.post('/api/v1/admin/labs', {
+    headers,
+    data: { name: 'Narrow lab host', api_url: 'https://lab-host-with-a-rather-long-name.example.org:7400', token: 'a-long-token-for-the-test-1234', public_host: 'lab-host-with-a-rather-long-name.example.org' },
+  })).json()) as { lab: { id: number } }
+  await page.goto('/admin/labs')
+  await expect(page.getByRole('heading', { name: 'Narrow lab host' })).toBeVisible()
+  await fits()
+  await request.delete(`/api/v1/admin/labs/${narrow.lab.id}`, { headers })
   await page.goto(`/admin/events/${event.id}?view=challenges`)
   await page.getByRole('button', { name: /Welcome/ }).click()
   await expect(page.getByRole('dialog').getByRole('heading', { name: 'Edit challenge' })).toBeVisible()
@@ -548,4 +557,21 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   await page.getByRole('heading', { name: 'Unplugged Lab 2' }).locator('xpath=ancestor::section[1]').getByRole('button', { name: 'Remove' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
   await expect(page.getByText('No lab host yet')).toBeVisible()
+})
+
+test('the audit log is searchable, filterable by what was recorded, and paged', async ({ page }) => {
+  await organizer(page)
+  await page.goto('/monitor')
+  await page.getByRole('tab', { name: 'Audit' }).click()
+  const search = page.getByRole('searchbox', { name: 'Search' })
+  await expect(search).toBeVisible()
+  // The action filter lists what has been recorded, with counts, not a fixed list.
+  await expect(page.getByLabel('Action').locator('option').first()).toHaveText('All actions')
+  await search.fill('no-such-address-anywhere')
+  await expect(page.getByText('No entries match these filters.')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(search).toHaveValue('')
+  await expect(page.getByRole('table', { name: 'Audit log' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'From' })).toBeVisible()
+  await expect(page.getByLabel('Per page')).toHaveValue('25')
 })

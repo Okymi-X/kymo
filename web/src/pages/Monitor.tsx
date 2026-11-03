@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useDeferredValue, useState, type FormEvent } from 'react'
 import { useIsAdmin, useWho } from '../api/client'
 import { platform } from '../api/platform'
 import type { RateRule, RateRuleBody } from '../api/platformTypes'
@@ -354,41 +354,97 @@ function Bans({ canEdit }: { canEdit: boolean }) {
   )
 }
 
+const AUDIT_SIZES = [25, 50, 100]
+
+/** Everything staff and players did that an organizer may need to answer for, newest first. */
 function Audit() {
   const [action, setAction] = useState('')
+  const [search, setSearch] = useState('')
+  const [size, setSize] = useState(25)
   const [page, setPage] = useState(1)
-  const q = useQuery({ queryKey: ['audit', action, page], queryFn: () => platform.audit({ page, action: action.trim() || undefined }) })
+  // Wait for a pause in typing before asking, so a search does not query on every key.
+  const term = useDeferredValue(search.trim())
+  const q = useQuery({
+    queryKey: ['audit', action, term, size, page],
+    queryFn: () => platform.audit({ page, per_page: size, action: action || undefined, q: term || undefined }),
+    placeholderData: keepPreviousData,
+  })
   const pages = q.data ? Math.max(1, Math.ceil(q.data.total / q.data.per_page)) : 1
+  const known = q.data?.actions ?? []
+  const filtered = action !== '' || term !== ''
   return (
     <div className="flex flex-col gap-4">
-      <Field label="Action">
-        <Select
-          value={action}
-          onChange={(e) => {
-            setAction(e.target.value)
-            setPage(1)
-          }}
-          className="self-start"
-        >
-          <option value="">All actions</option>
-          {['ban_create', 'ban_lift', 'auto_ban', 'rule_create', 'rule_update', 'rule_delete', 'user_update', 'event_state', 'instance_stop', 'event_export', 'event_import', 'backup_download', 'backup_create', 'ops_cleanup'].map((a) => (
-            <option key={a} value={a}>
-              {a.replace(/_/g, ' ')}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <form className="flex flex-wrap items-end gap-3" role="search" onSubmit={(e) => e.preventDefault()}>
+        <Field label="Search">
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
+            className="w-64"
+            placeholder="IP address, player, challenge…"
+            maxLength={100}
+          />
+        </Field>
+        <Field label="Action">
+          <Select
+            value={action}
+            onChange={(e) => {
+              setAction(e.target.value)
+              setPage(1)
+            }}
+            className="w-56"
+          >
+            <option value="">All actions</option>
+            {known.map(([a, n]) => (
+              <option key={a} value={a}>
+                {a.replace(/_/g, ' ')} ({n})
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Per page">
+          <Select
+            value={size}
+            onChange={(e) => {
+              setSize(Number(e.target.value))
+              setPage(1)
+            }}
+          >
+            {AUDIT_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {filtered && (
+          <Button
+            type="button"
+            onClick={() => {
+              setAction('')
+              setSearch('')
+              setPage(1)
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
+      </form>
       {q.isPending ? (
         <Loading />
       ) : q.data && q.data.entries.length > 0 ? (
         <>
-          <DataTable caption="Moderation audit" head={['When', 'By', 'Action', 'Target', 'Detail']}>
+          <DataTable caption="Audit log" head={['When', 'By', 'From', 'Action', 'Target', 'Detail']}>
             {q.data.entries.map((a) => (
               <tr key={a.id}>
                 <td className={`${TD} whitespace-nowrap text-muted`} title={new Date(a.at * 1000).toLocaleString()}>
                   {timeAgo(a.at)}
                 </td>
                 <td className={TD}>{a.actor_name ?? a.actor_role}</td>
+                <td className={`${TD} whitespace-nowrap font-mono text-xs`}>{a.ip ?? <span className="text-muted">-</span>}</td>
                 <td className={`${TD} font-mono text-xs`}>{a.action}</td>
                 <td className={`${TD} font-mono text-xs`}>
                   {a.target_kind} {a.target_id}
@@ -400,7 +456,7 @@ function Audit() {
           <Pager page={page} pages={pages} from={(page - 1) * q.data.per_page + 1} to={Math.min(q.data.total, page * q.data.per_page)} total={q.data.total} onChange={setPage} noun="entries" />
         </>
       ) : (
-        <Empty>No entries.</Empty>
+        <Empty>{filtered ? 'No entries match these filters.' : 'No entries.'}</Empty>
       )}
       <ErrorText error={q.error} />
     </div>

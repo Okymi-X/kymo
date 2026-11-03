@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 export interface TabItem<T extends string> {
   id: T
@@ -16,6 +16,26 @@ interface Props<T extends string> {
 /** Accessible tabs: roving focus with arrow keys, one panel. */
 export function Tabs<T extends string>({ items, value, onChange, label, children }: Props<T>) {
   const refs = useRef(new Map<T, HTMLButtonElement>())
+  const strip = useRef<HTMLDivElement>(null)
+  // On a narrow screen the tabs scroll sideways: fade the edge that has more, hide the bare
+  // scrollbar, and keep the selected tab in view.
+  const [edges, setEdges] = useState({ left: false, right: false })
+  useEffect(() => {
+    const el = strip.current
+    if (!el) return
+    const check = () => setEdges({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 })
+    check()
+    el.addEventListener('scroll', check, { passive: true })
+    const observer = new ResizeObserver(check)
+    observer.observe(el)
+    return () => {
+      el.removeEventListener('scroll', check)
+      observer.disconnect()
+    }
+  }, [items.length])
+  useEffect(() => {
+    refs.current.get(value)?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [value])
   const move = (e: KeyboardEvent, index: number) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
     if (!step) return
@@ -26,7 +46,8 @@ export function Tabs<T extends string>({ items, value, onChange, label, children
   }
   return (
     <div className="flex flex-col gap-6">
-      <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line">
+      <div className="relative">
+      <div ref={strip} role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((item, i) => {
           const active = item.id === value
           return (
@@ -49,6 +70,9 @@ export function Tabs<T extends string>({ items, value, onChange, label, children
             </button>
           )
         })}
+      </div>
+      {edges.left && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-bg to-transparent" />}
+      {edges.right && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-bg to-transparent" />}
       </div>
       <div role="tabpanel" id={`panel-${value}`} aria-labelledby={`tab-${value}`}>
         {children}

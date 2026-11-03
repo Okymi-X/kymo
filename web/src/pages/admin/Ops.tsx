@@ -48,6 +48,13 @@ function HealthView({ h }: { h: Health }) {
       </div>
       {(h.labs ?? []).length > 0 && (
         <section className="flex flex-col gap-2" aria-label="Lab hosts">
+          {(h.labs ?? [])
+            .filter((l) => (l.live_events ?? 0) > 0 && (!l.enabled || l.reachable === false))
+            .map((l) => (
+              <p key={l.id} role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                {l.live_events} open or live event{l.live_events === 1 ? '' : 's'} run their instances on {l.name}, which is {l.enabled ? 'not answering' : 'switched off'}. Players cannot start anything for {l.live_events === 1 ? 'it' : 'them'} until it is back.
+              </p>
+            ))}
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">Lab hosts</h2>
             <Link to="/admin/labs" className="text-sm font-medium text-accent hover:underline">

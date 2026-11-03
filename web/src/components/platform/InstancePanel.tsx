@@ -7,14 +7,14 @@ import { Button, ErrorText } from '../ui'
 import { CopyButton, useNow } from './bits'
 
 const failureText: Record<string, string> = {
-  start_failed: 'The container could not be started. Try again; if it keeps failing, tell an organizer.',
+  start_failed: 'The instance could not be started. Try again; if it keeps failing, tell an organizer.',
   never_ready: 'It started but never answered, so it was stopped. Try again.',
   exited: 'Your instance stopped unexpectedly. Start a new one.',
 }
 
 /** Shown on a private-network challenge when the player has no profile yet. */
-function NeedsProfile({ onDone }: { onDone: () => void }) {
-  const download = useMutation({ mutationFn: platform.vpnProfile, onSuccess: onDone })
+function NeedsProfile({ labHost, onDone }: { labHost: number | null; onDone: () => void }) {
+  const download = useMutation({ mutationFn: () => platform.vpnProfile(labHost), onSuccess: onDone })
   return (
     <div role="alert" className="flex flex-col gap-2 rounded-control border border-line bg-bg p-3 text-sm">
       <p className="flex items-start gap-2">
@@ -36,10 +36,12 @@ interface Props {
   open: boolean
   /** The event reaches instances through the player's VPN. */
   vpn?: boolean
+  /** The lab host whose gateway that VPN is, or null for this server's own. */
+  labHost?: number | null
 }
 
 /** Start, restart and stop the player's own container for one challenge, and say honestly what state it is in. */
-export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
+export function InstancePanel({ slug, challengeId, open, vpn = false, labHost = null }: Props) {
   const client = useQueryClient()
   const key = ['instance', slug, challengeId]
   // Poll quickly while the service is coming up, slowly otherwise.
@@ -48,7 +50,7 @@ export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
     queryFn: () => platform.instance(slug, challengeId),
     refetchInterval: (query) => (query.state.data?.state === 'starting' ? 1500 : 15_000),
   })
-  const profile = useQuery({ queryKey: ['vpn'], queryFn: platform.vpnStatus, enabled: vpn })
+  const profile = useQuery({ queryKey: ['vpn', labHost], queryFn: () => platform.vpnStatus(labHost), enabled: vpn })
   const set = (view: InstanceView) => {
     client.setQueryData(key, view)
     void client.invalidateQueries({ queryKey: ['instances', slug] })
@@ -67,7 +69,8 @@ export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
   const running = !starting && view.state === 'running' && left > 0
   const expired = view.state === 'expired' || (view.state === 'running' && left <= 0)
   const failed = view.state === 'failed'
-  const address = running && view.host && view.port ? `${view.host}:${view.port}` : null
+  const machine = view.machine === true
+  const address = running && view.host && (machine || view.port) ? (machine ? view.host : `${view.host}:${view.port}`) : null
   const budgetLeft = view.starts_max - view.starts_used
   const privateNet = vpn || view.network === 'vpn'
   const needsProfile = privateNet && profile.data?.enabled === true && profile.data.has_profile === false
@@ -81,7 +84,7 @@ export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
         </span>
       </div>
 
-      {needsProfile && <NeedsProfile onDone={() => void client.invalidateQueries({ queryKey: ['vpn'] })} />}
+      {needsProfile && <NeedsProfile labHost={labHost} onDone={() => void client.invalidateQueries({ queryKey: ['vpn'] })} />}
 
       {starting ? (
         <p className="flex items-center gap-2 text-sm">
@@ -94,6 +97,11 @@ export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
             <code className="rounded-control border border-line bg-bg px-2.5 py-1.5 font-mono text-sm">{address}</code>
             <CopyButton text={address} />
           </div>
+          {machine && (
+            <p className="text-sm text-muted">
+              This is a machine on your private network. Every port is open on this address, so scan it to find what runs there, for example <code className="font-mono text-ink">nmap -sV -p- {view.host}</code>.
+            </p>
+          )}
           {(view.services ?? []).length > 0 && (
             <ul className="flex flex-col gap-1.5" aria-label="Other services">
               {view.services?.map((svc) => (

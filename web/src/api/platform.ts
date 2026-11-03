@@ -122,8 +122,8 @@ export const platform = {
   progress: (slug: string) => request<Progress>('GET', `${ev(slug)}/progress`),
 
   // VPN
-  vpnStatus: () => request<VpnStatus>('GET', '/vpn'),
-  vpnProfile: () => downloadFile('/vpn/profile', 'kymo.ovpn', 'POST'),
+  vpnStatus: (labHost: number | null = null) => request<VpnStatus>('GET', labHost === null ? '/vpn' : `/vpn?lab_host=${labHost}`),
+  vpnProfile: (labHost: number | null = null) => downloadFile(labHost === null ? '/vpn/profile' : `/vpn/profile?lab_host=${labHost}`, 'kymo.ovpn', 'POST'),
   labs: () => request<{ labs: LabHost[] }>('GET', '/admin/labs'),
   createLab: (body: LabBody) => request<{ lab: LabHost; check: LabCheck }>('POST', '/admin/labs', body),
   updateLab: (id: number, body: LabBody) => request<{ lab: LabHost }>('PUT', `/admin/labs/${id}`, body),
@@ -132,7 +132,9 @@ export const platform = {
   labInstances: (id: number) => request<{ instances: LabInstance[] }>('GET', `/admin/labs/${id}/instances`),
   labScreen: (id: number, name: string) => fetchImage(`/admin/labs/${id}/instances/${encodeURIComponent(name)}/screen`),
   reconcileLab: (id: number) => request<{ removed: string[] }>('POST', `/admin/labs/${id}/reconcile`),
-  setEventLab: (event: number, lab: number | null) => request<{ event_id: number; lab_host_id: number | null }>('PUT', `/admin/events/${event}/lab`, { lab_host_id: lab }),
+  /** The mode is sent with the host because the two must agree: the VPN needs a gateway there. */
+  setEventLab: (event: number, lab: number | null, mode?: 'published' | 'vpn') =>
+    request<{ event_id: number; lab_host_id: number | null; network_mode: string }>('PUT', `/admin/events/${event}/lab`, { lab_host_id: lab, ...(mode ? { network_mode: mode } : {}) }),
   adminVpn: () => request<AdminVpn>('GET', '/admin/vpn'),
   syncVpn: () => request<VpnSyncReport>('POST', '/admin/vpn/sync'),
   revokeVpnClient: (userId: number) => request<void>('DELETE', `/admin/vpn/clients/${userId}`),
@@ -212,7 +214,7 @@ export const platform = {
   createBan: (body: { kind: 'ip' | 'user'; subject: string; reason: string; duration_secs?: number }) =>
     request<Ban>('POST', '/admin/monitor/bans', body),
   liftBan: (id: number) => request<Ban>('DELETE', `/admin/monitor/bans/${id}`),
-  audit: (params: { page?: number; action?: string }) => request<AuditPage>('GET', `/admin/monitor/audit${query({ per_page: 50, ...params })}`),
+  audit: (params: { page?: number; action?: string; q?: string; per_page?: number }) => request<AuditPage>('GET', `/admin/monitor/audit${query({ per_page: 25, ...params })}`),
 
   // operations
   health: () => request<Health>('GET', '/admin/ops/health'),

@@ -69,6 +69,15 @@ function CheckView({ check }: { check: LabCheck }) {
           {check.health.accel === 'kvm' ? 'Virtual machines run with KVM acceleration.' : 'Virtual machines run in plain emulation, which is very slow. Give the lab host KVM (the service user must be in the kvm group).'}
         </p>
       )}
+      {check.health?.vpn ? (
+        <p className="text-win">
+          VPN gateway on {check.health.vpn.host}:{check.health.vpn.port} (UDP){check.health.vpn_only ? ': instances are only reachable through it, never on a published port.' : '. This host can also publish ports for events that do not use the VPN.'}
+        </p>
+      ) : (
+        <p className="text-danger">
+          No VPN gateway: instances here are published on ports that anyone who can reach this machine can connect to. Set <code className="font-mono">KYMO_LAB_VPN_HOST</code> on the lab host to give players a tunnel instead.
+        </p>
+      )}
       {(check.artifacts ?? []).length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
           {check.artifacts?.map((a) => (
@@ -175,15 +184,27 @@ function LabCard({ lab, onEdit }: { lab: LabHost; onEdit: () => void }) {
             {lab.api_url}
           </dd>
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-xs text-muted">Players connect to</dt>
-          <dd className="font-mono text-xs">{lab.public_host}</dd>
+          <dd className="break-all font-mono text-xs">{lab.public_host}</dd>
         </div>
-        <div>
+        <div className="min-w-0">
+          <dt className="text-xs text-muted">VPN gateway</dt>
+          <dd className={`break-words ${lab.vpn ? '' : 'text-muted'}`}>
+            {lab.vpn ? (
+              <>
+                <span className="break-all font-mono text-xs">{lab.vpn.host}:{lab.vpn.port}</span> (UDP){lab.vpn.only ? ', no published ports' : ''}
+              </>
+            ) : (
+              'none, ports are published'
+            )}
+          </dd>
+        </div>
+        <div className="min-w-0">
           <dt className="text-xs text-muted">Connection</dt>
           <dd className={lab.api_url.startsWith('http://') ? 'text-danger' : ''}>{encryption(lab)}</dd>
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-xs text-muted">In use</dt>
           <dd>
             {lab.events} event{lab.events === 1 ? '' : 's'}, {lab.live_instances} running instance{lab.live_instances === 1 ? '' : 's'}

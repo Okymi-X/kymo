@@ -15,10 +15,11 @@ interface Props {
   category: string
   /** Instances of this event are reached through the player's VPN. */
   vpn?: boolean
+  labHost?: number | null
   onClose: () => void
 }
 
-export function ChallengeDialog({ slug, challenge, category, vpn = false, onClose }: Props) {
+export function ChallengeDialog({ slug, challenge, category, vpn = false, labHost = null, onClose }: Props) {
   const client = useQueryClient()
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['challenges', slug] })
@@ -85,7 +86,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, onClos
           </div>
         )}
 
-        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} />}
+        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={labHost} />}
         {challenge.requires_instance && challenge.solved && (
           <p className="text-sm text-muted">You solved this challenge, so a new instance cannot be started for it.</p>
         )}

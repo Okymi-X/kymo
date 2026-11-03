@@ -123,6 +123,8 @@ export interface InstanceView {
   network?: 'vpn' | 'published'
   /** True once the service answers. The address is only sent then. */
   ready?: boolean
+  /** A machine on the private network: every port is open on the address, so there is no port to show. */
+  machine?: boolean
   /** Why the last run failed, when it did. */
   failure?: 'start_failed' | 'never_ready' | 'exited' | null
   host?: string | null
@@ -412,9 +414,13 @@ export interface AuditEntry {
   target_kind: string
   target_id: string
   detail: string
+  /** The address the action came from, when there was a request. */
+  ip: string | null
 }
 
 export interface AuditPage {
+  /** Every recorded action with how often it happened, for the filter. */
+  actions: [string, number][]
   total: number
   page: number
   per_page: number
@@ -435,7 +441,7 @@ export interface Health {
   database: { ok: boolean; ping_ms: number; size_bytes: number }
   traffic: { window_secs: number; requests: number; server_errors: number; throttled: number; avg_ms: number }
   instances: { enabled: boolean; runtime_ok: boolean | null; live: number; expired_pending: number; orphans: number }
-  labs?: { id: number; name: string; enabled: boolean; reachable: boolean | null; last_checked_at: number | null; last_error: string | null; live_instances: number }[]
+  labs?: { id: number; name: string; enabled: boolean; reachable: boolean | null; last_checked_at: number | null; last_error: string | null; live_instances: number; live_events?: number }[]
   backups: { configured: boolean }
   vpn?: { enabled: boolean; gateway_ok?: boolean; labs?: number; clients?: number; error?: string | null }
   jobs: { reaper: RunInfo | null; backup: RunInfo | null; maintenance: RunInfo | null }
@@ -475,6 +481,9 @@ export interface CleanupReport {
 
 export interface VpnStatus {
   enabled: boolean
+  /** False when the gateway for this host cannot be reached or does not exist. */
+  available?: boolean
+  reason?: string
   host?: string
   port?: number
   has_profile?: boolean
@@ -485,6 +494,17 @@ export interface VpnStatus {
 
 export interface AdminVpn {
   enabled: boolean
+  /** This server runs a gateway of its own. False when every instance lives on a lab host. */
+  local?: boolean
+  hosts?: {
+    id: number
+    name: string
+    enabled: boolean
+    vpn: { host: string; port: number } | null
+    gateway: { running: boolean; networks: string[]; error: string | null }
+    labs: number
+    clients: number
+  }[]
   host?: string
   port?: number
   gateway?: { running: boolean; networks: string[]; error: string | null }
@@ -493,6 +513,7 @@ export interface AdminVpn {
   clients?: number
   labs?: {
     id: number
+    lab_host_id?: number
     event_id: number
     participant: { kind: string; id: number; name: string | null }
     network: string
@@ -518,6 +539,7 @@ export interface InstanceListItem {
   network: 'vpn' | 'published'
   host: string | null
   port: number | null
+  machine?: boolean
   services?: { name: string; port: number }[]
   remaining_secs: number
 }
@@ -552,6 +574,8 @@ export interface LabHost {
   last_checked_at: number | null
   last_ok_at: number | null
   last_error: string | null
+  /** The host's own VPN gateway as it last reported itself; null when it has none. */
+  vpn: { host: string; port: number; only: boolean } | null
   /** Events set to run their instances here. */
   events: number
   live_instances: number
@@ -559,6 +583,8 @@ export interface LabHost {
 
 export interface LabHealth {
   name: string
+  vpn?: { host: string; port: number; pool: string } | null
+  vpn_only?: boolean
   version: string
   api: string
   runtime: string

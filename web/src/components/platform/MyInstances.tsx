@@ -14,7 +14,7 @@ export function MyInstances({ slug }: { slug: string }) {
       <h2 className="text-sm font-semibold">Your instances</h2>
       <ul className="flex flex-col divide-y divide-line">
         {list.map((i) => {
-          const address = i.host && i.port ? `${i.host}:${i.port}` : null
+          const address = i.host && (i.machine || i.port) ? (i.machine ? i.host : `${i.host}:${i.port}`) : null
           return (
             <li key={i.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5 first:pt-0 last:pb-0">
               <span className="min-w-0 flex-1 truncate font-medium">{i.title}</span>
