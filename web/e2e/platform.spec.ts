@@ -131,3 +131,53 @@ test('the VPN controls say plainly when the server has no VPN', async ({ page })
   await expect(page.getByRole('heading', { name: 'VPN gateway' })).toBeVisible()
   await expect(page.getByText(/Not enabled\. Set KYMO_VPN=1/)).toBeVisible()
 })
+
+test('closed sign-ups are explained up front and the server says so in plain words', async ({ page, browser }) => {
+  await organizer(page)
+  await page.goto('/admin/users')
+  const toggle = page.getByLabel('Anyone can create a player account')
+  await expect(toggle).toBeChecked()
+
+  const context = await browser.newContext()
+  const visitor = await context.newPage()
+  try {
+    await toggle.uncheck()
+    await expect.poll(async () => (await (await page.request.get('/api/v1/registration')).json()).open).toBe(false)
+    await visitor.goto('/signin?mode=register')
+    // Told before typing anything, and the form falls back to signing in instead of a dead end.
+    await expect(visitor.getByText(/Creating accounts is switched off on this server/)).toBeVisible()
+    await expect(visitor.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+    await expect(visitor.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled()
+
+    // A direct attempt is refused with a sentence about sign-ups, not about tokens.
+    const refused = await visitor.request.post('/api/v1/auth/register', { data: { username: 'latecomer', password: 'a long player password' } })
+    expect(refused.status()).toBe(403)
+    const message = ((await refused.json()) as { error: string }).error
+    expect(message).toMatch(/sign-ups are closed/)
+    expect(message).not.toMatch(/token/)
+  } finally {
+    await toggle.check()
+    await expect.poll(async () => (await (await page.request.get('/api/v1/registration')).json()).open).toBe(true)
+    await context.close()
+  }
+})
+
+test('the sign-up form explains what is missing as you type', async ({ browser }) => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await page.goto('/signin?mode=register')
+  const create = page.getByRole('button', { name: 'Create account', exact: true })
+  await expect(create).toBeDisabled()
+  await expect(page.getByRole('alert')).toHaveCount(0) // an empty form does not open in red
+  await page.getByLabel('Username').fill('ab')
+  await expect(page.getByText('At least 3 characters.')).toBeVisible()
+  await page.getByLabel('Username').fill('okay_name')
+  await page.getByLabel(/^Password/).fill('short')
+  await expect(page.getByText('5 more characters needed.')).toBeVisible()
+  await expect(create).toBeDisabled()
+  await page.getByLabel(/^Password/).fill('a long enough password')
+  await expect(create).toBeEnabled()
+  await page.getByLabel('Show the password').check()
+  await expect(page.getByLabel(/^Password/)).toHaveAttribute('type', 'text')
+  await context.close()
+})

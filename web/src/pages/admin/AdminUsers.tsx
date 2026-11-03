@@ -12,16 +12,36 @@ const ROLES: Role[] = ['player', 'referee', 'monitor', 'admin']
 
 function Registration() {
   const client = useQueryClient()
-  const q = useQuery({ queryKey: ['registration-open'], queryFn: platform.registrationOpen })
+  const key = ['registration-open']
+  const q = useQuery({ queryKey: key, queryFn: platform.registrationOpen })
+  // The checkbox follows the click at once. It goes back to what the server says once the
+  // request has finished, so a refusal puts it back where it was.
+  const [local, setLocal] = useState<boolean | null>(null)
   const set = useMutation({
     mutationFn: (open: boolean) => platform.setRegistrationOpen(open),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['registration-open'] }),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: key })
+      void client.invalidateQueries({ queryKey: ['sign-ups-open'] })
+      setLocal(null)
+    },
   })
   if (!q.data) return null
+  const open = local ?? q.data.open
   return (
     <Panel className="flex flex-col gap-2">
-      <Toggle label="Anyone can create a player account" checked={q.data.open} onChange={(v) => set.mutate(v)} disabled={set.isPending} />
-      <p className="text-sm text-muted">Turn this off to close sign-ups, for example once the participant list is final.</p>
+      <Toggle
+        label="Anyone can create a player account"
+        checked={open}
+        onChange={(v) => {
+          setLocal(v)
+          set.mutate(v)
+        }}
+      />
+      <p className="text-sm text-muted">
+        {open
+          ? 'Turn this off to close sign-ups, for example once the participant list is final. People who already have an account can still sign in.'
+          : 'Sign-ups are closed. Visitors are told so on the sign-up page. Create accounts for people by turning this back on briefly.'}
+      </p>
       <ErrorText error={set.error} />
     </Panel>
   )

@@ -69,7 +69,15 @@ function Overview({ event }: { event: EventInfo }) {
       }),
     onSuccess: done,
   })
-  const board = useMutation({ mutationFn: (v: boolean) => platform.setScoreboardPublic(event.id, v), onSuccess: done })
+  // The toggle follows the click at once and returns to what the server says when the request ends.
+  const [boardLocal, setBoardLocal] = useState<boolean | null>(null)
+  const board = useMutation({
+    mutationFn: (v: boolean) => platform.setScoreboardPublic(event.id, v),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+      setBoardLocal(null)
+    },
+  })
   const exportBundle = useMutation({ mutationFn: () => platform.exportEvent(event.id, event.slug) })
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -162,11 +170,18 @@ function Overview({ event }: { event: EventInfo }) {
       <Panel className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Public scoreboard</h2>
         <p className="text-sm text-muted">When off, only registered players and staff can see the scoreboard.</p>
-        <Toggle label="Anyone can see the scoreboard" checked={event.scoreboard_public} onChange={(v) => board.mutate(v)} disabled={board.isPending} />
+        <Toggle
+          label="Anyone can see the scoreboard"
+          checked={boardLocal ?? event.scoreboard_public}
+          onChange={(v) => {
+            setBoardLocal(v)
+            board.mutate(v)
+          }}
+        />
         <ErrorText error={board.error} />
       </Panel>
 
-      {event.kind === 'jeopardy' && <NetworkMode event={event} onChanged={done} />}
+      {event.kind === 'jeopardy' && <NetworkMode event={event} />}
 
       {event.kind === 'jeopardy' && <JeopardySettingsForm eventId={event.id} />}
 
@@ -185,9 +200,17 @@ function Overview({ event }: { event: EventInfo }) {
   )
 }
 
-function NetworkMode({ event, onChanged }: { event: EventInfo; onChanged: () => void }) {
+function NetworkMode({ event }: { event: EventInfo }) {
   const vpn = useQuery({ queryKey: ['admin-vpn'], queryFn: platform.adminVpn })
-  const set = useMutation({ mutationFn: (mode: 'published' | 'vpn') => platform.setNetworkMode(event.id, mode), onSuccess: onChanged })
+  const client = useQueryClient()
+  const [local, setLocal] = useState<'published' | 'vpn' | null>(null)
+  const set = useMutation({
+    mutationFn: (mode: 'published' | 'vpn') => platform.setNetworkMode(event.id, mode),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+      setLocal(null)
+    },
+  })
   const enabled = vpn.data?.enabled ?? false
   return (
     <Panel className="flex flex-col gap-3">
@@ -198,8 +221,11 @@ function NetworkMode({ event, onChanged }: { event: EventInfo; onChanged: () => 
       <div className="flex flex-wrap items-center gap-3">
         <Select
           aria-label="Instance network"
-          value={event.network_mode}
-          onChange={(e) => set.mutate(e.target.value as 'published' | 'vpn')}
+          value={local ?? event.network_mode}
+          onChange={(e) => {
+            setLocal(e.target.value as 'published' | 'vpn')
+            set.mutate(e.target.value as 'published' | 'vpn')
+          }}
           disabled={set.isPending}
           className="w-64"
         >
