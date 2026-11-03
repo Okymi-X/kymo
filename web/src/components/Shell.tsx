@@ -2,7 +2,7 @@ import { ChevronLeft, Search } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useTournaments } from '../api/hooks'
-import { session, useIsAdmin, useIsReferee } from '../api/client'
+import { session, useIsAdmin, useIsReferee, useWho } from '../api/client'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 import { AccountMenu } from './AccountMenu'
 import { CommandPalette } from './CommandPalette'
@@ -74,11 +74,13 @@ function Header({ onSearch }: { onSearch: () => void }) {
   }, [])
   const admin = useIsAdmin()
   const referee = useIsReferee()
+  const who = useWho()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const look = useAppearance().data
   const siteName = look?.site_name ?? DEFAULT_APPEARANCE.site_name
   const onTournaments = pathname === '/' || pathname.startsWith('/t/')
+  const onEvents = pathname.startsWith('/events') || pathname.startsWith('/e/')
   const info = useHeaderInfo()
   return (
     <header className={`no-print sticky top-0 z-20 border-b backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200 supports-[backdrop-filter]:bg-surface/70 ${scrolled ? 'border-line bg-surface/90 shadow-[var(--shadow-lift)]' : 'border-transparent bg-surface/80'}`}>
@@ -101,6 +103,13 @@ function Header({ onSearch }: { onSearch: () => void }) {
             className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${onTournaments ? 'bg-line/60 text-ink' : 'text-muted hover:bg-line/40 hover:text-ink'}`}
           >
             Tournaments
+          </Link>
+          <Link
+            to="/events"
+            aria-current={onEvents ? 'page' : undefined}
+            className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${onEvents ? 'bg-line/60 text-ink' : 'text-muted hover:bg-line/40 hover:text-ink'}`}
+          >
+            Events
           </Link>
           <Link
             to="/ladder"
@@ -126,7 +135,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
             <kbd className="hidden rounded border border-line px-1.5 py-0.5 font-mono text-[11px] sm:inline">{shortcut}</kbd>
           </button>
           <ThemeToggle />
-          {admin ? (
+          {admin || who ? (
             <AccountMenu />
           ) : referee ? (
             <button
@@ -140,9 +149,8 @@ function Header({ onSearch }: { onSearch: () => void }) {
               Referee, sign out
             </button>
           ) : (
-            <Link to="/login" className="whitespace-nowrap rounded-control px-2.5 py-1.5 text-sm text-muted transition-colors hover:bg-line/40 hover:text-ink">
-              <span className="sm:hidden">Sign in</span>
-              <span className="hidden sm:inline">Organizer sign in</span>
+            <Link to="/signin" className="whitespace-nowrap rounded-control bg-accent px-3 py-1.5 text-sm font-medium text-bg transition-opacity hover:opacity-90">
+              Sign in
             </Link>
           )}
         </div>

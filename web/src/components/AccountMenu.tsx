@@ -1,12 +1,15 @@
-import { ChevronDown, KeyRound, LogOut, Palette } from 'lucide-react'
+import { Activity, ChevronDown, KeyRound, LogOut, Palette, ShieldAlert, Swords, User as UserIcon, Users, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, session } from '../api/client'
+import { api, session, useCanMonitor, useIsAdmin, useWho } from '../api/client'
 
 const ITEM = 'flex w-full items-center gap-2.5 rounded-[calc(var(--radius-control)-2px)] px-3 py-2 text-left text-sm hover:bg-line/60 focus:bg-line/60 focus:outline-none'
 
 /** Organizer menu: appearance, tokens and sign out behind one button. */
 export function AccountMenu() {
+  const who = useWho()
+  const admin = useIsAdmin()
+  const monitor = useCanMonitor()
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -50,24 +53,54 @@ export function AccountMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Organizer menu"
+        aria-label={who ? 'Account menu' : 'Organizer menu'}
         onClick={() => setOpen((v) => !v)}
         className="flex h-9 items-center gap-1.5 rounded-full border border-line pl-1 pr-2 text-muted transition-colors hover:text-ink"
       >
         <span className="flex size-7 items-center justify-center rounded-full bg-accent text-xs font-semibold text-bg" aria-hidden="true">
-          O
+          {who ? who.username.slice(0, 1).toUpperCase() : 'O'}
         </span>
         <ChevronDown size={14} aria-hidden="true" className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div role="menu" aria-label="Organizer" className="menu-pop absolute right-0 top-11 z-30 w-52 origin-top-right rounded-card border border-line bg-surface p-1.5 shadow-[var(--shadow-lift)]">
-          <p className="px-3 pb-1 pt-1.5 text-xs text-muted">Signed in as organizer</p>
-          <Link role="menuitem" to="/settings" className={ITEM} onClick={() => setOpen(false)}>
-            <Palette size={16} aria-hidden="true" /> Appearance
-          </Link>
-          <Link role="menuitem" to="/tokens" className={ITEM} onClick={() => setOpen(false)}>
-            <KeyRound size={16} aria-hidden="true" /> API tokens
-          </Link>
+        <div role="menu" aria-label={who ? 'Account' : 'Organizer'} className="menu-pop absolute right-0 top-11 z-30 w-52 origin-top-right rounded-card border border-line bg-surface p-1.5 shadow-[var(--shadow-lift)]">
+          <p className="truncate px-3 pb-1 pt-1.5 text-xs text-muted">{who ? `Signed in as ${who.username}` : 'Signed in as organizer'}</p>
+          {who && (
+            <>
+              <Link role="menuitem" to="/profile" className={ITEM} onClick={() => setOpen(false)}>
+                <UserIcon size={16} aria-hidden="true" /> Profile
+              </Link>
+              <Link role="menuitem" to="/team" className={ITEM} onClick={() => setOpen(false)}>
+                <UsersRound size={16} aria-hidden="true" /> My team
+              </Link>
+            </>
+          )}
+          {admin && (
+            <>
+              {who && <div className="my-1 border-t border-line" />}
+              <Link role="menuitem" to="/settings" className={ITEM} onClick={() => setOpen(false)}>
+                <Palette size={16} aria-hidden="true" /> Appearance
+              </Link>
+              <Link role="menuitem" to="/tokens" className={ITEM} onClick={() => setOpen(false)}>
+                <KeyRound size={16} aria-hidden="true" /> API tokens
+              </Link>
+              <div className="my-1 border-t border-line" />
+              <Link role="menuitem" to="/admin/events" className={ITEM} onClick={() => setOpen(false)}>
+                <Swords size={16} aria-hidden="true" /> Manage events
+              </Link>
+              <Link role="menuitem" to="/admin/users" className={ITEM} onClick={() => setOpen(false)}>
+                <Users size={16} aria-hidden="true" /> Users
+              </Link>
+              <Link role="menuitem" to="/admin/ops" className={ITEM} onClick={() => setOpen(false)}>
+                <Activity size={16} aria-hidden="true" /> Operations
+              </Link>
+            </>
+          )}
+          {monitor && (
+            <Link role="menuitem" to="/monitor" className={ITEM} onClick={() => setOpen(false)}>
+              <ShieldAlert size={16} aria-hidden="true" /> Monitor
+            </Link>
+          )}
           <div className="my-1 border-t border-line" />
           <button role="menuitem" type="button" className={ITEM} onClick={signOut}>
             <LogOut size={16} aria-hidden="true" /> Sign out

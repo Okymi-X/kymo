@@ -10,6 +10,16 @@ import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { NotFound } from './pages/NotFound'
 import { Ladder } from './pages/Ladder'
+import { AdminEvent } from './pages/admin/AdminEvent'
+import { AdminEvents } from './pages/admin/AdminEvents'
+import { AdminUsers } from './pages/admin/AdminUsers'
+import { Ops } from './pages/admin/Ops'
+import { Monitor } from './pages/Monitor'
+import { Events } from './pages/Events'
+import { EventPage } from './pages/EventPage'
+import { Profile } from './pages/Profile'
+import { SignIn } from './pages/SignIn'
+import { TeamPage } from './pages/TeamPage'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
@@ -49,6 +59,16 @@ createRoot(document.getElementById('root')!).render(
             <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/signin" element={<SignIn />} />
+              <Route path="/events" element={<Events />} />
+              <Route path="/e/:slug" element={<EventPage />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/admin/events" element={<AdminEvents />} />
+              <Route path="/admin/events/:id" element={<AdminEvent />} />
+              <Route path="/admin/users" element={<AdminUsers />} />
+              <Route path="/admin/ops" element={<Ops />} />
+              <Route path="/monitor" element={<Monitor />} />
               <Route path="/ladder" element={<Ladder />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
