@@ -129,22 +129,39 @@ export class ApiError extends Error {
   }
 }
 
+/** What a person should read for a failed request. The server's own words are kept when they
+ *  already say what is wrong; the rest are replaced by something that tells them what to do. */
+export function friendlyMessage(status: number, serverMessage: string | undefined, hadSession: boolean, path: string): string {
+  if (status === 401 && hadSession && !path.startsWith('/auth/')) return 'Your session has ended. Sign in again.'
+  // A 503 carries a message written for people (the VPN or the container platform is down); a bare 500 does not.
+  if (status >= 500 && status !== 503) return 'Something went wrong on the server. Try again in a moment.'
+  if (status === 404 && (serverMessage === undefined || serverMessage === 'not found')) return 'That could not be found.'
+  return serverMessage ?? 'The request failed. Try again.'
+}
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   const token = session.token()
   if (token) headers.authorization = `Bearer ${token}`
   if (body !== undefined) headers['content-type'] = 'application/json'
-  const res = await fetch(BASE + path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  if (res.status === 401 && token) session.clear()
+  let res: Response
+  try {
+    res = await fetch(BASE + path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    // The browser could not reach the server at all (offline, server stopped, blocked).
+    throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.')
+  }
+  // Only end the session that was actually rejected. A slow request made with an earlier
+  // token (before a sign out) must not sign out whoever signed in since.
+  if (res.status === 401 && token && session.token() === token) session.clear()
   if (res.status === 204) return undefined as T
   const data: unknown = await res.json().catch(() => null)
   if (!res.ok) {
-    const message = (data as { error?: string } | null)?.error ?? 'Request failed'
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, friendlyMessage(res.status, (data as { error?: string } | null)?.error, token !== null, path))
   }
   return data as T
 }
