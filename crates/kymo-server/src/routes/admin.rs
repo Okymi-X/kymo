@@ -14,6 +14,7 @@ use crate::events;
 use crate::reports;
 use crate::settings::{self, Appearance};
 use crate::state::AppState;
+use crate::text::{clean_name, slugify};
 use crate::tokens::{self, ApiToken, Kind};
 use crate::webhooks;
 
@@ -103,33 +104,6 @@ pub struct ScheduleBody {
 pub struct ResultBody {
     score_a: u32,
     score_b: u32,
-}
-
-fn clean_name(raw: &str, max: usize) -> Result<String, ApiError> {
-    if raw.chars().any(crate::text::is_hidden_char) {
-        return Err(ApiError::BadRequest(
-            "names cannot contain control or invisible characters".into(),
-        ));
-    }
-    let name = raw.trim();
-    if name.is_empty() || name.chars().count() > max {
-        return Err(ApiError::BadRequest(format!(
-            "name must be 1 to {max} characters"
-        )));
-    }
-    Ok(name.to_owned())
-}
-
-fn slugify(name: &str) -> String {
-    let mut slug = String::new();
-    for c in name.chars().flat_map(char::to_lowercase) {
-        if c.is_alphanumeric() {
-            slug.push(c);
-        } else if !slug.ends_with('-') && !slug.is_empty() {
-            slug.push('-');
-        }
-    }
-    slug.trim_end_matches('-').to_owned()
 }
 
 pub async fn create(

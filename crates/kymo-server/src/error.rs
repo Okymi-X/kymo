@@ -10,14 +10,30 @@ pub enum ApiError {
     BadRequest(String),
     Unauthorized,
     Forbidden,
+    Banned,
     NotFound,
     Conflict(String),
     TooManyRequests,
+    /// 403 with a specific reason, for example not being registered for an event.
+    Denied(String),
+    /// 429 for the flag submission limit, with the seconds until the next try.
+    RateLimited {
+        retry_after: i64,
+    },
+    /// 429 from a monitor rate rule, with the seconds until the next try.
+    Throttled {
+        retry_after: i64,
+    },
+    /// 403 for a banned network address.
+    AddressBanned,
+    /// 503 for a missing or failing backend such as the container platform.
+    Unavailable(String),
     Internal,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let mut retry = None;
         let (status, message) = match self {
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "authentication required".into()),
@@ -25,19 +41,42 @@ impl IntoResponse for ApiError {
                 StatusCode::FORBIDDEN,
                 "this token is not allowed to do that".into(),
             ),
+            ApiError::Banned => (StatusCode::FORBIDDEN, "this account is banned".into()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m),
             ApiError::TooManyRequests => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many failed sign ins, try again in a minute".into(),
             ),
+            ApiError::Denied(m) => (StatusCode::FORBIDDEN, m),
+            ApiError::RateLimited { retry_after } => {
+                retry = Some(retry_after.max(1));
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "too many submissions, try again in {} seconds",
+                        retry_after.max(1)
+                    ),
+                )
+            }
+            ApiError::Throttled { retry_after } => {
+                retry = Some(retry_after.max(1));
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "too many requests, try again in {} seconds",
+                        retry_after.max(1)
+                    ),
+                )
+            }
+            ApiError::AddressBanned => (StatusCode::FORBIDDEN, "this address is banned".into()),
+            ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
             ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
         };
         let mut response = (status, Json(json!({ "error": message }))).into_response();
         if status == StatusCode::TOO_MANY_REQUESTS {
-            response
-                .headers_mut()
-                .insert(RETRY_AFTER, HeaderValue::from_static("60"));
+            let value = retry.map_or_else(|| HeaderValue::from_static("60"), HeaderValue::from);
+            response.headers_mut().insert(RETRY_AFTER, value);
         }
         response
     }

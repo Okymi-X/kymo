@@ -1,9 +1,19 @@
 mod admin;
+mod admin_challenges;
+mod challenges;
+mod events;
+mod instances;
+mod monitor;
+mod ops;
+mod players;
 mod public;
+mod scoreboard;
+mod teams;
+mod vpn;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::Request;
+use axum::extract::{DefaultBodyLimit, Request};
 use axum::http::StatusCode;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderName, HeaderValue};
@@ -21,6 +31,171 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/login", post(public::login))
         .route("/auth/logout", post(public::logout))
         .route("/auth/me", get(public::me))
+        .route("/auth/register", post(players::register))
+        .route("/auth/player-login", post(players::player_login))
+        .route("/me", get(players::me).put(players::update_me))
+        .route("/events", get(events::list))
+        .route("/events/{slug}", get(events::show))
+        .route(
+            "/events/{slug}/register",
+            post(events::register).delete(events::unregister),
+        )
+        .route("/teams", post(teams::create))
+        .route("/teams/mine", get(teams::mine))
+        .route("/teams/join", post(teams::join))
+        .route("/teams/{id}", get(teams::show))
+        .route("/teams/{id}/leave", post(teams::leave))
+        .route("/teams/{id}/invite-code/rotate", post(teams::rotate_code))
+        .route("/teams/{id}/members/{user_id}", delete(teams::kick))
+        .route(
+            "/admin/events",
+            get(events::admin_list).post(events::create),
+        )
+        .route(
+            "/admin/events/{id}",
+            put(events::update).delete(events::remove),
+        )
+        .route("/admin/events/{id}/state", post(events::set_state))
+        .route("/admin/events/{id}/participants", get(events::participants))
+        .route("/admin/users", get(players::list_users))
+        .route("/admin/users/{id}", put(players::update_user))
+        .route(
+            "/admin/registration",
+            get(players::get_registration).put(players::set_registration),
+        )
+        .route("/events/{slug}/challenges", get(challenges::list))
+        .route(
+            "/events/{slug}/challenges/{id}/submit",
+            post(challenges::submit),
+        )
+        .route(
+            "/events/{slug}/challenges/{id}/hints/{hint_id}/unlock",
+            post(challenges::unlock_hint),
+        )
+        .route(
+            "/events/{slug}/challenges/{id}/attachments/{attachment_id}",
+            get(challenges::download),
+        )
+        .route(
+            "/events/{slug}/challenges/{id}/instance",
+            get(instances::show)
+                .post(instances::start)
+                .delete(instances::stop),
+        )
+        .route(
+            "/events/{slug}/challenges/{id}/instance/restart",
+            post(instances::restart),
+        )
+        .route("/events/{slug}/instances", get(instances::list))
+        .route("/admin/events/{id}/instances", get(instances::admin_list))
+        .route("/admin/instances/{id}", delete(instances::admin_stop))
+        .route("/admin/instances/reap", post(instances::admin_reap))
+        .route("/vpn", get(vpn::status))
+        .route("/vpn/profile", post(vpn::profile))
+        .route("/admin/vpn", get(vpn::admin_status))
+        .route("/admin/vpn/sync", post(vpn::admin_sync))
+        .route("/admin/vpn/clients/{user_id}", delete(vpn::admin_revoke))
+        .route("/admin/events/{id}/network", put(vpn::set_network))
+        .route("/health", get(ops::live))
+        .route("/admin/ops/health", get(ops::health))
+        .route("/admin/ops/cleanup", post(ops::cleanup))
+        .route(
+            "/admin/ops/backups",
+            get(ops::list_backups).post(ops::create_backup),
+        )
+        .route("/admin/ops/backup/download", get(ops::download_backup))
+        .route("/admin/events/{id}/export", get(ops::export_event))
+        .route(
+            "/admin/events/import",
+            post(ops::import_event).layer(DefaultBodyLimit::max(ops::BUNDLE_BODY_LIMIT)),
+        )
+        .route("/admin/monitor/requests", get(monitor::requests))
+        .route("/admin/monitor/summary", get(monitor::summary))
+        .route(
+            "/admin/monitor/events/{id}/submissions",
+            get(monitor::submissions),
+        )
+        .route(
+            "/admin/monitor/rules",
+            get(monitor::list_rules).post(monitor::create_rule),
+        )
+        .route(
+            "/admin/monitor/rules/{id}",
+            put(monitor::update_rule).delete(monitor::delete_rule),
+        )
+        .route(
+            "/admin/monitor/bans",
+            get(monitor::list_bans).post(monitor::create_ban),
+        )
+        .route("/admin/monitor/bans/{id}", delete(monitor::lift_ban))
+        .route("/admin/monitor/audit", get(monitor::audit))
+        .route("/events/{slug}/scoreboard", get(scoreboard::scoreboard))
+        .route("/events/{slug}/progress", get(scoreboard::progress))
+        .route("/events/{slug}/stream", get(challenges::stream))
+        .route("/teams/{id}/progress", get(scoreboard::team_progress))
+        .route(
+            "/admin/events/{id}/categories",
+            get(admin_challenges::list_categories).post(admin_challenges::create_category),
+        )
+        .route(
+            "/admin/categories/{id}",
+            put(admin_challenges::update_category).delete(admin_challenges::delete_category),
+        )
+        .route(
+            "/admin/events/{id}/challenges",
+            get(admin_challenges::list_challenges).post(admin_challenges::create_challenge),
+        )
+        .route(
+            "/admin/challenges/{id}",
+            get(admin_challenges::show_challenge)
+                .put(admin_challenges::update_challenge)
+                .delete(admin_challenges::delete_challenge),
+        )
+        .route(
+            "/admin/challenges/{id}/publish",
+            post(admin_challenges::publish),
+        )
+        .route(
+            "/admin/challenges/{id}/retire",
+            post(admin_challenges::retire),
+        )
+        .route(
+            "/admin/challenges/{id}/schedule",
+            put(admin_challenges::schedule),
+        )
+        .route(
+            "/admin/challenges/{id}/test",
+            post(admin_challenges::test_flag),
+        )
+        .route(
+            "/admin/challenges/{id}/hints",
+            post(admin_challenges::create_hint),
+        )
+        .route(
+            "/admin/hints/{id}",
+            put(admin_challenges::update_hint).delete(admin_challenges::delete_hint),
+        )
+        .route(
+            "/admin/challenges/{id}/attachments",
+            post(admin_challenges::upload_attachment)
+                .layer(DefaultBodyLimit::max(admin_challenges::UPLOAD_BODY_LIMIT)),
+        )
+        .route(
+            "/admin/attachments/{id}",
+            delete(admin_challenges::delete_attachment),
+        )
+        .route(
+            "/admin/events/{id}/submissions",
+            get(admin_challenges::submissions),
+        )
+        .route(
+            "/admin/events/{id}/jeopardy",
+            get(admin_challenges::get_settings).put(admin_challenges::put_settings),
+        )
+        .route(
+            "/admin/events/{id}/scoreboard",
+            post(admin_challenges::set_scoreboard),
+        )
         .route("/ladder", get(public::ladder))
         .route(
             "/report/{code}",
@@ -93,6 +268,10 @@ pub fn router(state: AppState) -> Router {
         .nest(
             "/api/v1",
             api.fallback(not_found)
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    crate::monitor::layer,
+                ))
                 .layer(middleware::map_response(json_errors)),
         )
         .fallback(crate::assets::serve)

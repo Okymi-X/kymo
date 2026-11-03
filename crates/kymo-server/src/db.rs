@@ -6,6 +6,8 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{FromRow, SqlitePool};
 
 use crate::error::ApiError;
+use crate::event_store;
+use crate::tokens;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +45,7 @@ struct Row {
     best_of: i64,
     description: String,
     accent: Option<String>,
+    event_id: Option<i64>,
     status: Status,
     bracket: Option<String>,
     created_at: String,
@@ -65,6 +68,8 @@ pub struct Tournament {
     pub description: String,
     /// Optional #rrggbb accent that tints this tournament's pages.
     pub accent: Option<String>,
+    /// The platform event this tournament belongs to.
+    pub event_id: Option<i64>,
     pub status: Status,
     pub created_at: String,
     pub teams: Vec<Team>,
@@ -133,6 +138,7 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         best_of: u8::try_from(row.best_of).unwrap_or(1),
         description: row.description,
         accent: row.accent,
+        event_id: row.event_id,
         status: row.status,
         created_at: row.created_at,
         team_count: teams.len(),
@@ -190,9 +196,18 @@ pub struct NewTournament<'a> {
     pub best_of: u8,
 }
 
+/// Creates the tournament and its platform event in one transaction.
 pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, ApiError> {
+    let mut tx = pool.begin().await?;
+    let event_id = event_store::insert(
+        &mut tx,
+        &event_store::tournament_fields(new.name),
+        new.slug,
+        tokens::now(),
+    )
+    .await?;
     let result = sqlx::query(
-        "INSERT INTO tournament (name, slug, format, third_place, groups, advance, rounds, best_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tournament (name, slug, format, third_place, groups, advance, rounds, best_of, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(new.name)
     .bind(new.slug)
@@ -202,8 +217,10 @@ pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, Ap
     .bind(i64::from(new.advance))
     .bind(i64::from(new.rounds))
     .bind(i64::from(new.best_of))
-    .execute(pool)
+    .bind(event_id)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(result.last_insert_rowid())
 }
 
@@ -242,15 +259,27 @@ pub async fn rename(
 }
 
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
-    let done = sqlx::query("DELETE FROM tournament WHERE id = ?")
+    let mut tx = pool.begin().await?;
+    let event_id: Option<Option<i64>> =
+        sqlx::query_scalar("SELECT event_id FROM tournament WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(event_id) = event_id else {
+        return Err(ApiError::NotFound);
+    };
+    sqlx::query("DELETE FROM tournament WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
-    if done.rows_affected() == 0 {
-        Err(ApiError::NotFound)
-    } else {
-        Ok(())
+    if let Some(event_id) = event_id {
+        sqlx::query("DELETE FROM event WHERE id = ?")
+            .bind(event_id)
+            .execute(&mut *tx)
+            .await?;
     }
+    tx.commit().await?;
+    Ok(())
 }
 
 pub struct NewTeam {

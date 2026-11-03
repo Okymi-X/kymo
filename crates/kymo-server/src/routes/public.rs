@@ -108,6 +108,11 @@ pub async fn me(
     let access = tokens::access(&state.pool, secret)
         .await?
         .ok_or(ApiError::Unauthorized)?;
+    if let Some(user) = access.user {
+        return Ok(Json(
+            serde_json::json!({ "role": user.role.as_str(), "tournaments": null }),
+        ));
+    }
     Ok(Json(if access.referee {
         serde_json::json!({ "role": "referee", "tournaments": access.scope })
     } else {

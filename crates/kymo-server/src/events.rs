@@ -29,7 +29,7 @@ async fn insert(
     data: Value,
 ) -> Result<(), ApiError> {
     sqlx::query(
-        "INSERT INTO event (tournament_id, at, kind, match_id, data) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO activity (tournament_id, at, kind, match_id, data) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(tournament_id)
     .bind(at)
@@ -114,7 +114,7 @@ pub async fn record_tournament_at(
 
 /// Newest first.
 pub async fn list(pool: &SqlitePool, tournament_id: i64) -> Result<Vec<Event>, ApiError> {
-    Ok(sqlx::query_as("SELECT id, at, kind, match_id, data FROM event WHERE tournament_id = ? ORDER BY id DESC LIMIT ?")
+    Ok(sqlx::query_as("SELECT id, at, kind, match_id, data FROM activity WHERE tournament_id = ? ORDER BY id DESC LIMIT ?")
         .bind(tournament_id)
         .bind(LIST_LIMIT)
         .fetch_all(pool)
