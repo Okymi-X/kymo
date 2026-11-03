@@ -127,3 +127,9 @@ export function registrationStatus(
       return { open: false, reason: 'This event has ended.' }
   }
 }
+
+/** Placeholder far future dates (year 2096 and later) mean "no deadline", not a real date. */
+export const NO_DEADLINE_AFTER = 4_000_000_000
+export function isNoDeadline(t: number): boolean {
+  return t >= NO_DEADLINE_AFTER
+}

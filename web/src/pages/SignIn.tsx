@@ -23,6 +23,7 @@ export function SignIn() {
   const open = useQuery({ queryKey: ['sign-ups-open'], queryFn: platform.signUpsOpen })
   // Until the answer arrives, assume open: the server refuses a closed sign-up anyway.
   const closed = open.data?.open === false
+  const contact = open.data?.contact ?? ''
   const [chosen, setChosen] = useState<Mode>(params.get('mode') === 'register' ? 'register' : 'login')
   const mode: Mode = closed ? 'login' : chosen
   const [username, setUsername] = useState('')
@@ -66,7 +67,7 @@ export function SignIn() {
         <p role="status" className="flex items-start gap-2 rounded-control border border-line bg-surface p-3 text-sm">
           <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-accent" />
           <span>
-            Creating accounts is switched off on this server. If you already have one, sign in below. Otherwise ask an organizer to make an account for you.
+            Creating accounts is switched off on this server. If you already have one, sign in below. Otherwise ask an organizer to make an account for you.{contact && <> To get one: {contact}</>}
           </span>
         </p>
       )}

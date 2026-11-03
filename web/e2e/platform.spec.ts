@@ -190,6 +190,7 @@ test('on a phone the main links live in a menu and the page does not scroll side
   await page.getByRole('button', { name: 'Open menu' }).click()
   await expect(page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Tournaments' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Ladder' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCount(1)
   await page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Events' }).click()
   await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Menu' })).toBeHidden() // it closes after choosing
@@ -261,7 +262,7 @@ test('the event page says what is actually true about signing in, creating an ac
   }
 })
 
-test('a long event description says there is more', async ({ page }) => {
+test('every event card looks the same and opens the full description', async ({ page }) => {
   const login = await page.request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
   const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
   const long = 'A long description that keeps going. '.repeat(8)
@@ -270,9 +271,29 @@ test('a long event description says there is more', async ({ page }) => {
   await page.request.post(`/api/v1/admin/events/${event.id}/state`, { headers, data: { state: 'registration_open' } })
   await page.goto('/events')
   const card = page.getByRole('link', { name: /Read More Cup/ })
-  await expect(card.getByText('Read more', { exact: true })).toBeVisible()
+  await expect(card.getByText('View event')).toBeVisible()
+  expect(await page.getByRole('link', { name: /View event/ }).count()).toBe(await page.getByRole('heading', { level: 2 }).count())
   await card.click()
   await expect(page.getByText(long.trim())).toBeVisible()
+})
+
+test('closed sign-ups show the organizer contact on the event and sign in pages', async ({ page }) => {
+  const login = await page.request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const made = await page.request.post('/api/v1/admin/events', { headers, data: { name: 'Landing Cup', kind: 'jeopardy', mode: 'solo' } })
+  const event = (await made.json()) as { id: number; slug: string }
+  await page.request.post(`/api/v1/admin/events/${event.id}/state`, { headers, data: { state: 'registration_open' } })
+  try {
+    await page.request.put('/api/v1/admin/contact', { headers, data: { contact: 'write to organizers@example.org' } })
+    await page.request.put('/api/v1/admin/registration', { headers, data: { open: false } })
+    await page.goto(`/e/${event.slug}`)
+    await expect(page.getByText(/To get one: write to organizers@example.org/)).toBeVisible()
+    await page.goto('/signin')
+    await expect(page.getByText(/To get one: write to organizers@example.org/)).toBeVisible()
+  } finally {
+    await page.request.put('/api/v1/admin/registration', { headers, data: { open: true } })
+    await page.request.put('/api/v1/admin/contact', { headers, data: { contact: '' } })
+  }
 })
 
 test('administration pages fit a phone and keep their actions on screen', async ({ browser, request }) => {

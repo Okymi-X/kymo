@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
 import { useEvents } from '../api/platformHooks'
+import { EventCard } from './Events'
 import { useAppearance } from '../components/ThemeLoader'
 import type { Format, Status } from '../api/types'
 import { CardSkeleton, TournamentCard } from '../components/TournamentCard'
@@ -186,7 +187,7 @@ export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
   // Jeopardy events a visitor can join: without this the home page can look like an empty product.
-  const liveEvents = (useEvents().data ?? []).filter((e) => e.kind === 'jeopardy' && e.effective_state !== 'ended' && e.effective_state !== 'archived').length
+  const joinable = (useEvents().data ?? []).filter((e) => e.kind === 'jeopardy' && e.effective_state !== 'ended' && e.effective_state !== 'archived')
   const [params, setParams] = useSearchParams()
   const requested = params.get('status')
   const filter: Filter = FILTERS.find((f) => f.value === requested)?.value ?? 'all'
@@ -222,21 +223,28 @@ export function Home() {
         </ul>
       )}
       {data?.length === 0 && (
-        <div className="rounded-card border border-dashed border-field-line p-10 text-center">
+        <div className="rounded-card border border-dashed border-field-line p-6 text-center sm:p-8">
           <p className="text-lg font-medium">No tournaments yet</p>
           <p className="mt-1 text-muted">{admin ? 'Create the first one above, or load sample tournaments to explore every format.' : 'Check back when the organizer starts one.'}</p>
-          {liveEvents > 0 && (
-            <div className="mt-5 flex flex-col items-center gap-2">
-              <p className="text-muted">
-                There {liveEvents === 1 ? 'is' : 'are'} {liveEvents} {liveEvents === 1 ? 'event' : 'events'} you can join right now.
-              </p>
-              <Link to="/events" className="inline-flex h-10 items-center rounded-control bg-accent px-4 font-medium text-bg hover:opacity-90">
-                Browse events
-              </Link>
-            </div>
-          )}
           {admin && <DemoButton />}
         </div>
+      )}
+      {data?.length === 0 && joinable.length > 0 && (
+        <section className="flex flex-col gap-3" aria-label="Events you can join">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-tight">Events you can join</h2>
+            <Link to="/events" className="text-sm font-medium text-accent hover:underline">
+              All events
+            </Link>
+          </div>
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {joinable.slice(0, 6).map((e) => (
+              <li key={e.id} className="min-w-0">
+                <EventCard event={e} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {data && data.length > 0 && shown.length === 0 && <p className="text-muted">Nothing matches this filter.</p>}
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

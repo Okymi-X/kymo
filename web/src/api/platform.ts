@@ -75,7 +75,7 @@ const ch = (slug: string, id: number) => `${ev(slug)}/challenges/${id}`
 
 export const platform = {
   // accounts
-  signUpsOpen: () => request<{ open: boolean }>('GET', '/registration'),
+  signUpsOpen: () => request<{ open: boolean; contact: string }>('GET', '/registration'),
   register: (username: string, password: string, email?: string) =>
     request<SessionOut>('POST', '/auth/register', { username, password, ...(email ? { email } : {}) }),
   playerLogin: (username: string, password: string) => request<SessionOut>('POST', '/auth/player-login', { username, password }),
@@ -166,6 +166,8 @@ export const platform = {
   users: (params: { q?: string; page?: number }) => request<Page<User>>('GET', `/admin/users${query({ per_page: 25, ...params })}`),
   updateUser: (id: number, body: { role?: Role; banned?: boolean }) => request<User>('PUT', `/admin/users/${id}`, body),
   registrationOpen: () => request<{ open: boolean }>('GET', '/admin/registration'),
+  contact: () => request<{ contact: string }>('GET', '/admin/contact'),
+  setContact: (contact: string) => request<{ contact: string }>('PUT', '/admin/contact', { contact }),
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),
 
   // monitor

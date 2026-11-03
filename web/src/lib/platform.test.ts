@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, PlayerChallenge } from '../api/platformTypes'
-import { countdown, flagHint, registrationStatus, fileSize, fromLocalInput, groupByCategory, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
+import { countdown, flagHint, isNoDeadline, registrationStatus, fileSize, fromLocalInput, groupByCategory, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
 
 const challenge = (id: number, category_id: number, points: number, title = `c${id}`): PlayerChallenge => ({
   id,
@@ -114,5 +114,12 @@ describe('registrationStatus', () => {
     for (const state of ['draft', 'paused', 'ended', 'archived'] as const) {
       expect(registrationStatus(event({ effective_state: state }), NOW).open).toBe(false)
     }
+  })
+})
+
+describe('isNoDeadline', () => {
+  it('treats the far future placeholder as no date', () => {
+    expect(isNoDeadline(4_070_908_800)).toBe(true) // 2099-01-01
+    expect(isNoDeadline(1_800_000_000)).toBe(false)
   })
 })

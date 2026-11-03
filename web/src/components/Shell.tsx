@@ -71,7 +71,7 @@ const NAV: { to: string; label: string; match: (path: string) => boolean }[] = [
 ]
 
 /** The primary links on a phone, where the header has no room for them. */
-function MobileNav({ signedOut }: { signedOut: boolean }) {
+function MobileNav() {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -113,11 +113,6 @@ function MobileNav({ signedOut }: { signedOut: boolean }) {
               {item.label}
             </Link>
           ))}
-          {signedOut && (
-            <Link to="/signin" className="mt-1 rounded-control bg-accent px-3 py-3 text-center text-base font-medium text-bg">
-              Sign in
-            </Link>
-          )}
         </nav>
       )}
     </div>
@@ -145,7 +140,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
   return (
     <header className={`no-print sticky top-0 z-20 border-b backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200 supports-[backdrop-filter]:bg-surface/70 ${scrolled ? 'border-line bg-surface/90 shadow-[var(--shadow-lift)]' : 'border-transparent bg-surface/80'}`}>
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-        <MobileNav signedOut={!admin && !who && !referee} />
+        <MobileNav />
         <Brand siteName={siteName} logo={look?.logo ?? null} />
         <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''}`}>
           <Link

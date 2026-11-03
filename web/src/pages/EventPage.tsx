@@ -4,7 +4,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 import { useIsAdmin, useWho } from '../api/client'
 import { platform } from '../api/platform'
 import { useEvent, useMyTeam } from '../api/platformHooks'
-import { registrationStatus } from '../lib/platform'
+import { isNoDeadline, registrationStatus } from '../lib/platform'
 import type { EventInfo } from '../api/platformTypes'
 import { ChallengeBoard } from '../components/platform/ChallengeBoard'
 import { Empty, Loading, Panel, Pill, StatePill } from '../components/platform/bits'
@@ -37,7 +37,7 @@ function Schedule({ e }: { e: EventInfo }) {
         <div key={label} className="flex items-center gap-1.5">
           <CalendarClock size={14} aria-hidden="true" />
           <dt>{label}</dt>
-          <dd className="text-ink">{fmt(t)}</dd>
+          <dd className="text-ink">{isNoDeadline(t) ? 'No deadline' : fmt(t)}</dd>
         </div>
       ))}
     </dl>
@@ -55,7 +55,8 @@ function Registration({ event }: { event: EventInfo }) {
   const next = `/e/${event.slug}`
   const status = registrationStatus(event, Math.floor(Date.now() / 1000))
   // Only a visitor needs to know whether they could create an account.
-  const signUps = useQuery({ queryKey: ['sign-ups-open'], queryFn: platform.signUpsOpen, enabled: !who }).data?.open
+  const signUpInfo = useQuery({ queryKey: ['sign-ups-open'], queryFn: platform.signUpsOpen, enabled: !who }).data
+  const signUps = signUpInfo?.open
 
   if (!who) {
     return (
@@ -66,7 +67,7 @@ function Registration({ event }: { event: EventInfo }) {
             {!status.open
               ? status.reason
               : signUps === false
-                ? 'New accounts are made by the organizers. If you do not have one yet, ask an organizer.'
+                ? `New accounts are made by the organizers. ${signUpInfo?.contact ? `To get one: ${signUpInfo.contact}` : 'If you do not have one yet, ask an organizer.'}`
                 : 'No account yet? Create one first, then come back to register.'}
           </p>
         </div>

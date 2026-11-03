@@ -135,7 +135,7 @@ export function DataTable({ caption, head, children }: { caption: string; head: 
     <div className="flex min-w-0 flex-col gap-1.5">
       <div className="relative rounded-card border border-line bg-surface">
         <div ref={ref} className="overflow-x-auto rounded-card">
-          <table className="w-full min-w-[32rem] text-sm">
+          <table className="w-full min-w-[32rem] text-sm [&_tbody_td:first-child]:sticky [&_tbody_td:first-child]:left-0 [&_tbody_td:first-child]:bg-surface [&_thead_th:first-child]:sticky [&_thead_th:first-child]:left-0 [&_thead_th:first-child]:bg-surface">
             <caption className="sr-only">{caption}</caption>
             <thead>
               <tr className="border-b border-line text-left text-xs text-muted">
@@ -149,11 +149,11 @@ export function DataTable({ caption, head, children }: { caption: string; head: 
             <tbody>{children}</tbody>
           </table>
         </div>
-        {more && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-card bg-gradient-to-l from-surface to-transparent" />}
+        {more && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-14 rounded-r-card bg-gradient-to-l from-surface via-surface/80 to-transparent" />}
       </div>
       {more && (
-        <p aria-hidden="true" className="text-xs text-muted sm:hidden">
-          Swipe sideways to see more columns.
+        <p aria-hidden="true" className="text-xs font-medium text-accent sm:hidden">
+          More columns to the right: swipe sideways.
         </p>
       )}
     </div>

@@ -129,6 +129,9 @@ function VpnSection() {
         <span className="text-sm text-muted">
           Players connect to {v.host}:{v.port}
         </span>
+        {/^(127\.|localhost$|::1$)/.test(v.host ?? '') && (
+          <Pill tone="text-muted">Local address: only reachable from this machine</Pill>
+        )}
       </div>
       {v.gateway?.error && <p className="text-sm text-danger">{v.gateway.error}</p>}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -192,9 +195,14 @@ function Backups() {
         <Button onClick={() => make.mutate()} disabled={make.isPending || !q.data?.configured}>
           <Archive size={15} aria-hidden="true" /> Save one on the server
         </Button>
-        <Button onClick={() => cleanup.mutate()} disabled={cleanup.isPending}>
-          <Trash2 size={15} aria-hidden="true" /> Clean up now
-        </Button>
+      </div>
+      <div className="flex flex-col gap-2 border-t border-line pt-4">
+        <p className="text-sm text-muted">Maintenance: ends instances that have expired, removes old request logs and expired sign-in sessions. It does not touch events or accounts.</p>
+        <div>
+          <Button onClick={() => cleanup.mutate()} disabled={cleanup.isPending}>
+            <Trash2 size={15} aria-hidden="true" /> Clean up now
+          </Button>
+        </div>
       </div>
       <ErrorText error={download.error ?? make.error ?? cleanup.error} />
       {cleanup.data && (
@@ -230,9 +238,26 @@ function Body() {
   const q = useQuery({ queryKey: ['health'], queryFn: platform.health, refetchInterval: 15_000 })
   return (
     <div className="flex flex-col gap-6">
-      {q.isPending ? <Loading /> : q.data ? <HealthView h={q.data} /> : <ErrorText error={q.error} />}
-      <VpnSection />
-      <Backups />
+      <nav aria-label="Sections" className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {[
+          ['health', 'Health'],
+          ['vpn', 'VPN'],
+          ['backups', 'Backups'],
+        ].map(([id, label]) => (
+          <a key={id} href={`#${id}`} className="font-medium text-accent hover:underline">
+            {label}
+          </a>
+        ))}
+      </nav>
+      <div id="health" className="scroll-mt-20">
+        {q.isPending ? <Loading /> : q.data ? <HealthView h={q.data} /> : <ErrorText error={q.error} />}
+      </div>
+      <div id="vpn" className="scroll-mt-20">
+        <VpnSection />
+      </div>
+      <div id="backups" className="scroll-mt-20">
+        <Backups />
+      </div>
     </div>
   )
 }

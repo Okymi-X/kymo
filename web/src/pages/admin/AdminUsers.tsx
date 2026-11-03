@@ -4,11 +4,40 @@ import { platform } from '../../api/platform'
 import type { Role } from '../../api/platformTypes'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, TD, Toggle } from '../../components/platform/bits'
 import { Pager } from '../../components/Pager'
-import { Button, ErrorText, PageTitle, SearchField, Select } from '../../components/ui'
+import { Button, ErrorText, Field, Input, PageTitle, SearchField, Select } from '../../components/ui'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
 
 const ROLES: Role[] = ['player', 'referee', 'monitor', 'admin']
+
+function Contact() {
+  const client = useQueryClient()
+  const q = useQuery({ queryKey: ['contact'], queryFn: platform.contact })
+  const [text, setText] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: (v: string) => platform.setContact(v),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['contact'] })
+      void client.invalidateQueries({ queryKey: ['sign-ups-open'] })
+      setText(null)
+    },
+  })
+  if (!q.data) return null
+  const value = text ?? q.data.contact
+  return (
+    <Panel className="flex flex-col gap-2">
+      <Field label="How people reach an organizer" hint="Shown to visitors who cannot create an account, for example an email address or a chat handle. Leave empty to show nothing.">
+        <div className="flex gap-2">
+          <Input value={value} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Ask on the event chat or write to organizers@example.org" className="min-w-0 flex-1" />
+          <Button onClick={() => save.mutate(value)} disabled={text === null || save.isPending}>
+            Save
+          </Button>
+        </div>
+      </Field>
+      <ErrorText error={save.error} />
+    </Panel>
+  )
+}
 
 function Registration() {
   const client = useQueryClient()
@@ -61,6 +90,8 @@ function Body() {
   return (
     <div className="flex flex-col gap-6">
       <Registration />
+      <Contact />
+      <Contact />
       <SearchField
         label="Search users"
         placeholder="Search by name"

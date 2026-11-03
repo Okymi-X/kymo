@@ -1,10 +1,11 @@
-import { CalendarClock, Swords, Trophy, Users } from 'lucide-react'
+import { ArrowRight, CalendarClock, Swords, Trophy, Users } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { useEvents } from '../api/platformHooks'
 import type { EventInfo } from '../api/platformTypes'
 import { Empty, Loading, Pill, StatePill } from '../components/platform/bits'
 import { PageTitle, Segmented } from '../components/ui'
+import { isNoDeadline } from '../lib/platform'
 import { usePageTitle } from '../lib/usePageTitle'
 
 type Filter = 'all' | 'jeopardy' | 'tournament'
@@ -14,14 +15,14 @@ export function eventLink(e: Pick<EventInfo, 'kind' | 'slug'>): string {
 }
 
 function when(e: EventInfo): string | null {
-  const fmt = (t: number) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+  const fmt = (t: number) => (isNoDeadline(t) ? 'no deadline' : new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))
   if (e.starts_at && e.ends_at) return `${fmt(e.starts_at)} to ${fmt(e.ends_at)}`
   if (e.starts_at) return `Starts ${fmt(e.starts_at)}`
   if (e.ends_at) return `Ends ${fmt(e.ends_at)}`
   return null
 }
 
-function EventCard({ event }: { event: EventInfo }) {
+export function EventCard({ event }: { event: EventInfo }) {
   const schedule = when(event)
   const Icon = event.kind === 'jeopardy' ? Swords : Trophy
   return (
@@ -33,13 +34,7 @@ function EventCard({ event }: { event: EventInfo }) {
         <h2 className="text-lg font-semibold tracking-tight">{event.name}</h2>
         <StatePill state={event.effective_state} />
       </div>
-      {event.description && (
-        <div className="flex flex-col gap-1">
-          <p className="line-clamp-3 text-sm text-muted">{event.description}</p>
-          {/* The whole card opens the event page, where the full text is. Say so when it was cut. */}
-          {event.description.length > 140 && <span className="text-xs font-medium text-accent group-hover:underline">Read more</span>}
-        </div>
-      )}
+      {event.description && <p className="line-clamp-3 text-sm text-muted">{event.description}</p>}
       <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted">
         <Pill>
           <span className="inline-flex items-center gap-1">
@@ -57,6 +52,9 @@ function EventCard({ event }: { event: EventInfo }) {
           </span>
         )}
       </div>
+      <span className="inline-flex items-center gap-1 text-sm font-medium text-accent group-hover:underline">
+        View event <ArrowRight size={14} aria-hidden="true" />
+      </span>
     </Link>
   )
 }

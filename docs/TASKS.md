@@ -86,6 +86,8 @@
 
 - [x] UX audit fixes: phone menu replacing the history back arrow, "Search Kymo" palette with events and role pages, generic 404, sign in page wording, truthful registration messages (lib/platform.ts registrationStatus), Read more cue, Browse events on the empty home page, phone friendly Users/Monitor/Operations, scroll cue on wide tables, route level code splitting (entry 775 KB to 271 KB), request log written by a background batch writer
 
+- [x] Second UX audit: organizer contact setting (GET/PUT /admin/contact, public in GET /registration) shown on event and sign in pages, live events shown as cards on an empty home page, every event card ends with View event, no duplicate Sign in in the phone menu, far future dates read No deadline, first column of wide tables stays put, Operations section links and a separated maintenance block, local VPN address labelled
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)
