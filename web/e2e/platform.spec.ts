@@ -324,3 +324,37 @@ test('administration pages fit a phone and keep their actions on screen', async 
   await fits()
   await context.close()
 })
+
+test('an organizer creates an account without opening sign-ups, and correct flags stay hidden until revealed', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  await request.put('/api/v1/admin/registration', { headers, data: { open: false } })
+  try {
+    await organizer(page)
+    await page.goto('/admin/users')
+    // Sign-ups are closed, yet the organizer can make an account.
+    await page.getByRole('button', { name: 'Create account' }).click()
+    await page.getByLabel('Username').fill('walkin-player')
+    await page.getByRole('button', { name: 'Create account' }).last().click()
+    const temporary = (await page.getByTestId('temporary-password').textContent()) ?? ''
+    expect(temporary).toHaveLength(16)
+    await page.getByRole('button', { name: 'Done' }).click()
+    await expect(page.getByText('@walkin-player').first()).toBeVisible()
+
+    // That account can sign in with the temporary password; a wrong one says what it means.
+    const visitor = await page.context().browser()!.newContext()
+    const v = await visitor.newPage()
+    await v.goto('/signin')
+    await v.getByLabel('Username').fill('walkin-player')
+    await v.getByLabel(/^Password/).fill('definitely the wrong one')
+    await v.getByRole('button', { name: 'Sign in' }).last().click()
+    await expect(v.getByText('Username or password is incorrect.')).toBeVisible()
+    await v.getByLabel(/^Password/).fill(temporary)
+    await v.getByRole('button', { name: 'Sign in' }).last().click()
+    await expect(v.getByRole('link', { name: 'Events' }).first()).toBeVisible()
+    await visitor.close()
+  } finally {
+    await request.put('/api/v1/admin/registration', { headers, data: { open: true } })
+  }
+})

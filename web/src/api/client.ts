@@ -132,6 +132,9 @@ export class ApiError extends Error {
 /** What a person should read for a failed request. The server's own words are kept when they
  *  already say what is wrong; the rest are replaced by something that tells them what to do. */
 export function friendlyMessage(status: number, serverMessage: string | undefined, hadSession: boolean, path: string): string {
+  // A failed sign in says nothing about which half was wrong, so an unknown name reads the same.
+  if (status === 401 && path === '/auth/player-login') return 'Username or password is incorrect.'
+  if (status === 401 && path === '/auth/login') return 'That password is not correct.'
   if (status === 401 && hadSession && !path.startsWith('/auth/')) return 'Your session has ended. Sign in again.'
   // A 503 carries a message written for people (the VPN or the container platform is down); a bare 500 does not.
   if (status >= 500 && status !== 503) return 'Something went wrong on the server. Try again in a moment.'

@@ -73,26 +73,42 @@ pub async fn admin_list(
     event_store::by_id(&state.pool, event_id).await?;
     let rows = instance_store::list_for_event(&state.pool, event_id).await?;
     let now = state.now();
-    let list: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            let state_name = r
-                .record()
-                .map(|rec| kymo_instances::effective_state(&rec, now).as_str())
-                .unwrap_or("failed");
-            json!({
-                "id": r.id,
-                "challenge_id": r.challenge_id,
-                "participant": { "kind": r.scorer_kind, "id": r.scorer_id },
-                "user_id": r.user_id,
-                "state": state_name,
-                "host_port": r.host_port,
-                "started_at": r.started_at,
-                "expires_at": r.expires_at,
-                "stopped_at": r.stopped_at,
-            })
-        })
-        .collect();
+    let mut list: Vec<Value> = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let state_name = r
+            .record()
+            .map(|rec| kymo_instances::effective_state(&rec, now).as_str())
+            .unwrap_or("failed");
+        let username: Option<String> = sqlx::query_scalar("SELECT username FROM user WHERE id = ?")
+            .bind(r.user_id)
+            .fetch_optional(&state.pool)
+            .await?;
+        let team: Option<String> = if r.scorer_kind == "team" {
+            sqlx::query_scalar("SELECT name FROM player_team WHERE id = ?")
+                .bind(r.scorer_id)
+                .fetch_optional(&state.pool)
+                .await?
+        } else {
+            None
+        };
+        let title: Option<String> = sqlx::query_scalar("SELECT title FROM challenge WHERE id = ?")
+            .bind(r.challenge_id)
+            .fetch_optional(&state.pool)
+            .await?;
+        list.push(json!({
+            "id": r.id,
+            "challenge_id": r.challenge_id,
+            "challenge_title": title,
+            "participant": { "kind": r.scorer_kind, "id": r.scorer_id, "team": team },
+            "user_id": r.user_id,
+            "username": username,
+            "state": state_name,
+            "host_port": r.host_port,
+            "started_at": r.started_at,
+            "expires_at": r.expires_at,
+            "stopped_at": r.stopped_at,
+        }));
+    }
     Ok(Json(json!({ "instances": list })))
 }
 

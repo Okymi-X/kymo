@@ -76,6 +76,11 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, onClos
                 </li>
               ))}
             </ul>
+            {download.isSuccess && download.variables && (
+              <p role="status" className="text-sm font-medium text-win">
+                Saved {download.variables.name}. Look in your browser's downloads.
+              </p>
+            )}
             <ErrorText error={download.error} />
           </div>
         )}

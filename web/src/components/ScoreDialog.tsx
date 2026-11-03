@@ -47,7 +47,8 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   })
   const live = useMutation({
     mutationFn: (on: boolean) => api.setLive(tournament.id, match.id, on),
-    onSuccess: done,
+    // Stay open: the next thing to do is usually to enter the result.
+    onSuccess: (t: Tournament) => client.setQueryData(['tournament', t.slug], t),
   })
   const clear = useMutation({ mutationFn: () => api.clearResult(tournament.id, match.id), onSuccess: done })
 

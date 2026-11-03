@@ -600,6 +600,11 @@ async fn admins_list_and_stop_any_run_and_players_cannot() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list["instances"][0]["id"], run);
     assert_eq!(list["instances"][0]["state"], "running");
+    assert_eq!(
+        list["instances"][0]["username"], "alice",
+        "owners are named, not numbered"
+    );
+    assert!(list["instances"][0]["challenge_title"].is_string());
     assert!(
         !list.to_string().contains("fake-"),
         "handles stay server side"

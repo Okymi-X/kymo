@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { friendlyMessage } from '../api/client'
 
 describe('friendlyMessage', () => {
+  it('words a failed sign in as incorrect credentials, not a missing session', () => {
+    expect(friendlyMessage(401, 'authentication required', false, '/auth/player-login')).toBe('Username or password is incorrect.')
+    expect(friendlyMessage(401, 'authentication required', true, '/auth/login')).toBe('That password is not correct.')
+  })
   it('keeps a specific server message', () => {
     expect(friendlyMessage(403, 'sign-ups are closed on this server', false, '/auth/register')).toBe('sign-ups are closed on this server')
     expect(friendlyMessage(409, 'that username is taken', false, '/auth/register')).toBe('that username is taken')
   })
   it('tells a signed in person their session ended, but not on the sign in forms', () => {
     expect(friendlyMessage(401, 'authentication required', true, '/me')).toBe('Your session has ended. Sign in again.')
-    expect(friendlyMessage(401, 'invalid username or password', true, '/auth/player-login')).toBe('invalid username or password')
+    expect(friendlyMessage(401, 'authentication required', true, '/me/anything')).toBe('Your session has ended. Sign in again.')
+    expect(friendlyMessage(401, 'authentication required', true, '/auth/logout')).toBe('authentication required')
   })
   it('hides server internals', () => {
     expect(friendlyMessage(500, 'internal error', true, '/me')).toBe('Something went wrong on the server. Try again in a moment.')

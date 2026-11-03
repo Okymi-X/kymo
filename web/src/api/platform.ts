@@ -167,6 +167,8 @@ export const platform = {
   updateUser: (id: number, body: { role?: Role; banned?: boolean }) => request<User>('PUT', `/admin/users/${id}`, body),
   registrationOpen: () => request<{ open: boolean }>('GET', '/admin/registration'),
   revealSubmission: (eventId: number, id: number) => request<{ value: string }>('GET', `/admin/events/${eventId}/submissions/${id}/value`),
+  createUser: (body: { username: string; email?: string; role?: Role; password?: string }) =>
+    request<{ user: User; temporary_password: string | null }>('POST', '/admin/users', body),
   contact: () => request<{ contact: string }>('GET', '/admin/contact'),
   setContact: (contact: string) => request<{ contact: string }>('PUT', '/admin/contact', { contact }),
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),

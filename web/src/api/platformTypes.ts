@@ -321,8 +321,10 @@ export interface SubmissionLine {
 export interface AdminInstance {
   id: number
   challenge_id: number
-  participant: { kind: string; id: number }
+  challenge_title: string | null
+  participant: { kind: string; id: number; team: string | null }
   user_id: number
+  username: string | null
   state: InstanceStateName
   host_port: number | null
   started_at: number

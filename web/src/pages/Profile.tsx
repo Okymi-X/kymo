@@ -43,7 +43,7 @@ function ProfileForm() {
     <div className="flex max-w-xl flex-col gap-6">
       <Panel>
         <form onSubmit={onSave} className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Your details</h2>
           <p className="text-sm text-muted">
             Signed in as <span className="font-mono">{me.username}</span>
             {me.email ? `, ${me.email}` : ''}

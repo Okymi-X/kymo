@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { platform } from '../../api/platform'
 import type { Role } from '../../api/platformTypes'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, TD, Toggle } from '../../components/platform/bits'
+import { CreateUserDialog } from '../../components/platform/CreateUserDialog'
 import { Pager } from '../../components/Pager'
 import { Button, ErrorText, Field, Input, PageTitle, SearchField, Select } from '../../components/ui'
 import { timeAgo } from '../../lib/time'
@@ -79,6 +80,7 @@ function Registration() {
 function Body() {
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
+  const [creating, setCreating] = useState(false)
   const client = useQueryClient()
   const users = useQuery({ queryKey: ['users', q, page], queryFn: () => platform.users({ q: q.trim() || undefined, page }) })
   const update = useMutation({
@@ -91,7 +93,12 @@ function Body() {
     <div className="flex flex-col gap-6">
       <Registration />
       <Contact />
-      <Contact />
+      <div className="flex justify-end">
+        <Button variant="primary" onClick={() => setCreating(true)}>
+          Create account
+        </Button>
+      </div>
+      {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
       <SearchField
         label="Search users"
         placeholder="Search by name"

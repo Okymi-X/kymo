@@ -130,7 +130,9 @@ function VpnSection() {
           Players connect to {v.host}:{v.port}
         </span>
         {/^(127\.|localhost$|::1$)/.test(v.host ?? '') && (
-          <Pill tone="text-muted">Local address: only reachable from this machine</Pill>
+          <span className="text-sm text-danger">
+            Local address: remote players cannot connect. Set <code className="font-mono">KYMO_VPN_HOST</code> to this server's public address.
+          </span>
         )}
       </div>
       {v.gateway?.error && <p className="text-sm text-danger">{v.gateway.error}</p>}

@@ -212,9 +212,15 @@ function NetworkMode({ event }: { event: EventInfo }) {
     },
   })
   const enabled = vpn.data?.enabled ?? false
+  const loopback = enabled && /^(127\.|localhost$|::1$)/.test(vpn.data?.host ?? '')
   return (
     <Panel className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Instance network</h2>
+      {loopback && event.network_mode === 'vpn' && (
+        <p role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          Players cannot connect: the VPN address is {vpn.data?.host}, which only works on the server itself. Set <code className="font-mono">KYMO_VPN_HOST</code> to the public address or name of this server and restart, then have players download a new profile.
+        </p>
+      )}
       <p className="text-sm text-muted">
         <strong>Published ports</strong>: each instance gets a port on the server; anyone who can reach the server can reach it. <strong>Private VPN</strong>: each player or team gets an isolated network and connects through their own OpenVPN profile; instances cannot see each other.
       </p>
@@ -511,12 +517,14 @@ function Instances({ event }: { event: EventInfo }) {
   if (rows.length === 0) return <Empty>No instances have been started.</Empty>
   return (
     <div className="flex flex-col gap-3">
-      <DataTable caption="Instances" head={['Run', 'Owner', 'State', 'Port', 'Started', 'Expires', '']}>
+      <DataTable caption="Instances" head={['Run', 'Challenge', 'Owner', 'State', 'Port', 'Started', 'Expires', '']}>
         {rows.map((r) => (
           <tr key={r.id}>
             <td className={`${TD} font-mono`}>#{r.id}</td>
-            <td className={TD}>
-              {r.participant.kind} {r.participant.id}
+            <td className={TD}>{r.challenge_title ?? `#${r.challenge_id}`}</td>
+            <td className={TD} title={`user id ${r.user_id}`}>
+              <span className="font-medium">{r.participant.team ? `Team ${r.participant.team}` : (r.username ?? `user #${r.user_id}`)}</span>
+              {r.participant.team && r.username && <span className="block text-xs text-muted">started by {r.username}</span>}
             </td>
             <td className={TD}>{r.state}</td>
             <td className={`${TD} font-mono`}>{r.host_port ?? ''}</td>

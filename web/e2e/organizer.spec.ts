@@ -860,6 +860,9 @@ test('a match marked as playing shows live and the result clears it', async ({ p
   await page.getByRole('button', { name: 'Start tournament' }).click()
   await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
   await page.getByRole('button', { name: 'Mark as playing' }).click()
+  // The dialog stays open with the state changed in place, so the result can be entered next.
+  await expect(page.getByRole('button', { name: 'Not playing' })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByText('Live', { exact: true }).first()).toBeVisible()
   await page.getByRole('tab', { name: 'Matches' }).click()
   await expect(page.getByRole('region', { name: 'Playing now' })).toContainText('Alpha')

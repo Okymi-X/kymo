@@ -39,6 +39,11 @@ export function VpnPanel() {
         <li>Download your profile below and import it. Keep the file private: it is your key.</li>
         <li>Connect, then start an instance. Its private address appears on the challenge.</li>
       </ol>
+      {v.has_profile && (
+        <p className="rounded-control border border-line bg-bg p-3 text-sm">
+          <strong>Heads up:</strong> downloading a new profile replaces your current one. The old file stops working at once, so only do it if you lost it or it stopped working.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="primary" onClick={() => download.mutate()} disabled={download.isPending}>
           <Download size={15} aria-hidden="true" /> {v.has_profile ? 'Download a new profile' : 'Download my VPN profile'}
@@ -50,7 +55,11 @@ export function VpnPanel() {
           </span>
         )}
       </div>
-      {v.has_profile && <p className="text-xs text-muted">A new profile replaces the old one: the old file stops working at once.</p>}
+      {download.isSuccess && (
+        <p role="status" className="text-sm font-medium text-win">
+          Profile generated and saved as kymo.ovpn. Look in your browser's downloads, then import it into your OpenVPN client.
+        </p>
+      )}
       <ErrorText error={download.error} />
     </Panel>
   )

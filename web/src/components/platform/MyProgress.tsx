@@ -45,8 +45,9 @@ export function MyProgress({ event }: { event: EventInfo }) {
   const p = q.data
   return (
     <div className="flex flex-col gap-6">
+      {event.mode === 'team' && <p className="text-sm text-muted">Progress for team {p.name}</p>}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label={event.mode === 'team' ? `Team ${p.name}` : 'Rank'} value={p.rank ?? 'none'} />
+        <Stat label="Rank" value={p.rank ?? 'none'} />
         <Stat label="Points" value={p.points} />
         <Stat label="Solved" value={`${p.solved_count}/${p.total_challenges}`} />
       </div>

@@ -88,6 +88,8 @@
 
 - [x] Second UX audit: organizer contact setting (GET/PUT /admin/contact, public in GET /registration) shown on event and sign in pages, live events shown as cards on an empty home page, every event card ends with View event, no duplicate Sign in in the phone menu, far future dates read No deadline, first column of wide tables stays put, Operations section links and a separated maintenance block, local VPN address labelled
 
+- [x] Third audit (browser E2E): correct flags masked in the staff submission list with an audited Reveal (GET /admin/events/{id}/submissions/{sid}/value), admin Create account (POST /admin/users, temporary password shown once), failed sign in reads Username or password is incorrect, instance table names owner, team and challenge, Rank label, one Profile heading, Mark as playing keeps the dialog open, download confirmations, loud warning when the VPN address is loopback, contact field no longer shown twice
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)
