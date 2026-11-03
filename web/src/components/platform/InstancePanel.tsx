@@ -94,6 +94,17 @@ export function InstancePanel({ slug, challengeId, open, vpn = false }: Props) {
             <code className="rounded-control border border-line bg-bg px-2.5 py-1.5 font-mono text-sm">{address}</code>
             <CopyButton text={address} />
           </div>
+          {(view.services ?? []).length > 0 && (
+            <ul className="flex flex-col gap-1.5" aria-label="Other services">
+              {view.services?.map((svc) => (
+                <li key={svc.name} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="w-14 text-muted">{svc.name}</span>
+                  <code className="rounded-control border border-line bg-bg px-2 py-1 font-mono text-xs">{`${view.host}:${svc.port}`}</code>
+                  <CopyButton text={`${view.host}:${svc.port}`} />
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="text-sm text-muted">
             Stops in <span className="font-mono tabular-nums text-ink">{countdown(left)}</span>
             {privateNet && '. This address is private and only works while your VPN is connected.'}

@@ -127,6 +127,8 @@ export interface InstanceView {
   failure?: 'start_failed' | 'never_ready' | 'exited' | null
   host?: string | null
   port?: number | null
+  /** The other published services of a machine that offers several, by name. */
+  services?: { name: string; port: number }[]
   started_at?: number
   expires_at?: number
   remaining_secs?: number
@@ -516,6 +518,7 @@ export interface InstanceListItem {
   network: 'vpn' | 'published'
   host: string | null
   port: number | null
+  services?: { name: string; port: number }[]
   remaining_secs: number
 }
 
@@ -565,6 +568,10 @@ export interface LabHealth {
   artifacts: number
   uptime_secs: number
   now: number
+  /** What the lab host can run: docker, vm. */
+  runtimes?: string[]
+  /** How virtual machines run: kvm, or tcg (slow emulation). */
+  accel?: 'kvm' | 'tcg' | null
 }
 
 export interface LabArtifact {
@@ -573,6 +580,10 @@ export interface LabArtifact {
   port: number
   max_ttl_secs: number
   env_allow: string[]
+  ports?: { name: string; port: number }[]
+  /** False while a virtual machine image is still being unpacked. */
+  ready?: boolean
+  note?: string | null
 }
 
 export interface LabCheck {
@@ -593,6 +604,8 @@ export interface LabInstance {
   created_at: number
   expires_at: number
   meta: Record<string, string>
+  runtime?: string
+  ports?: { name: string; guest: number; host: number }[]
   /** False when the platform has no live run for it: an orphan. */
   known: boolean
 }

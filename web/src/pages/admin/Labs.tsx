@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { platform } from '../../api/platform'
 import type { LabCheck, LabHost } from '../../api/platformTypes'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { ConsoleDialog } from '../../components/platform/ConsoleDialog'
 import { LabDialog } from '../../components/platform/LabDialog'
 import { CopyButton, DataTable, Empty, Gate, Loading, Panel, Pill, TD } from '../../components/platform/bits'
 import { Button, ErrorText, PageTitle } from '../../components/ui'
@@ -61,13 +62,24 @@ function CheckView({ check }: { check: LabCheck }) {
   return (
     <div className="flex flex-col gap-2 text-sm" role="status">
       <p className="text-win">
-        Answered in {check.ms} ms: version {check.health?.version}, {check.health?.runtime}, {check.health?.mode === 'manifest' ? 'runs only listed images' : 'runs any valid image'}, {check.health?.running} of {check.health?.max_instances} instances in use.
+        Answered in {check.ms} ms: version {check.health?.version}, {(check.health?.runtimes ?? [check.health?.runtime]).join(' and ')}, {check.health?.mode === 'manifest' ? 'runs only listed images' : 'runs any valid image'}, {check.health?.running} of {check.health?.max_instances} instances in use.
       </p>
+      {check.health?.runtimes?.includes('vm') && (
+        <p className={check.health.accel === 'kvm' ? 'text-win' : 'text-danger'}>
+          {check.health.accel === 'kvm' ? 'Virtual machines run with KVM acceleration.' : 'Virtual machines run in plain emulation, which is very slow. Give the lab host KVM (the service user must be in the kvm group).'}
+        </p>
+      )}
       {(check.artifacts ?? []).length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
           {check.artifacts?.map((a) => (
-            <li key={a.artifact} className="rounded-full border border-line px-2.5 py-0.5 font-mono text-xs" title={`port ${a.port}, up to ${Math.round(a.max_ttl_secs / 60)} minutes`}>
+            <li
+              key={a.artifact}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-xs ${a.ready === false ? 'border-danger/40' : 'border-line'}`}
+              title={`${(a.ports ?? [{ name: 'main', port: a.port }]).map((p) => `${p.name} ${p.port}`).join(', ')}, up to ${Math.round(a.max_ttl_secs / 60)} minutes${a.note ? `. ${a.note}` : ''}`}
+            >
               {a.artifact}
+              {a.runtime === 'vm' && <span className="rounded bg-line/60 px-1 font-sans text-[10px] uppercase tracking-wide text-muted">vm</span>}
+              {a.ready === false && <span className="font-sans text-[10px] text-danger">{a.note?.includes('unpacked') ? 'preparing' : 'not ready'}</span>}
             </li>
           ))}
         </ul>
@@ -84,23 +96,36 @@ function CheckView({ check }: { check: LabCheck }) {
 }
 
 function Running({ lab }: { lab: LabHost }) {
+  const [console_, setConsole] = useState<string | null>(null)
   const q = useQuery({ queryKey: ['lab-instances', lab.id], queryFn: () => platform.labInstances(lab.id), refetchInterval: 10_000 })
   if (q.isPending) return <Loading />
   if (q.error) return <ErrorText error={q.error} />
   const rows = q.data.instances
   if (rows.length === 0) return <p className="text-sm text-muted">Nothing is running on this lab host.</p>
   return (
-    <DataTable caption={`Instances on ${lab.name}`} head={['Name', 'State', 'Port', 'Expires', '']}>
+    <>
+      <DataTable caption={`Instances on ${lab.name}`} head={['Name', 'State', 'Port', 'Expires', '']}>
       {rows.map((i) => (
         <tr key={i.name}>
           <td className={`${TD} font-mono text-xs`}>{i.name}</td>
           <td className={TD}>{i.status}</td>
           <td className={`${TD} font-mono`}>{i.host_port}</td>
           <td className={`${TD} text-muted`}>{new Date(i.expires_at * 1000).toLocaleTimeString()}</td>
-          <td className={TD}>{!i.known && <Pill tone="text-danger">Not known here</Pill>}</td>
+          <td className={TD}>
+            <span className="flex flex-wrap items-center gap-2">
+              {!i.known && <Pill tone="text-danger">Not known here</Pill>}
+              {i.runtime === 'vm' && (
+                <Button onClick={() => setConsole(i.name)} className="h-8 px-2.5 text-xs">
+                  Console
+                </Button>
+              )}
+            </span>
+          </td>
         </tr>
       ))}
-    </DataTable>
+      </DataTable>
+      {console_ && <ConsoleDialog labId={lab.id} name={console_} onClose={() => setConsole(null)} />}
+    </>
   )
 }
 

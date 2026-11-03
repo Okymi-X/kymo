@@ -23,6 +23,13 @@ export function MyInstances({ slug }: { slug: string }) {
                   <code className="rounded-control border border-line bg-bg px-2 py-1 font-mono text-xs">{address}</code>
                   <CopyButton text={address} />
                   <span className="w-20 text-right font-mono text-xs tabular-nums text-muted">{countdown(i.remaining_secs)}</span>
+                  {(i.services ?? []).map((svc) => (
+                    <span key={svc.name} className="flex basis-full items-center gap-2 pl-0 text-xs text-muted">
+                      <span className="w-14">{svc.name}</span>
+                      <code className="rounded-control border border-line bg-bg px-2 py-1 font-mono">{`${i.host}:${svc.port}`}</code>
+                      <CopyButton text={`${i.host}:${svc.port}`} />
+                    </span>
+                  ))}
                 </>
               ) : (
                 <span className="flex items-center gap-2 text-sm text-muted">

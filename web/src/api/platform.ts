@@ -75,6 +75,18 @@ export async function downloadFile(path: string, fallbackName: string, method: '
   URL.revokeObjectURL(url)
 }
 
+/** A virtual machine's console as an image the page can show: fetched with the session, because an
+ *  image tag cannot send it. The caller revokes the address when done. */
+export async function fetchImage(path: string): Promise<string> {
+  const token = session.token()
+  const res = await fetch(BASE + path, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null)
+    throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? 'Could not load the image')
+  }
+  return URL.createObjectURL(await res.blob())
+}
+
 const ev = (slug: string) => `/events/${enc(slug)}`
 const ch = (slug: string, id: number) => `${ev(slug)}/challenges/${id}`
 
@@ -118,6 +130,7 @@ export const platform = {
   deleteLab: (id: number) => request<void>('DELETE', `/admin/labs/${id}`),
   testLab: (id: number) => request<LabCheck>('POST', `/admin/labs/${id}/test`),
   labInstances: (id: number) => request<{ instances: LabInstance[] }>('GET', `/admin/labs/${id}/instances`),
+  labScreen: (id: number, name: string) => fetchImage(`/admin/labs/${id}/instances/${encodeURIComponent(name)}/screen`),
   reconcileLab: (id: number) => request<{ removed: string[] }>('POST', `/admin/labs/${id}/reconcile`),
   setEventLab: (event: number, lab: number | null) => request<{ event_id: number; lab_host_id: number | null }>('PUT', `/admin/events/${event}/lab`, { lab_host_id: lab }),
   adminVpn: () => request<AdminVpn>('GET', '/admin/vpn'),
