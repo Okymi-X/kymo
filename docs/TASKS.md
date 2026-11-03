@@ -102,6 +102,7 @@
 - [x] CI fixed (a flaky cargo test was a real SQLite locking bug, see MEMORY) and now also runs fmt and the browser tests; release workflow publishes a tarball on a v* tag
 
 ## Todo
+- [x] Real VPN end to end on the test server (rootful Docker): tunnel, private instance, isolation between players
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)
 - [ ] Per instance random flag (so a leaked flag is not valid for others) and a readiness check before an instance is reported running

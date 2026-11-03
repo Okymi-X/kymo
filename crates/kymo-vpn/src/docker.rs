@@ -138,7 +138,11 @@ impl Gateway for DockerGateway {
                             }]),
                         )])),
                         cap_drop: Some(vec!["ALL".into()]),
-                        cap_add: Some(vec!["NET_ADMIN".into()]),
+                        // NET_ADMIN for the tunnel and firewall. DAC_READ_SEARCH because the mounted
+                        // directory belongs to the Kymo service user and is private (0700): with
+                        // all other capabilities dropped, even root in the container could not
+                        // open it, and the entrypoint would report the config as missing.
+                        cap_add: Some(vec!["NET_ADMIN".into(), "DAC_READ_SEARCH".into()]),
                         devices: Some(vec![DeviceMapping {
                             path_on_host: Some("/dev/net/tun".into()),
                             path_in_container: Some("/dev/net/tun".into()),
