@@ -98,6 +98,9 @@
 - [x] Match result dialog: score first, live row that does not wrap, forfeit and schedule folded into sections (schedule opens when set), buttons never wrap their label
 - [x] Test deployment at https://thiebou.okymi.org (Caddy in a container on 80/443 with the old csoc-report certificate volume, Kymo as a systemd service on 127.0.0.1:8080, no instances or VPN)
 
+- [x] Score over time chart on the event scoreboard (GET /events/{slug}/scoreboard/timeline, kymo_jeopardy::progression, web ScoreChart)
+- [x] CI fixed (a flaky cargo test was a real SQLite locking bug, see MEMORY) and now also runs fmt and the browser tests; release workflow publishes a tarball on a v* tag
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

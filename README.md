@@ -339,3 +339,7 @@ docs/                  product, architecture, design notes, import schema and sc
 Team avatars are generated with [blobatar](https://github.com/Alain00/blobatar) (MIT). The same team name always gets the same avatar.
 
 Released under the MIT license, see `LICENSE`.
+
+## Releases
+
+Tagged versions are published on the GitHub Releases page with a Linux x86_64 tarball (the server with the web app embedded, plus `deploy/`) and a SHA-256 checksum. To publish one, push a tag such as `v0.2.0`; the Release workflow builds and attaches it.

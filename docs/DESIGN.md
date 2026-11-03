@@ -98,3 +98,6 @@ Errors: a request that fails reads as a sentence. The server's own message is ke
 - Under the sm breakpoint the header shows a menu button (Tournaments, Events, Ladder, Sign in when signed out) in place of the primary links. There is no history based back arrow: sub pages link to their parent.
 - Search is labelled Search Kymo and covers events, tournaments and the pages the role can use.
 - Wide tables fade at the edge and say to swipe; Users is a card list on a phone. Registration copy comes from `registrationStatus` and never offers Create account while sign-ups are closed.
+
+## Score chart
+Points over time sit above the scoreboard table: flat between solves, an S-curve rise into each one, a dot per solve, one colour per participant from `--series-1..10` (stable by participant id), a Top 5/10/20 control, hover and arrow keys read out every score at that moment, legend entries toggle and highlight lines. Lines draw in once; reduced motion turns that off. The table below is the accessible data.
