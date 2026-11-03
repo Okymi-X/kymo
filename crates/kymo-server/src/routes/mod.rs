@@ -31,6 +31,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/login", post(public::login))
         .route("/auth/logout", post(public::logout))
         .route("/auth/me", get(public::me))
+        .route("/registration", get(players::registration_status))
         .route("/auth/register", post(players::register))
         .route("/auth/player-login", post(players::player_login))
         .route("/me", get(players::me).put(players::update_me))

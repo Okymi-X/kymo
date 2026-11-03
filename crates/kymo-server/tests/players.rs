@@ -976,3 +976,79 @@ async fn the_event_page_says_whether_the_caller_is_registered() {
         "a stale session is not a visitor"
     );
 }
+
+#[tokio::test]
+async fn closed_sign_ups_say_so_and_the_public_status_matches() {
+    let w = world().await;
+    let admin = admin_token(&w.app).await;
+    let (status, open) = call(&w.app, "GET", "/api/v1/registration", None, None).await;
+    assert_eq!(
+        (status, open["open"].clone()),
+        (StatusCode::OK, json!(true)),
+        "open by default, no sign in needed"
+    );
+
+    let (status, _) = call(
+        &w.app,
+        "PUT",
+        "/api/v1/admin/registration",
+        Some(&admin),
+        Some(json!({ "open": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, closed) = call(&w.app, "GET", "/api/v1/registration", None, None).await;
+    assert_eq!(closed["open"], false);
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(json!({ "username": "latecomer", "password": "a long player password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let message = body["error"].as_str().unwrap();
+    assert!(
+        message.contains("sign-ups are closed") && message.contains("organizer"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("token"),
+        "the message is about sign-ups, not tokens: {message}"
+    );
+}
+
+#[tokio::test]
+async fn permission_errors_say_what_is_wrong_in_plain_words() {
+    let w = world().await;
+    let admin = admin_token(&w.app).await;
+    let (player_token, _) = player(&w.app, "plain").await;
+    // Not an admin route for a player: the generic message must not mention tokens.
+    let (status, body) = call(
+        &w.app,
+        "GET",
+        "/api/v1/admin/users",
+        Some(&player_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let message = body["error"].as_str().unwrap();
+    assert!(
+        message.contains("permission") && !message.contains("token"),
+        "{message}"
+    );
+    // A wrong current password is not "forbidden" in the abstract.
+    let (status, body) = call(
+        &w.app,
+        "PUT",
+        "/api/v1/me",
+        Some(&player_token),
+        Some(json!({ "current_password": "not the password", "new_password": "another long password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "the current password is not right");
+    let _ = admin;
+}

@@ -121,7 +121,7 @@ pub async fn rotate_code(
     let _guard = state.write_lock.lock().await;
     let team = member_team(&state, &player, id).await?;
     if team.owner_user_id != player.id {
-        return Err(ApiError::Forbidden);
+        return Err(ApiError::Denied("only the team owner can do that".into()));
     }
     let code = team_store::rotate_code(&state.pool, id).await?;
     Ok(Json(json!({ "invite_code": code })))
@@ -135,7 +135,7 @@ pub async fn kick(
     let _guard = state.write_lock.lock().await;
     let team = member_team(&state, &player, id).await?;
     if team.owner_user_id != player.id {
-        return Err(ApiError::Forbidden);
+        return Err(ApiError::Denied("only the team owner can do that".into()));
     }
     if user_id == player.id {
         return Err(ApiError::Conflict(

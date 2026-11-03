@@ -265,7 +265,7 @@ pub struct Profile {
 pub async fn issue_profile(state: &AppState, user_id: i64) -> Result<Profile, ApiError> {
     let setup = setup(state)?;
     if store::is_banned(&state.pool, user_id).await? {
-        return Err(ApiError::Forbidden);
+        return Err(ApiError::Banned);
     }
     let now = state.now();
     let material = authority(state, setup).await?;

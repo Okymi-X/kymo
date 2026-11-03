@@ -33,7 +33,10 @@ pub async fn register(
     Json(body): Json<RegisterBody>,
 ) -> Result<(StatusCode, Json<SessionOut>), ApiError> {
     if !users::registration_open(&state.pool).await? {
-        return Err(ApiError::Forbidden);
+        return Err(ApiError::Denied(
+            "sign-ups are closed on this server, ask an organizer to create an account for you"
+                .into(),
+        ));
     }
     let username = users::check_username(&body.username)?;
     passwords::check_strength(&body.password)?;
@@ -128,7 +131,7 @@ pub async fn update_me(
             passwords::check_strength(&new)?;
             let user = users::by_id(&state.pool, player.id).await?;
             if !passwords::verify(user.password_hash, current.clone()).await {
-                return Err(ApiError::Forbidden);
+                return Err(ApiError::Denied("the current password is not right".into()));
             }
             Some(passwords::hash(new).await?)
         }
@@ -250,4 +253,13 @@ pub async fn set_registration(
 ) -> Result<Json<RegistrationBody>, ApiError> {
     users::set_registration_open(&state.pool, body.open).await?;
     Ok(Json(body))
+}
+
+/// Whether sign-ups are open, so the form can say so before anyone fills it in.
+pub async fn registration_status(
+    State(state): State<AppState>,
+) -> Result<Json<RegistrationBody>, ApiError> {
+    Ok(Json(RegistrationBody {
+        open: users::registration_open(&state.pool).await?,
+    }))
 }

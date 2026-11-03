@@ -39,7 +39,7 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "authentication required".into()),
             ApiError::Forbidden => (
                 StatusCode::FORBIDDEN,
-                "this token is not allowed to do that".into(),
+                "you do not have permission to do that".into(),
             ),
             ApiError::Banned => (StatusCode::FORBIDDEN, "this account is banned".into()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
