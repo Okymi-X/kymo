@@ -1,0 +1,10 @@
+[package]
+name = "kymo-monitor"
+description = "Request rate rules, auto ban escalation and ban expiry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
