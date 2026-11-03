@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, KeyRound, LogOut, Palette, ShieldAlert, Swords, User as UserIcon, Users, UsersRound } from 'lucide-react'
+import { Activity, ChevronDown, KeyRound, LogOut, Palette, Server, ShieldAlert, Swords, User as UserIcon, Users, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, session, useCanMonitor, useIsAdmin, useWho } from '../api/client'
@@ -93,6 +93,9 @@ export function AccountMenu() {
               </Link>
               <Link role="menuitem" to="/admin/ops" className={ITEM} onClick={() => setOpen(false)}>
                 <Activity size={16} aria-hidden="true" /> Operations
+              </Link>
+              <Link role="menuitem" to="/admin/labs" className={ITEM} onClick={() => setOpen(false)}>
+                <Server size={16} aria-hidden="true" /> Lab hosts
               </Link>
             </>
           )}

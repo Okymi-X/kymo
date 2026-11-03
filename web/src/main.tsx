@@ -16,6 +16,7 @@ const Ladder = lazy(() => import('./pages/Ladder').then((m) => ({ default: m.Lad
 const AdminEvent = lazy(() => import('./pages/admin/AdminEvent').then((m) => ({ default: m.AdminEvent })))
 const AdminEvents = lazy(() => import('./pages/admin/AdminEvents').then((m) => ({ default: m.AdminEvents })))
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers').then((m) => ({ default: m.AdminUsers })))
+const Labs = lazy(() => import('./pages/admin/Labs').then((m) => ({ default: m.Labs })))
 const Ops = lazy(() => import('./pages/admin/Ops').then((m) => ({ default: m.Ops })))
 const Monitor = lazy(() => import('./pages/Monitor').then((m) => ({ default: m.Monitor })))
 const Events = lazy(() => import('./pages/Events').then((m) => ({ default: m.Events })))
@@ -70,6 +71,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/admin/events/:id" element={<AdminEvent />} />
               <Route path="/admin/users" element={<AdminUsers />} />
               <Route path="/admin/ops" element={<Ops />} />
+              <Route path="/admin/labs" element={<Labs />} />
               <Route path="/monitor" element={<Monitor />} />
               <Route path="/ladder" element={<Ladder />} />
               <Route path="/settings" element={<Settings />} />

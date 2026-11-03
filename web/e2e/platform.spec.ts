@@ -481,3 +481,71 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
   await check()
   await context.close()
 })
+
+test('an organizer adds a lab host, sees it is unreachable, chooses it for an event and removes it safely', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const made = await request.post('/api/v1/admin/events', { headers, data: { name: 'Lab Choice Cup', kind: 'jeopardy', mode: 'solo' } })
+  const event = (await made.json()) as { id: number }
+
+  await organizer(page)
+  await page.goto('/admin/labs')
+  await expect(page.getByText('No lab host yet')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Run challenges on a separate machine' })).toBeVisible()
+
+  // Add one that nobody listens on: it is saved, and the answer says plainly that it did not answer.
+  await page.getByRole('button', { name: 'Add a lab host' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Name').fill('Unplugged Lab')
+  await dialog.getByLabel('API address').fill('http://127.0.0.1:1')
+  await dialog.getByLabel('Token').fill('a-long-enough-lab-token-123')
+  await expect(dialog.getByLabel('Public address')).toHaveValue('127.0.0.1') // suggested from the address
+  await expect(dialog.getByText(/not encrypted/)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Add and test' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('did not answer')
+  await dialog.getByRole('button', { name: 'Done' }).click()
+
+  const card = page.getByRole('heading', { name: 'Unplugged Lab' }).locator('xpath=ancestor::section[1]')
+  await expect(card.getByText('Unreachable')).toBeVisible()
+  await expect(card.getByText('Not encrypted')).toBeVisible()
+  await expect(page.getByText('a-long-enough-lab-token-123')).toHaveCount(0) // the token is never shown again
+  await card.getByRole('button', { name: 'Test connection' }).click()
+  await expect(card.getByRole('alert').first()).toBeVisible()
+
+  // Editing does not ask for the token again.
+  await card.getByRole('button', { name: 'Edit' }).click()
+  await dialog.getByLabel('Name').fill('Unplugged Lab 2')
+  await dialog.getByRole('button', { name: 'Save and test' }).click()
+  await expect(dialog.getByText('Lab host updated')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('heading', { name: 'Unplugged Lab 2' })).toBeVisible()
+
+  // Operations lists it, as unreachable.
+  await page.goto('/admin/ops')
+  await expect(page.getByRole('region', { name: 'Lab hosts' }).getByText('Unplugged Lab 2')).toBeVisible()
+
+  // The event can be moved to it, and the choice survives a reload.
+  await page.goto(`/admin/events/${event.id}`)
+  const where = page.getByLabel('Where instances run')
+  await where.selectOption({ label: 'Unplugged Lab 2' })
+  await expect(page.getByRole('combobox', { name: 'Where instances run' })).toHaveValue(/\d+/)
+  await page.reload()
+  await expect(page.getByLabel('Where instances run')).toHaveValue(/\d+/)
+
+  // While an event uses it, it cannot be removed, and the reason is given.
+  await page.goto('/admin/labs')
+  const again = page.getByRole('heading', { name: 'Unplugged Lab 2' }).locator('xpath=ancestor::section[1]')
+  await again.getByRole('button', { name: 'Remove' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByText(/still run their instances here/)).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+
+  await page.goto(`/admin/events/${event.id}`)
+  await page.getByLabel('Where instances run').selectOption({ label: 'This server' })
+  await expect(page.getByLabel('Where instances run')).toHaveValue('')
+  await page.goto('/admin/labs')
+  await page.getByRole('heading', { name: 'Unplugged Lab 2' }).locator('xpath=ancestor::section[1]').getByRole('button', { name: 'Remove' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByText('No lab host yet')).toBeVisible()
+})

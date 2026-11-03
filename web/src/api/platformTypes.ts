@@ -45,6 +45,8 @@ export interface EventInfo {
   roster_locked: boolean
   /** Where instances are reached: a published host port, or a private lab through the player's VPN. */
   network_mode: 'published' | 'vpn'
+  /** The lab host running this event's instances; null is this server's own runtime. */
+  lab_host_id: number | null
   created_at: number
   /** Only on the single event response. */
   registered?: boolean
@@ -431,6 +433,7 @@ export interface Health {
   database: { ok: boolean; ping_ms: number; size_bytes: number }
   traffic: { window_secs: number; requests: number; server_errors: number; throttled: number; avg_ms: number }
   instances: { enabled: boolean; runtime_ok: boolean | null; live: number; expired_pending: number; orphans: number }
+  labs?: { id: number; name: string; enabled: boolean; reachable: boolean | null; last_checked_at: number | null; last_error: string | null; live_instances: number }[]
   backups: { configured: boolean }
   vpn?: { enabled: boolean; gateway_ok?: boolean; labs?: number; clients?: number; error?: string | null }
   jobs: { reaper: RunInfo | null; backup: RunInfo | null; maintenance: RunInfo | null }
@@ -531,4 +534,74 @@ export interface ScoreTimeline {
   from: number
   to: number
   series: ScoreSeries[]
+}
+
+// ---------- lab hosts ----------
+
+export interface LabHost {
+  id: number
+  name: string
+  api_url: string
+  fingerprint: string | null
+  public_host: string
+  enabled: boolean
+  created_at: number
+  last_checked_at: number | null
+  last_ok_at: number | null
+  last_error: string | null
+  /** Events set to run their instances here. */
+  events: number
+  live_instances: number
+}
+
+export interface LabHealth {
+  name: string
+  version: string
+  api: string
+  runtime: string
+  mode: 'manifest' | 'open'
+  running: number
+  max_instances: number
+  artifacts: number
+  uptime_secs: number
+  now: number
+}
+
+export interface LabArtifact {
+  artifact: string
+  runtime: string
+  port: number
+  max_ttl_secs: number
+  env_allow: string[]
+}
+
+export interface LabCheck {
+  ok: boolean
+  ms: number
+  error?: string
+  health?: LabHealth
+  artifacts?: LabArtifact[]
+  notes?: string[]
+}
+
+export interface LabInstance {
+  id: string
+  name: string
+  instance_id: string
+  status: string
+  host_port: number
+  created_at: number
+  expires_at: number
+  meta: Record<string, string>
+  /** False when the platform has no live run for it: an orphan. */
+  known: boolean
+}
+
+export interface LabBody {
+  name?: string
+  api_url?: string
+  token?: string
+  fingerprint?: string
+  public_host?: string
+  enabled?: boolean
 }

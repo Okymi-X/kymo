@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Plus, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { platform } from '../../api/platform'
 import type { AdminChallenge, EventInfo, JeopardySettings, SubmissionLine } from '../../api/platformTypes'
 import { BackLink } from '../../components/BackLink'
@@ -181,6 +181,8 @@ function Overview({ event }: { event: EventInfo }) {
         <ErrorText error={board.error} />
       </Panel>
 
+      {event.kind === 'jeopardy' && <InstanceHost event={event} />}
+
       {event.kind === 'jeopardy' && <NetworkMode event={event} />}
 
       {event.kind === 'jeopardy' && <JeopardySettingsForm eventId={event.id} />}
@@ -197,6 +199,51 @@ function Overview({ event }: { event: EventInfo }) {
         />
       )}
     </div>
+  )
+}
+
+/** Where this event's instances run: this server, or one of the lab hosts. */
+function InstanceHost({ event }: { event: EventInfo }) {
+  const client = useQueryClient()
+  const labs = useQuery({ queryKey: ['labs'], queryFn: platform.labs })
+  const [local, setLocal] = useState<string | null>(null)
+  const set = useMutation({
+    mutationFn: (value: string) => platform.setEventLab(event.id, value === '' ? null : Number(value)),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+      void client.invalidateQueries({ queryKey: ['labs'] })
+      setLocal(null)
+    },
+  })
+  const list = labs.data?.labs ?? []
+  const current = local ?? (event.lab_host_id === null ? '' : String(event.lab_host_id))
+  return (
+    <Panel className="flex flex-col gap-3">
+      <h2 className="text-lg font-semibold tracking-tight">Where instances run</h2>
+      <p className="text-sm text-muted">
+        This server runs the challenge containers itself, or a separate lab host does, which keeps a broken-into challenge away from the platform. Players are told the lab host's address.{' '}
+        {list.length === 0 && (
+          <>
+            There is no lab host yet: <Link to="/admin/labs" className="font-medium text-accent hover:underline">add one</Link>.
+          </>
+        )}
+      </p>
+      <Select aria-label="Where instances run" value={current} disabled={set.isPending} className="w-64" onChange={(e) => {
+        setLocal(e.target.value)
+        set.mutate(e.target.value)
+      }}>
+        <option value="">This server</option>
+        {list.map((l) => (
+          <option key={l.id} value={l.id} disabled={!l.enabled && event.lab_host_id !== l.id}>
+            {l.name}
+            {l.enabled ? '' : ' (switched off)'}
+          </option>
+        ))}
+      </Select>
+      {event.lab_host_id !== null && event.network_mode === 'vpn' && <p className="text-sm text-danger">The private VPN only works with instances on this server.</p>}
+      <p className="text-xs text-muted">Stop all running instances before moving the event. Instances that are already running stay where they started.</p>
+      <ErrorText error={set.error} />
+    </Panel>
   )
 }
 

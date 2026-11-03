@@ -5,6 +5,7 @@ import type { Health, RunInfo } from '../../api/platformTypes'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, Stat, TD } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, PageTitle } from '../../components/ui'
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { fileSize } from '../../lib/platform'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
@@ -45,6 +46,29 @@ function HealthView({ h }: { h: Health }) {
         <Stat label="Live instances" value={h.instances.enabled ? h.instances.live : 'off'} />
         <Stat label="Orphaned containers" value={h.instances.enabled ? h.instances.orphans : 'off'} tone={h.instances.orphans > 0 ? 'text-danger' : ''} />
       </div>
+      {(h.labs ?? []).length > 0 && (
+        <section className="flex flex-col gap-2" aria-label="Lab hosts">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-tight">Lab hosts</h2>
+            <Link to="/admin/labs" className="text-sm font-medium text-accent hover:underline">
+              Manage
+            </Link>
+          </div>
+          <DataTable caption="Lab hosts" head={['Lab host', 'State', 'Running', 'Last check']}>
+            {(h.labs ?? []).map((l) => (
+              <tr key={l.id}>
+                <td className={`${TD} font-medium`}>{l.name}</td>
+                <td className={TD}>
+                  {!l.enabled ? <Pill tone="text-muted">Switched off</Pill> : l.reachable ? <Pill tone="text-win">Online</Pill> : <Pill tone="text-danger">Unreachable</Pill>}
+                  {l.last_error && l.enabled && <span className="ml-2 break-words text-xs text-danger">{l.last_error}</span>}
+                </td>
+                <td className={`${TD} font-mono tabular-nums`}>{l.live_instances}</td>
+                <td className={`${TD} text-muted`}>{l.last_checked_at ? timeAgo(l.last_checked_at) : 'not yet'}</td>
+              </tr>
+            ))}
+          </DataTable>
+        </section>
+      )}
       {h.instances.enabled && h.instances.runtime_ok === false && <p className="text-sm text-danger">The container platform cannot be reached.</p>}
 
       <section className="flex flex-col gap-2">

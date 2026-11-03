@@ -41,6 +41,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       list.push({ id: 'manage', label: 'Manage events', group: 'Pages', run: go('/admin/events') })
       list.push({ id: 'users', label: 'Users', group: 'Pages', run: go('/admin/users') })
       list.push({ id: 'ops', label: 'Operations', group: 'Pages', run: go('/admin/ops') })
+      list.push({ id: 'labs', label: 'Lab hosts', group: 'Pages', run: go('/admin/labs') })
       list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/settings') })
       list.push({ id: 'tokens', label: 'API tokens', group: 'Pages', run: go('/tokens') })
     }
