@@ -104,3 +104,6 @@ Points over time sit above the scoreboard table: flat between solves, an S-curve
 
 ## Lab hosts page
 Admin only, reached from the account menu and the command palette. A short explanation and the install command come first, then one card per lab host: a state pill (Online, Unreachable, Switched off, Not checked yet), what players connect to, whether the connection is encrypted and pinned, events and running instances, the last error in words, and the actions Test connection, What is running (flags containers the platform does not know), Edit, Switch off or on, Clean up and Remove. The add and edit dialog suggests the public address from the API address, never shows the token again, and after saving shows the connection test result. Events get a Where instances run select next to the network settings.
+
+## Services and machines
+A player's instance shows its main address as before; a machine with more services lists the others by name beneath it (copy buttons), in the instance panel and in Your instances. Nothing is shown until the guest really answers. On the Lab hosts page an image that is still being unpacked reads preparing, a virtual machine is tagged vm, the connection test says whether machines run with KVM or in slow emulation, and each running machine has a Console button that shows a screenshot of its screen.

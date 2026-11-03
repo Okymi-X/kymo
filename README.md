@@ -251,6 +251,7 @@ The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` docum
 | `KYMO_LAB_ADDR` | `0.0.0.0:7400` | Where the API listens |
 | `KYMO_LAB_NAME` | hostname | Name shown in the platform |
 | `KYMO_LAB_MODE` | `manifest` | `manifest` or `open` |
+| `KYMO_LAB_RUNTIMES` | what is installed | `docker`, `vm` or both |
 | `KYMO_LAB_MAX_INSTANCES` | `100` | Most instances at once; further starts get "the lab host is full" |
 | `KYMO_LAB_ALLOW_FROM` | any | Comma separated addresses or CIDR ranges allowed to call the API |
 | `KYMO_LAB_TLS` | `on` | `off` serves plain http, only behind a proxy or on a private network |
@@ -260,7 +261,53 @@ The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` docum
 | `KYMO_LAB_DATA` | `/var/lib/kymo-lab` | State file and certificate |
 | `KYMO_LAB_MANIFESTS` | `/etc/kymo-lab/manifests` | Manifest directory |
 
-Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab fingerprint` prints the certificate fingerprint, `kymo-lab version`.
+Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab prepare` unpacks virtual machine images now, `kymo-lab fingerprint` prints the certificate fingerprint, `kymo-lab version`.
+
+### Virtual machines
+
+A lab host can also run whole machines, such as the OVA exports of VulnHub boxes, with QEMU (KVM-accelerated when the host has it). A challenge's instance then gives each player or team a private, pristine copy of the machine, and players connect to its services (a web server and SSH, say) on the lab host's address.
+
+Set it up on the lab host:
+
+1. Install QEMU: `sudo ./install-lab.sh --with-vm` does it on Debian, Ubuntu, Fedora and Arch (it also adds the service user to the `kvm` group). On a cloud server KVM needs nested virtualization; without `/dev/kvm` machines still run, in plain emulation that is many times slower, and the Lab hosts page says so.
+2. Copy the image (`.ova`, `.vmdk`, `.vdi`, `.qcow2`, `.img` or `.raw`) to `/var/lib/kymo-lab/images/`.
+3. Describe it in a manifest, `runtime` `vm`:
+
+```json
+{
+  "artifact": "gaara",
+  "runtime": "vm",
+  "file": "Gaara.ova",
+  "ports": [ { "name": "web", "port": 80 }, { "name": "ssh", "port": 22 } ],
+  "memory_mb": 1024,
+  "cpu_millis": 2000,
+  "boot_timeout_secs": 240,
+  "max_ttl_secs": 3600
+}
+```
+
+4. Restart the service. The image is unpacked once, in the background (`kymo-lab prepare` does it on the spot; about ten seconds for a 1 GB OVA); until then a start is "try again shortly" and costs the player nothing. `kymo-lab check` shows what is ready.
+5. In the challenge, set the instance image to the **artifact name** (`gaara`). The manifest decides the rest. Open the machine port range (`KYMO_LAB_VM_PORTS`, default 40000 to 40999) to players.
+
+| Manifest field | Meaning |
+| --- | --- |
+| `file` | The image, a plain file name in the images directory |
+| `ports` | Up to 8 services, primary first. The first is the instance's address, the others are shown by name |
+| `memory_mb`, `cpu_millis` | Memory and CPU cores (1000 per core), clamped to the lab host's caps (`KYMO_LAB_MAX_MEMORY_MB`, `KYMO_LAB_MAX_CPUS`) |
+| `boot_timeout_secs` | How long the platform waits for the machine to answer (10 to 1800, default 180) |
+| `disk` | `sata` (default, works with nearly everything), `ide` or `virtio` (fastest, needs guest drivers) |
+| `nic` | `e1000` (default), `virtio` or `rtl8139` |
+| `firmware` | `bios` (default, what VirtualBox exports use) or `uefi` |
+
+How it behaves:
+
+- **Every instance is disposable.** The image is converted once into a base that is never written to, and each instance runs from its own copy-on-write overlay that is deleted when it ends. A player can wreck the machine; the next start is pristine, and starting costs almost nothing.
+- **A machine is shown as ready only when its guest accepts connections.** QEMU accepts the host side of a forwarded port while the guest is still booting, so the lab host asks QEMU itself whether the guest took a connection, and the platform waits for that (up to `boot_timeout_secs`). Players see "starting" until then.
+- **Isolation.** Networking is QEMU's user mode with `restrict=on`: the guest cannot reach the lab host, its network or the internet, and only the listed ports lead in. Machines run as the unprivileged service user.
+- **VirtualBox exports just work.** The network card is placed where VirtualBox puts it, so a guest that configures `enp0s3` (the usual VulnHub case) finds it and gets its address.
+- **See what the guest is doing.** In the Lab hosts page, *What is running*, a machine has a **Console** button with a screenshot of its screen. A login prompt means it booted; anything else tells you where it is stuck.
+- **Time limits and restarts.** The lab host enforces the machine's time limit itself. Machines survive a restart of the `kymo-lab` service and are found again.
+- **Limits today.** The first disk of an image is used; one machine is one instance (no private network between several); CPU is the number of cores given to the guest, not a hard share of the host.
 
 ### How the platform and the lab host cooperate
 
@@ -285,11 +332,13 @@ Everything the platform does is available to scripts. JSON over HTTPS, `Authoriz
 | --- | --- |
 | `GET /healthz` | Liveness, no token |
 | `GET /v1/health` | Version, runtime, mode, load, uptime |
-| `GET /v1/artifacts` | The images this lab host will run |
+| `GET /v1/artifacts` | The images this lab host will run, with their ports and (for machines) whether the image is ready |
 | `POST /v1/instances` | Create and start `{name, instance_id, spec, meta}`; `201` with the instance, `409` for a used name, `400` for a refused request, `503` when full |
 | `GET /v1/instances` | Every instance with its state, port, owner metadata and expiry |
 | `GET /v1/instances/{id}` | One instance, by name, container id or platform instance id |
 | `POST /v1/instances/{id}/restart` | Remove it and start it again under the same name |
+| `GET /v1/instances/{id}/screen` | A virtual machine's screen as a PNG |
+| `GET /v1/ready?port=N` | Whether the service behind a published port answers (for a machine, whether the guest took a connection) |
 | `POST /v1/instances/{id}/stop`, `DELETE /v1/instances/{id}` | Remove it; removing a missing instance succeeds |
 | `POST /v1/reconcile` | `{keep: [instance ids], grace_secs}`: remove everything not listed |
 | `POST /v1/cleanup` | Remove expired instances now |

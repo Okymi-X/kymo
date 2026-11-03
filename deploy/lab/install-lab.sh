@@ -3,7 +3,11 @@
 # platform. Run it as root from the unpacked release. Safe to run again to upgrade.
 #
 #   sudo ./install-lab.sh [--public-host ADDRESS] [--port 7400] [--allow-from CIDR] [--mode manifest|open]
+#                         [--with-vm] [--runtimes docker,vm]
 #   sudo ./install-lab.sh --uninstall [--purge]
+#
+# Containers need Docker. Virtual machines need QEMU: --with-vm installs it (Debian, Ubuntu, Fedora,
+# Arch) when it is missing. With neither installed there is nothing to run.
 set -eu
 
 PORT=7400
@@ -12,6 +16,8 @@ PUBLIC_HOST=""
 ALLOW_FROM=""
 UNINSTALL=0
 PURGE=0
+WITH_VM=0
+RUNTIMES=""
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 die() { echo "install-lab: $*" >&2; exit 1; }
@@ -23,6 +29,8 @@ while [ $# -gt 0 ]; do
         --port) PORT=${2:?--port needs a value}; shift 2 ;;
         --allow-from) ALLOW_FROM=${2:?--allow-from needs a value}; shift 2 ;;
         --mode) MODE=${2:?--mode needs a value}; shift 2 ;;
+        --with-vm) WITH_VM=1; shift ;;
+        --runtimes) RUNTIMES=${2:?--runtimes needs a value}; shift 2 ;;
         --uninstall) UNINSTALL=1; shift ;;
         --purge) PURGE=1; shift ;;
         -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -56,8 +64,33 @@ for candidate in "$HERE/kymo-lab" "$HERE/../../kymo-lab" "./kymo-lab"; do
 done
 [ -n "$BIN" ] || die "kymo-lab binary not found next to this script"
 
-command -v docker >/dev/null 2>&1 || die "Docker is not installed. Install it first (https://docs.docker.com/engine/install/) and run this again."
-docker info >/dev/null 2>&1 || die "Docker is installed but not running or not reachable by root: systemctl start docker"
+# What this machine can run.
+if [ "$WITH_VM" -eq 1 ] && ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+    say "Installing QEMU"
+    if command -v apt-get >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-system-x86 qemu-utils ovmf tar
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y qemu-kvm qemu-img edk2-ovmf tar
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -S --needed --noconfirm qemu-base edk2-ovmf tar
+    else
+        die "install QEMU yourself (qemu-system-x86_64 and qemu-img), then run this again"
+    fi
+fi
+HAS_DOCKER=0; HAS_QEMU=0
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then HAS_DOCKER=1; fi
+if command -v qemu-system-x86_64 >/dev/null 2>&1 && command -v qemu-img >/dev/null 2>&1; then HAS_QEMU=1; fi
+if [ "$HAS_DOCKER" -eq 0 ] && [ "$HAS_QEMU" -eq 0 ]; then
+    die "this machine has nothing to run challenges with. Install Docker (https://docs.docker.com/engine/install/) for containers, or run this with --with-vm for virtual machines."
+fi
+if [ -z "$RUNTIMES" ]; then
+    RUNTIMES=""
+    [ "$HAS_DOCKER" -eq 1 ] && RUNTIMES="docker"
+    [ "$HAS_QEMU" -eq 1 ] && RUNTIMES="${RUNTIMES:+$RUNTIMES,}vm"
+fi
+case ",$RUNTIMES," in *,docker,*) [ "$HAS_DOCKER" -eq 1 ] || die "--runtimes asks for docker, which is not installed or not running" ;; esac
+case ",$RUNTIMES," in *,vm,*) [ "$HAS_QEMU" -eq 1 ] || die "--runtimes asks for vm, but QEMU is not installed (run with --with-vm)" ;; esac
+say "Running: $RUNTIMES"
 command -v openssl >/dev/null 2>&1 || die "openssl is needed to make the token"
 command -v systemctl >/dev/null 2>&1 || die "this installer needs systemd"
 
@@ -70,14 +103,29 @@ fi
 
 say "Creating the service user"
 id kymo-lab >/dev/null 2>&1 || useradd --system --home /var/lib/kymo-lab --shell /usr/sbin/nologin kymo-lab
-getent group docker >/dev/null 2>&1 || die "there is no docker group"
-usermod -aG docker kymo-lab
+GROUPS_LINE=""
+case ",$RUNTIMES," in *,docker,*)
+    getent group docker >/dev/null 2>&1 || die "there is no docker group"
+    usermod -aG docker kymo-lab
+    GROUPS_LINE="docker" ;;
+esac
+case ",$RUNTIMES," in *,vm,*)
+    # Hardware acceleration: without the kvm group machines still run, many times slower.
+    if getent group kvm >/dev/null 2>&1 && [ -e /dev/kvm ]; then
+        usermod -aG kvm kymo-lab
+        GROUPS_LINE="${GROUPS_LINE:+$GROUPS_LINE }kvm"
+    else
+        say "No /dev/kvm here: virtual machines will run in slow emulation. Enable virtualization (and nested virtualization on a cloud server) for KVM."
+    fi ;;
+esac
 
 say "Installing the program"
 install -m 0755 "$BIN" /usr/local/bin/kymo-lab
 install -d -m 0750 -o root -g kymo-lab /etc/kymo-lab
 install -d -m 0755 -o root -g kymo-lab /etc/kymo-lab/manifests
 install -d -m 0750 -o kymo-lab -g kymo-lab /var/lib/kymo-lab
+# Virtual machine images go here (readable by the service, writable by root).
+install -d -m 0755 /var/lib/kymo-lab/images 2>/dev/null || true
 # Example manifests, never active until renamed to .json.
 for example in "$HERE"/manifests/*.json.example; do
     [ -f "$example" ] || continue
@@ -94,6 +142,8 @@ else
         echo "KYMO_LAB_ADDR=0.0.0.0:$PORT"
         echo "KYMO_LAB_NAME=$(hostname)"
         echo "KYMO_LAB_MODE=$MODE"
+        echo "KYMO_LAB_RUNTIMES=$RUNTIMES"
+        echo "KYMO_LAB_IMAGES=/var/lib/kymo-lab/images"
         echo "KYMO_LAB_MAX_INSTANCES=100"
         echo "KYMO_LAB_TLS_NAMES=$PUBLIC_HOST"
         [ -z "$ALLOW_FROM" ] || echo "KYMO_LAB_ALLOW_FROM=$ALLOW_FROM"
@@ -105,11 +155,14 @@ else
 fi
 
 say "Installing the service"
-if [ -f "$HERE/kymo-lab.service" ]; then
-    install -m 0644 "$HERE/kymo-lab.service" /etc/systemd/system/kymo-lab.service
+[ -f "$HERE/kymo-lab.service" ] || die "kymo-lab.service not found next to this script"
+# The unit names only the groups this machine has: systemd refuses a group that does not exist.
+if [ -n "$GROUPS_LINE" ]; then
+    sed "s/@SUPPLEMENTARY_GROUPS@/SupplementaryGroups=$GROUPS_LINE/" "$HERE/kymo-lab.service" > /etc/systemd/system/kymo-lab.service
 else
-    die "kymo-lab.service not found next to this script"
+    grep -v '@SUPPLEMENTARY_GROUPS@' "$HERE/kymo-lab.service" > /etc/systemd/system/kymo-lab.service
 fi
+chmod 0644 /etc/systemd/system/kymo-lab.service
 systemctl daemon-reload
 systemctl enable kymo-lab >/dev/null 2>&1
 systemctl restart kymo-lab
@@ -145,9 +198,12 @@ Before players use it:
   1. Open TCP $LPORT to the platform only$( [ -n "$ALLOW_FROM" ] && echo " (the API also only answers $ALLOW_FROM)").
   2. Open the instance ports to players: Docker publishes each instance on a high port, by default
      32768-60999 (cat /proc/sys/net/ipv4/ip_local_port_range).
-  3. Put the challenge images on this machine (docker pull, or docker build) and describe each one
-     in /etc/kymo-lab/manifests/NAME.json (examples ending in .json.example are there), then:
-     kymo-lab check
+  3. Put the challenge images on this machine and describe each one in
+     /etc/kymo-lab/manifests/NAME.json (examples ending in .json.example are there):
+       containers:        docker pull IMAGE   (or docker build)
+       virtual machines:  copy the .ova or disk file to /var/lib/kymo-lab/images, runtime "vm" in
+                          the manifest; ports 40000-40999 must be open to players
+     then restart (systemctl restart kymo-lab) and verify: kymo-lab check
 
 Logs: journalctl -u kymo-lab -f      Upgrade: run this script again from a newer release.
 The token is in /etc/kymo-lab/lab.env, readable only by root and the service.

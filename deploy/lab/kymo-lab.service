@@ -2,19 +2,22 @@
 [Unit]
 Description=Kymo lab host (runs challenge containers for a Kymo platform)
 After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
+Wants=network-online.target docker.service
 
 [Service]
 User=kymo-lab
 Group=kymo-lab
-# Membership of the docker group is equivalent to root on this machine. That is why a lab host
-# is a machine of its own that holds nothing but challenges.
-SupplementaryGroups=docker
+# The installer fills in the groups this machine has. Membership of the docker group is equivalent
+# to root, which is why a lab host is a machine of its own that holds nothing but challenges; the
+# kvm group lets virtual machines use hardware acceleration.
+@SUPPLEMENTARY_GROUPS@
 EnvironmentFile=/etc/kymo-lab/lab.env
 WorkingDirectory=/var/lib/kymo-lab
 StateDirectory=kymo-lab
 ExecStart=/usr/local/bin/kymo-lab
+# Only the service is stopped or restarted with the unit; virtual machines it started keep running
+# and are found again when it comes back (their time limits still apply).
+KillMode=process
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
