@@ -156,14 +156,19 @@ export function ModalBody({ children, className = '' }: { children: ReactNode; c
   )
 }
 
-/** Actions, always visible. `note` sits on the left for status text such as unsaved changes. */
+/** Actions, always visible. `note` carries status text such as unsaved changes: beside the
+ *  buttons on a wide screen, above them on a phone so a long message never squeezes them. */
 export function ModalFooter({ children, note }: { children: ReactNode; note?: ReactNode }) {
   return (
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-6 py-3.5">
-      <div className="min-w-0 flex-1 text-sm text-muted" aria-live="polite">
-        {note}
-      </div>
-      <div className="flex items-center gap-2">{children}</div>
+    <footer className="flex flex-col gap-2 border-t border-line bg-surface px-6 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      {note ? (
+        <div className="min-w-0 text-sm text-muted sm:flex-1" aria-live="polite">
+          {note}
+        </div>
+      ) : (
+        <div className="hidden sm:block sm:flex-1" />
+      )}
+      <div className="flex shrink-0 items-center justify-end gap-2">{children}</div>
     </footer>
   )
 }

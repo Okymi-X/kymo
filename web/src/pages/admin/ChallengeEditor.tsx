@@ -491,7 +491,7 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
         </ModalBody>
         <ModalFooter note={first && (touched || dirty) ? <span className="text-danger">{first}</span> : dirty ? 'Unsaved changes' : null}>
           <ModalCancel />
-          <Button type="submit" variant="primary" disabled={save.isPending || (dirty === false && challenge !== null)}>
+          <Button type="submit" variant="primary" disabled={save.isPending || (challenge !== null && !dirty) || (dirty && first !== undefined)}>
             {challenge ? 'Save changes' : 'Create challenge'}
           </Button>
         </ModalFooter>
