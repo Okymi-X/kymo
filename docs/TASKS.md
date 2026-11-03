@@ -101,7 +101,11 @@
 - [x] Score over time chart on the event scoreboard (GET /events/{slug}/scoreboard/timeline, kymo_jeopardy::progression, web ScoreChart)
 - [x] CI fixed (a flaky cargo test was a real SQLite locking bug, see MEMORY) and now also runs fmt and the browser tests; release workflow publishes a tarball on a v* tag
 
+- [x] Separate lab host: kymo-lab crate (server, binary, RemoteRuntime client with certificate pinning), installer and systemd unit, manifests, admin API and Lab hosts page, per event choice, Operations health, README guide and API reference, release ships a lab tarball. Proven on two machines (local platform in `labs` mode, remote Debian lab host installed by the installer)
+
 ## Todo
+- [ ] Lab hosts: VM (OVA) and other runtimes behind the same trait; the VPN gateway on a lab host (private networks per player on remote labs)
+- [ ] Lab hosts: per event limits per player/team are the platform policy today; a per lab capacity view and instance quotas per event
 - [x] Real VPN end to end on the test server (rootful Docker): tunnel, private instance, isolation between players
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

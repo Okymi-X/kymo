@@ -101,3 +101,6 @@ Errors: a request that fails reads as a sentence. The server's own message is ke
 
 ## Score chart
 Points over time sit above the scoreboard table: flat between solves, an S-curve rise into each one, a dot per solve, one colour per participant from `--series-1..10` (stable by participant id), a Top 5/10/20 control, hover and arrow keys read out every score at that moment, legend entries toggle and highlight lines. Lines draw in once; reduced motion turns that off. The table below is the accessible data.
+
+## Lab hosts page
+Admin only, reached from the account menu and the command palette. A short explanation and the install command come first, then one card per lab host: a state pill (Online, Unreachable, Switched off, Not checked yet), what players connect to, whether the connection is encrypted and pinned, events and running instances, the last error in words, and the actions Test connection, What is running (flags containers the platform does not know), Edit, Switch off or on, Clean up and Remove. The add and edit dialog suggests the public address from the API address, never shows the token again, and after saving shows the connection test result. Events get a Where instances run select next to the network settings.

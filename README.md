@@ -19,6 +19,7 @@ Open source tournament manager for CTF events. Run a knockout, double eliminatio
 - [Use the API from a script](#use-the-api-from-a-script)
 - [Formats](#formats)
 - [Challenge instances with Docker or Podman](#challenge-instances-with-docker-or-podman)
+- [Separate lab host](#separate-lab-host)
 - [Backup and restore](#backup-and-restore)
 - [Private VPN for every player](#private-vpn-for-every-player)
 - [Deploying on your own server](#deploying-on-your-own-server)
@@ -121,7 +122,7 @@ Open http://127.0.0.1:8787 and sign in as organizer with that password.
 | `KYMO_BACKUP_DIR` | off | Directory for scheduled database backups (created private) |
 | `KYMO_BACKUP_EVERY_HOURS` | `24` | Hours between scheduled backups |
 | `KYMO_BACKUP_KEEP` | `7` | Backups to keep |
-| `KYMO_INSTANCES` | off | Set to `docker` to let players start challenge containers |
+| `KYMO_INSTANCES` | off | `docker` runs challenge containers on this machine (events can still use lab hosts); `labs` runs none here and leaves everything to [lab hosts](#separate-lab-host) |
 | `KYMO_INSTANCE_HOST` | `127.0.0.1` | Host name players are told to connect to |
 | `KYMO_INSTANCE_BIND` | `0.0.0.0` | Address container ports are published on |
 | `KYMO_VPN` | off | Set to `1` for a private VPN network per player (needs `KYMO_INSTANCES=docker`) |
@@ -183,6 +184,122 @@ Teams level on points, difference and goals are ordered by the organizer's tiebr
 Set `KYMO_INSTANCES=docker`, `KYMO_INSTANCE_HOST` (what players connect to) and `KYMO_INSTANCE_BIND` (where container ports are published; `127.0.0.1` for a local test). The server talks to the Docker API. With Docker, your user needs access to its socket (the `docker` group). With rootless Podman, run `systemctl --user enable --now podman.socket` and set `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`.
 
 An instance is shown to the player as *starting* until its port really accepts connections (checked through the gateway for a private lab); if it never does, or the container later exits, it is stopped, marked failed with a reason and does not use the player's start budget. `lab/` holds three tiny example challenge images (busybox web servers and a raw TCP service). Build them with `podman build -t localhost/kymo-lab/flag-server:1 lab/flag-server` (or `docker build`), and likewise `page-source`, then point a challenge's instance image at them. To check the runtime against a real daemon: `KYMO_TEST_IMAGE=localhost/kymo-lab/flag-server:1 cargo test -p kymo-instances --features docker --test docker`.
+
+## Separate lab host
+
+By default the machine that runs Kymo also runs the challenge containers. A challenge is software that players attack, so if one is broken into, the attacker is on the machine that holds your accounts, flags and database. A **lab host** moves the containers to another machine. The platform asks it, over an authenticated and encrypted API, to start and stop them, and an event chooses where its instances run.
+
+```
+players ──► platform (web, accounts, scores)  ──── HTTPS + token ────►  lab host (Docker, challenge images)
+   └──────────────────── connect to the instance on the lab host's public address ───────────────────►
+```
+
+- **Same host** (the default): the event uses this machine's own runtime and address.
+- **Separate host**: add the lab host in the admin pages (Lab hosts) and pick it in the event's *Where instances run*. Players are told the lab host's address.
+- **Both**: any number of lab hosts, and each event picks one. An event on a lab host can be moved only while none of its instances run.
+- **Solo and team events** behave the same; only the owner of an instance changes.
+- The private VPN reaches containers on the platform's own machine, so an event that uses the VPN cannot also use a lab host.
+
+### Install a lab host
+
+On the new machine (Linux with Docker and systemd) download `kymo-lab-vX.Y.Z-linux-x86_64.tar.gz` from the releases page, unpack it and run the installer:
+
+```sh
+sudo ./install-lab.sh --public-host 203.0.113.7 --allow-from 198.51.100.10
+```
+
+`--public-host` is the lab host's address as players reach it, `--allow-from` is the platform's address (the API then answers only that address; omit it to allow any address that has the token). The installer creates a service user, a self-signed certificate and a token, installs and starts the `kymo-lab` service, and prints what to enter in the platform:
+
+```
+API address:             https://203.0.113.7:7400
+Token:                   ...
+Certificate fingerprint: A4:7C:...
+Public address:          203.0.113.7
+```
+
+In the platform open **Lab hosts**, **Add a lab host** and paste those four values. It is saved and tested at once, and the answer says plainly what is wrong if the lab host cannot be reached. Running the installer again upgrades the program and keeps the token, certificate and manifests. `sudo ./install-lab.sh --uninstall [--purge]` removes it.
+
+Then, on the lab host:
+
+1. **Open the ports.** TCP 7400 (the API) to the platform only, and the instance ports to players: Docker publishes each instance on a high port, by default 32768 to 60999 (`cat /proc/sys/net/ipv4/ip_local_port_range`).
+2. **Put the challenge images there** (`docker pull`, or `docker build -t localhost/kymo-lab/flag-server:1 lab/flag-server`) and describe each in a **manifest**, then restart the service. `kymo-lab check` verifies the settings, Docker access and manifests.
+
+### Manifests
+
+A manifest is a JSON file in `/etc/kymo-lab/manifests/` that describes one image. In the default `manifest` mode the lab host runs **only** images it has a manifest for, so even a stolen platform token cannot make it run something else:
+
+```json
+{
+  "artifact": "localhost/kymo-lab/flag-server:1",
+  "runtime": "docker",
+  "port": 8000,
+  "env": { "MODE": "ctf" },
+  "env_allow": ["FLAG"],
+  "cpu_millis": 500, "memory_mb": 128, "pids": 64, "max_ttl_secs": 3600
+}
+```
+
+`artifact` is the image reference the challenge uses. The manifest decides the port and limits; the platform can only ask for less. It can set only the environment variables named in `env_allow`. `deploy/lab/manifests/` has examples for the demo images. `KYMO_LAB_MODE=open` accepts any valid image within the caps instead, which is convenient on a private network and weaker.
+
+### Configuration of the lab host
+
+The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` documents every variable.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `KYMO_LAB_TOKEN` | required | At least 24 characters; the platform authenticates with it (`KYMO_LAB_TOKEN_FILE` reads it from a file) |
+| `KYMO_LAB_ADDR` | `0.0.0.0:7400` | Where the API listens |
+| `KYMO_LAB_NAME` | hostname | Name shown in the platform |
+| `KYMO_LAB_MODE` | `manifest` | `manifest` or `open` |
+| `KYMO_LAB_MAX_INSTANCES` | `100` | Most instances at once; further starts get "the lab host is full" |
+| `KYMO_LAB_ALLOW_FROM` | any | Comma separated addresses or CIDR ranges allowed to call the API |
+| `KYMO_LAB_TLS` | `on` | `off` serves plain http, only behind a proxy or on a private network |
+| `KYMO_LAB_TLS_NAMES` | hostname | Extra names and addresses for the generated certificate |
+| `KYMO_LAB_TLS_CERT`, `KYMO_LAB_TLS_KEY` | generated | Use your own certificate and key |
+| `KYMO_LAB_BIND` | `0.0.0.0` | Address instance ports are published on |
+| `KYMO_LAB_DATA` | `/var/lib/kymo-lab` | State file and certificate |
+| `KYMO_LAB_MANIFESTS` | `/etc/kymo-lab/manifests` | Manifest directory |
+
+Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab fingerprint` prints the certificate fingerprint, `kymo-lab version`.
+
+### How the platform and the lab host cooperate
+
+- **The platform builds the name** of every instance (`kymo-c<challenge>-<u|t><owner>-<random>`) and records the run in its database *before* asking the lab host to start it. The lab host validates the name (characters, prefix, not in use) and the request, and refuses anything else.
+- **Nothing is shown to a player until the service answers.** The platform connects to the lab host's public address and port, the way a player will, so a firewall in the way is caught too. If it never answers, the run fails with a reason and does not use the player's start budget.
+- **Reconciliation.** The platform decides what should run; the lab host knows what does run. Every 30 seconds the platform's reaper removes lab host containers it has no run for (listing first and reading its runs second, so a start under way is never taken for an orphan), and **Clean up** on a lab host card does it on demand. The lab host also enforces expiry on its own clock, so a platform that is down cannot leave containers running, and it remembers its instances across restarts.
+- **Isolation on the lab host.** Each instance has its own network and runs with no capabilities, no privilege escalation, a read-only root and CPU, memory and process limits. The lab host labels its containers in its own namespace (`kymo.managed=lab`), so it can share a Docker daemon with a platform without either touching the other's containers.
+- **Health.** The platform checks every lab host every 30 seconds. Operations lists them and counts an unreachable one as *degraded*.
+
+### Security
+
+- The API needs the bearer token (compared in constant time); ten wrong tokens from an address lock it out for a minute; `KYMO_LAB_ALLOW_FROM` restricts the source addresses.
+- The connection is HTTPS. The installer's certificate is self-signed, so the platform **pins its fingerprint** instead of trusting a certificate authority: nobody can stand in for the lab host, and no domain name is needed. A lab host behind a proxy with an ordinary certificate needs no fingerprint. The platform warns on any unencrypted connection.
+- The token is stored in the platform's database (back-ups include it, treat them as secrets) and is never shown again once saved.
+- The service user belongs to the `docker` group, which is equivalent to root on that machine. That is why a lab host should be a machine of its own that holds nothing but challenges.
+
+### The lab API
+
+Everything the platform does is available to scripts. JSON over HTTPS, `Authorization: Bearer <token>`, `-k` or `--pinnedpubkey` for the self-signed certificate:
+
+| Request | Does |
+| --- | --- |
+| `GET /healthz` | Liveness, no token |
+| `GET /v1/health` | Version, runtime, mode, load, uptime |
+| `GET /v1/artifacts` | The images this lab host will run |
+| `POST /v1/instances` | Create and start `{name, instance_id, spec, meta}`; `201` with the instance, `409` for a used name, `400` for a refused request, `503` when full |
+| `GET /v1/instances` | Every instance with its state, port, owner metadata and expiry |
+| `GET /v1/instances/{id}` | One instance, by name, container id or platform instance id |
+| `POST /v1/instances/{id}/restart` | Remove it and start it again under the same name |
+| `POST /v1/instances/{id}/stop`, `DELETE /v1/instances/{id}` | Remove it; removing a missing instance succeeds |
+| `POST /v1/reconcile` | `{keep: [instance ids], grace_secs}`: remove everything not listed |
+| `POST /v1/cleanup` | Remove expired instances now |
+| `GET /v1/log` | The lab host's recent actions |
+
+```sh
+curl -sk -H "Authorization: Bearer $TOKEN" https://203.0.113.7:7400/v1/instances
+```
+
+The platform side is the admin API (`/api/v1/admin/labs`: list, add, update, delete, test, list instances, reconcile, and `PUT /admin/events/{id}/lab` to choose a lab host for an event), and the same operations are in the **Lab hosts** page.
 
 ## Backup and restore
 
@@ -327,9 +444,10 @@ crates/kymo-jeopardy   pure Jeopardy rules: flags, static and dynamic scoring, r
 crates/kymo-instances  challenge container lifecycle: policy, runtime interface, Docker and Podman
 crates/kymo-monitor    pure request rules: per endpoint limits, automatic bans, ban expiry
 crates/kymo-vpn        per player OpenVPN: certificate authority, profiles, firewall rules, gateway
+crates/kymo-lab        the lab host (binary `kymo-lab`) and the client the platform uses to reach it
 crates/kymo-server     Axum API, SQLite storage, live updates, serves the built web app
 web/                   React, TypeScript, Vite and Tailwind interface, with Playwright tests
-deploy/                systemd unit, reverse proxy examples, the VPN gateway image
+deploy/                systemd unit, reverse proxy examples, the VPN gateway image, the lab host installer
 lab/                   small example challenge images used by the tests and the demo lab
 docs/                  product, architecture, design notes, import schema and screenshots
 ```

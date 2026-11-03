@@ -66,17 +66,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Never publish a build whose tests fail.
       - run: cargo test --workspace --locked
-      - run: cargo build --release --locked -p kymo-server
+      - run: cargo build --release --locked -p kymo-server -p kymo-lab
       - name: Package
         run: |
+          # The platform, with the lab host and its installer alongside.
           name="kymo-${TAG}-linux-x86_64"
           mkdir "$name"
-          cp target/release/kymo-server "$name/"
+          cp target/release/kymo-server target/release/kymo-lab "$name/"
           cp -r deploy "$name/deploy"
           cp README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          # Just the lab host, for the machine that runs the challenge containers.
+          lab="kymo-lab-${TAG}-linux-x86_64"
+          mkdir "$lab"
+          cp target/release/kymo-lab "$lab/"
+          cp deploy/lab/install-lab.sh deploy/lab/kymo-lab.service deploy/lab/lab.env.example "$lab/"
+          cp -r deploy/lab/manifests "$lab/manifests"
+          cp README.md LICENSE "$lab/"
+          tar czf "$lab.tar.gz" "$lab"
+          sha256sum "$lab.tar.gz" > "$lab.tar.gz.sha256"
           echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+          echo "LAB_ASSET=$lab.tar.gz" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
@@ -86,3 +97,5 @@ jobs:
           files: |
             ${{ env.ASSET }}
             ${{ env.ASSET }}.sha256
+            ${{ env.LAB_ASSET }}
+            ${{ env.LAB_ASSET }}.sha256

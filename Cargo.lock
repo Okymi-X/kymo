@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-instances"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bollard",
@@ -1266,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-jeopardy"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regex",
  "serde",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-lab"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-monitor"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-vpn"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bollard",

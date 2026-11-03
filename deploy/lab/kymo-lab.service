@@ -1,0 +1,27 @@
+# /etc/systemd/system/kymo-lab.service. The installer writes this file.
+[Unit]
+Description=Kymo lab host (runs challenge containers for a Kymo platform)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User=kymo-lab
+Group=kymo-lab
+# Membership of the docker group is equivalent to root on this machine. That is why a lab host
+# is a machine of its own that holds nothing but challenges.
+SupplementaryGroups=docker
+EnvironmentFile=/etc/kymo-lab/lab.env
+WorkingDirectory=/var/lib/kymo-lab
+StateDirectory=kymo-lab
+ExecStart=/usr/local/bin/kymo-lab
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/kymo-lab
+
+[Install]
+WantedBy=multi-user.target
