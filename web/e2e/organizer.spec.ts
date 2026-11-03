@@ -39,7 +39,7 @@ test('organizer runs a four team knockout to a champion', async ({ page, browser
   await record(page, 'Edit result for Bravo versus Charlie', '0', '2')
   await record(page, 'Edit result for Alpha versus Charlie', '5', '4')
   await expect(page.getByText('Champion')).toBeVisible()
-  await expect(page.getByText('Finished')).toBeVisible()
+  await expect(page.getByRole('main').getByText('Finished')).toBeVisible()
 
   const visitor = await browser.newPage()
   await visitor.goto('/t/e2e-cup')
@@ -226,7 +226,7 @@ test('round robin plays with a draw and crowns the table leader', async ({ page 
   await page.getByRole('tab', { name: 'Standings' }).click()
   await expect(page.getByRole('columnheader', { name: 'Pts' })).toBeVisible()
   await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Finished')).toBeVisible()
+  await expect(page.getByRole('main').getByText('Finished')).toBeVisible()
 })
 
 test('groups then knockout plays the groups, fills the knockout and crowns a champion', async ({ page }) => {
@@ -255,7 +255,7 @@ test('groups then knockout plays the groups, fills the knockout and crowns a cha
     await expect(page.getByRole('dialog')).toBeHidden()
   }
   await expect(page.getByText('Champion', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Finished')).toBeVisible()
+  await expect(page.getByRole('main').getByText('Finished')).toBeVisible()
   await page.getByRole('tab', { name: 'Knockout' }).click()
   await expect(page.getByText('Final', { exact: true }).first()).toBeVisible()
 })
@@ -654,6 +654,8 @@ test('a tournament can be duplicated and a setup file imported', async ({ page }
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Save roster' }).click()
   await expect(page.getByRole('button', { name: 'Save roster' })).toBeEnabled()
+  // The header counts saved teams only, so this waits for the save to finish before copying.
+  await expect(page.getByText(/4 teams/)).toBeVisible()
   await page.getByRole('button', { name: 'Duplicate' }).click()
   await expect(page.getByRole('heading', { name: 'Original Cup copy' })).toBeVisible()
   await expect(page.getByText(/4 teams/)).toBeVisible()
