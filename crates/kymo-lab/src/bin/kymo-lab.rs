@@ -142,7 +142,8 @@ async fn check(s: &Settings) -> Result<(), String> {
     if s.config.mode == Mode::Manifest && s.config.manifests.is_empty() {
         println!("warning: manifest mode with no manifests: the lab host will refuse every start");
     }
-    let runtime = DockerRuntime::connect(s.bind.clone()).map_err(|e| format!("docker: {e}"))?;
+    let runtime =
+        DockerRuntime::connect_scoped(s.bind.clone(), "lab").map_err(|e| format!("docker: {e}"))?;
     let managed = runtime
         .list_managed()
         .await
@@ -159,8 +160,9 @@ async fn check(s: &Settings) -> Result<(), String> {
 }
 
 async fn run(s: Settings) -> Result<(), String> {
-    let runtime: Arc<dyn InstanceRuntime> =
-        Arc::new(DockerRuntime::connect(s.bind.clone()).map_err(|e| format!("docker: {e}"))?);
+    let runtime: Arc<dyn InstanceRuntime> = Arc::new(
+        DockerRuntime::connect_scoped(s.bind.clone(), "lab").map_err(|e| format!("docker: {e}"))?,
+    );
     let acceptor = if s.tls {
         let id = identity(&s)?;
         tracing::info!(

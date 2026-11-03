@@ -31,16 +31,31 @@ pub struct DockerRuntime {
     /// Address published ports bind to; 0.0.0.0 makes them reachable by players.
     bind_ip: String,
     podman: tokio::sync::OnceCell<bool>,
+    /// What the `kymo.managed` label says. The platform's own runtime uses `1`; a lab host uses
+    /// `lab`. Two Kymo components on one Docker daemon then never list, reap or name-clash with
+    /// each other's containers and networks.
+    scope: String,
 }
 
 impl DockerRuntime {
     pub fn connect(bind_ip: impl Into<String>) -> Result<Self, RuntimeError> {
+        Self::connect_scoped(bind_ip, "1")
+    }
+
+    /// Like `connect`, with its own label scope (letters, digits and dashes). A lab host uses
+    /// `lab` so it can share a machine with a platform without either touching the other's
+    /// containers.
+    pub fn connect_scoped(bind_ip: impl Into<String>, scope: &str) -> Result<Self, RuntimeError> {
+        if scope.is_empty() || !scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(RuntimeError::Failed("the scope is not valid".into()));
+        }
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| RuntimeError::Unavailable(e.to_string()))?;
         Ok(Self {
             docker,
             bind_ip: bind_ip.into(),
             podman: tokio::sync::OnceCell::new(),
+            scope: scope.to_owned(),
         })
     }
 
@@ -60,21 +75,26 @@ impl DockerRuntime {
             .await
     }
 
-    fn network_name(instance_id: &str) -> String {
-        format!("kymo-{instance_id}")
+    fn network_name(&self, instance_id: &str) -> String {
+        if self.scope == "1" {
+            format!("kymo-{instance_id}")
+        } else {
+            // Not `kymo-lab-N`: that is what the VPN calls its lab networks.
+            format!("kymo-s-{}-{instance_id}", self.scope)
+        }
     }
 
-    fn labels(instance_id: &str) -> HashMap<String, String> {
+    fn labels(&self, instance_id: &str) -> HashMap<String, String> {
         HashMap::from([
-            (LABEL_MANAGED.to_owned(), "1".to_owned()),
+            (LABEL_MANAGED.to_owned(), self.scope.clone()),
             (LABEL_INSTANCE.to_owned(), instance_id.to_owned()),
         ])
     }
 
     /// Labels for a request: the managed marker, the platform id, the platform's name for the
     /// instance and its ownership metadata, so what a host runs can be read from the host.
-    fn request_labels(request: &StartRequest) -> HashMap<String, String> {
-        let mut labels = Self::labels(&request.instance_id);
+    fn request_labels(&self, request: &StartRequest) -> HashMap<String, String> {
+        let mut labels = self.labels(&request.instance_id);
         if let Some(name) = &request.name {
             labels.insert("kymo.name".to_owned(), name.clone());
         }
@@ -90,10 +110,10 @@ impl DockerRuntime {
     }
 
     /// The container's name: the platform's, when it gave one and it is safe, else derived.
-    fn container_name(request: &StartRequest) -> String {
+    fn container_name(&self, request: &StartRequest) -> String {
         match &request.name {
             Some(name) if valid_network_name(name) => name.clone(),
-            _ => Self::network_name(&request.instance_id),
+            _ => self.network_name(&request.instance_id),
         }
     }
 }
@@ -152,7 +172,7 @@ impl DockerRuntime {
         let spec = &request.spec;
         let mut host_config = base_host_config(spec);
         host_config.network_mode = Some(network.to_owned());
-        let mut labels = Self::request_labels(request);
+        let mut labels = self.request_labels(request);
         labels.insert("kymo.lab".to_owned(), network.to_owned());
         let body = ContainerCreateBody {
             image: Some(spec.image.clone()),
@@ -173,7 +193,7 @@ impl DockerRuntime {
             }),
             ..Default::default()
         };
-        let name = Self::container_name(request);
+        let name = self.container_name(request);
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         let created = self
             .docker
@@ -201,12 +221,12 @@ impl DockerRuntime {
     async fn start_published(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
         let spec = &request.spec;
         let id = &request.instance_id;
-        let network = Self::network_name(id);
+        let network = self.network_name(id);
         self.docker
             .create_network(NetworkCreateRequest {
                 name: network.clone(),
                 driver: Some("bridge".into()),
-                labels: Some(Self::labels(id)),
+                labels: Some(self.labels(id)),
                 ..Default::default()
             })
             .await
@@ -226,11 +246,11 @@ impl DockerRuntime {
             image: Some(spec.image.clone()),
             env: Some(spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect()),
             exposed_ports: Some(HashMap::from([(port_key.clone(), HashMap::new())])),
-            labels: Some(Self::request_labels(request)),
+            labels: Some(self.request_labels(request)),
             host_config: Some(host_config),
             ..Default::default()
         };
-        let name = Self::container_name(request);
+        let name = self.container_name(request);
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         let created = match self.docker.create_container(Some(options), body).await {
             Ok(created) => created,
@@ -303,7 +323,7 @@ impl InstanceRuntime for DockerRuntime {
                 .config
                 .and_then(|c| c.labels)
                 .and_then(|l| l.get(LABEL_INSTANCE).cloned())
-                .map(|id| Self::network_name(&id)),
+                .map(|id| self.network_name(&id)),
             Err(e) if is_missing(&e) => None,
             Err(e) => return Err(failed(e)),
         };
@@ -355,7 +375,10 @@ impl InstanceRuntime for DockerRuntime {
     }
 
     async fn list_managed(&self) -> Result<Vec<Managed>, RuntimeError> {
-        let filters = HashMap::from([("label".to_owned(), vec![format!("{LABEL_MANAGED}=1")])]);
+        let filters = HashMap::from([(
+            "label".to_owned(),
+            vec![format!("{LABEL_MANAGED}={}", self.scope)],
+        )]);
         let options = ListContainersOptionsBuilder::new()
             .all(true)
             .filters(&filters)
@@ -393,7 +416,7 @@ impl InstanceRuntime for DockerRuntime {
             options.insert("isolate".to_owned(), "true".to_owned());
         }
         let labels = HashMap::from([
-            (LABEL_MANAGED.to_owned(), "1".to_owned()),
+            (LABEL_MANAGED.to_owned(), self.scope.clone()),
             ("kymo.lab".to_owned(), network.to_owned()),
         ]);
         let created = self
