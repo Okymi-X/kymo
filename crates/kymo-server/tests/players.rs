@@ -1052,3 +1052,47 @@ async fn permission_errors_say_what_is_wrong_in_plain_words() {
     assert_eq!(body["error"], "the current password is not right");
     let _ = admin;
 }
+
+#[tokio::test]
+async fn the_organizer_contact_is_public_but_only_an_admin_can_change_it() {
+    let w = world().await;
+    let admin = admin_token(&w.app).await;
+    let (_, none) = call(&w.app, "GET", "/api/v1/registration", None, None).await;
+    assert_eq!(none["contact"], "");
+
+    let (player_token, _) = player(&w.app, "nosy2").await;
+    let (status, _) = call(
+        &w.app,
+        "PUT",
+        "/api/v1/admin/contact",
+        Some(&player_token),
+        Some(json!({ "contact": "me" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, saved) = call(
+        &w.app,
+        "PUT",
+        "/api/v1/admin/contact",
+        Some(&admin),
+        Some(json!({ "contact": "  Ask Sam on organizers@example.org  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["contact"], "Ask Sam on organizers@example.org");
+    let (_, shown) = call(&w.app, "GET", "/api/v1/registration", None, None).await;
+    assert_eq!(shown["contact"], "Ask Sam on organizers@example.org");
+
+    for bad in ["two\nlines".to_owned(), "x".repeat(201)] {
+        let (status, _) = call(
+            &w.app,
+            "PUT",
+            "/api/v1/admin/contact",
+            Some(&admin),
+            Some(json!({ "contact": bad })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+}

@@ -64,6 +64,10 @@ pub fn router(state: AppState) -> Router {
             "/admin/registration",
             get(players::get_registration).put(players::set_registration),
         )
+        .route(
+            "/admin/contact",
+            get(players::get_contact).put(players::set_contact),
+        )
         .route("/events/{slug}/challenges", get(challenges::list))
         .route(
             "/events/{slug}/challenges/{id}/submit",

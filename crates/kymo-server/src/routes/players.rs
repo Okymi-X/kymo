@@ -255,11 +255,44 @@ pub async fn set_registration(
     Ok(Json(body))
 }
 
-/// Whether sign-ups are open, so the form can say so before anyone fills it in.
+#[derive(Serialize)]
+pub struct PublicRegistration {
+    open: bool,
+    /// How to reach an organizer, empty when none was set.
+    contact: String,
+}
+
+/// Whether sign-ups are open, and who to ask when they are not, so pages can say so before
+/// anyone fills a form in.
 pub async fn registration_status(
     State(state): State<AppState>,
-) -> Result<Json<RegistrationBody>, ApiError> {
-    Ok(Json(RegistrationBody {
+) -> Result<Json<PublicRegistration>, ApiError> {
+    Ok(Json(PublicRegistration {
         open: users::registration_open(&state.pool).await?,
+        contact: users::contact(&state.pool).await?,
+    }))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ContactBody {
+    contact: String,
+}
+
+pub async fn get_contact(
+    _: Require<needs::ManageSettings>,
+    State(state): State<AppState>,
+) -> Result<Json<ContactBody>, ApiError> {
+    Ok(Json(ContactBody {
+        contact: users::contact(&state.pool).await?,
+    }))
+}
+
+pub async fn set_contact(
+    _: Require<needs::ManageSettings>,
+    State(state): State<AppState>,
+    Json(body): Json<ContactBody>,
+) -> Result<Json<ContactBody>, ApiError> {
+    Ok(Json(ContactBody {
+        contact: users::set_contact(&state.pool, &body.contact).await?,
     }))
 }

@@ -13,6 +13,8 @@ const MAX_EMAIL: usize = 254;
 pub const MAX_DISPLAY_NAME: usize = 40;
 pub const MAX_BIO: usize = 500;
 const SETTING_REGISTRATION: &str = "registration_open";
+const SETTING_CONTACT: &str = "contact";
+pub const MAX_CONTACT: usize = 200;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRow {
@@ -125,6 +127,30 @@ pub async fn registration_open(pool: &SqlitePool) -> Result<bool, ApiError> {
         .fetch_optional(pool)
         .await?;
     Ok(stored.is_none_or(|json| json != "false"))
+}
+
+/// How visitors reach an organizer to get an account, shown where sign-ups are closed.
+pub async fn contact(pool: &SqlitePool) -> Result<String, ApiError> {
+    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM setting WHERE key = ?")
+        .bind(SETTING_CONTACT)
+        .fetch_optional(pool)
+        .await?;
+    Ok(stored.unwrap_or_default())
+}
+
+pub async fn set_contact(pool: &SqlitePool, raw: &str) -> Result<String, ApiError> {
+    let text = raw.trim();
+    if text.chars().count() > MAX_CONTACT || text.chars().any(|c| is_hidden_char(c) || c == '\n') {
+        return Err(ApiError::BadRequest(format!(
+            "the contact line is at most {MAX_CONTACT} characters of plain text on one line"
+        )));
+    }
+    sqlx::query("INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(SETTING_CONTACT)
+        .bind(text)
+        .execute(pool)
+        .await?;
+    Ok(text.to_owned())
 }
 
 pub async fn set_registration_open(pool: &SqlitePool, open: bool) -> Result<(), ApiError> {
