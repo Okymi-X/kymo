@@ -1,14 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Paperclip, Trash2 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { platform } from '../../api/platform'
 import type { AdminChallenge, Category, ChallengeBody, FlagSpec, Scoring } from '../../api/platformTypes'
-import { Modal } from '../../components/Modal'
-import { Toggle } from '../../components/platform/bits'
+import { Modal, ModalBody, ModalCancel, ModalFooter, ModalHeader, modalForm } from '../../components/Modal'
+import { Pill, Toggle } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, Select, Textarea } from '../../components/ui'
-import { fileSize, fromLocalInput, toLocalInput, verdictText } from '../../lib/platform'
+import { fileSize, flagHint, fromLocalInput, toLocalInput, verdictText } from '../../lib/platform'
 
-interface Draft {
+export interface Draft {
   title: string
   description: string
   category_id: number
@@ -36,7 +36,7 @@ interface Draft {
   ttl: string
 }
 
-const blank = (category: number): Draft => ({
+export const blank = (category: number): Draft => ({
   title: '',
   description: '',
   category_id: category,
@@ -68,7 +68,7 @@ function flagText(f: FlagSpec): string {
   return f.kind === 'static' ? f.value : f.kind === 'regex' ? f.pattern : f.expected
 }
 
-function fromChallenge(c: AdminChallenge): Draft {
+export function fromChallenge(c: AdminChallenge): Draft {
   const cfg = c.instance_config
   return {
     ...blank(c.category_id),
@@ -129,12 +129,100 @@ export function toBody(d: Draft): ChallengeBody {
   }
 }
 
-function Num({ label, value, onChange, min = 0 }: { label: string; value: string; onChange: (v: string) => void; min?: number }) {
+export type Problems = Partial<Record<keyof Draft, string>>
+
+const inRange = (value: string, min: number, max: number) => {
+  const n = Number(value)
+  return value.trim() !== '' && Number.isInteger(n) && n >= min && n <= max
+}
+
+/** What would be refused, found before the request is sent so the form can say why Save is off. */
+export function validate(d: Draft): Problems {
+  const p: Problems = {}
+  if (d.title.trim() === '') p.title = 'Give the challenge a title.'
+  if (d.category_id === 0) p.category_id = 'Add a category first.'
+  if (d.scoring === 'static') {
+    if (!inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
+  } else {
+    if (!inRange(d.initial, 1, 100000)) p.initial = 'A whole number, 1 or more.'
+    if (!inRange(d.minimum, 0, 100000)) p.minimum = 'A whole number, 0 or more.'
+    else if (inRange(d.initial, 1, 100000) && Number(d.minimum) > Number(d.initial)) p.minimum = 'The floor cannot be above the start.'
+    if (!inRange(d.decay, 1, 100000)) p.decay = 'A whole number, 1 or more.'
+  }
+  if (d.flagValue === '') {
+    p.flagValue = 'Enter the flag.'
+  } else if (d.flagKind === 'static' || d.flagKind === 'per_team') {
+    // A flag that does not match the accepted format could never be submitted.
+    const shown = d.caseSensitive ? d.flagValue : d.flagValue.toLowerCase()
+    const pre = d.caseSensitive ? d.prefix : d.prefix.toLowerCase()
+    const suf = d.caseSensitive ? d.suffix : d.suffix.toLowerCase()
+    if (d.prefix && !shown.startsWith(pre)) p.flagValue = `The flag must start with the accepted prefix ${d.prefix}, or nobody can submit it.`
+    else if (d.suffix && !shown.endsWith(suf)) p.flagValue = `The flag must end with the accepted suffix ${d.suffix}, or nobody can submit it.`
+  } else {
+    try {
+      new RegExp(d.flagValue)
+    } catch {
+      p.flagValue = 'This is not a valid pattern.'
+    }
+  }
+  if (d.maxAttempts.trim() !== '' && !inRange(d.maxAttempts, 1, 10000)) p.maxAttempts = 'A whole number from 1, or empty for no limit.'
+  const rel = fromLocalInput(d.release)
+  const ret = fromLocalInput(d.retire)
+  if (rel !== null && ret !== null && rel >= ret) p.retire = 'It must retire after it is released.'
+  if (d.requiresInstance) {
+    if (d.image.trim() === '') p.image = 'Name the container image.'
+    if (!inRange(d.port, 1, 65535)) p.port = '1 to 65535.'
+    if (!inRange(d.cpu, 1, 4000)) p.cpu = '1 to 4000.'
+    if (!inRange(d.memory, 1, 2048)) p.memory = '1 to 2048.'
+    if (!inRange(d.pids, 1, 512)) p.pids = '1 to 512.'
+    if (!inRange(d.ttl, 1, 14400)) p.ttl = '1 to 14400 (4 hours).'
+  }
+  return p
+}
+
+function Section({ title, help, children }: { title: string; help?: ReactNode; children: ReactNode }) {
   return (
-    <Field label={label}>
-      <Input type="number" min={min} value={value} onChange={(e) => onChange(e.target.value)} className="font-mono" />
+    <section className="flex flex-col gap-4 rounded-card border border-line p-4">
+      <div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {help && <p className="mt-0.5 text-xs text-muted">{help}</p>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function Num({ label, value, onChange, error, hint, min = 0 }: { label: string; value: string; onChange: (v: string) => void; error?: string; hint?: ReactNode; min?: number }) {
+  return (
+    <Field label={label} error={error} hint={hint}>
+      <Input type="number" min={min} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={error ? true : undefined} className="font-mono" />
     </Field>
   )
+}
+
+/** A date and time with a clear button, so an optional limit can be taken away again. */
+function When({ label, value, onChange, error, hint }: { label: string; value: string; onChange: (v: string) => void; error?: string; hint?: ReactNode }) {
+  return (
+    <Field label={label} error={error} hint={hint}>
+      <span className="flex gap-2">
+        <Input type="datetime-local" value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={error ? true : undefined} className="min-w-0 flex-1" />
+        {value && (
+          <Button variant="ghost" onClick={() => onChange('')} aria-label={`Clear ${label.toLowerCase()}`}>
+            Clear
+          </Button>
+        )}
+      </span>
+    </Field>
+  )
+}
+
+/** One sentence that says what the dynamic settings mean in practice. */
+function dynamicSummary(d: Draft): string {
+  const start = d.initial || '?'
+  const floor = d.minimum || '?'
+  const n = d.decay || '?'
+  if (d.curve === 'linear') return `The first solver gets ${start}. Each solve after that takes ${n} points off, down to ${floor}.`
+  return `The first solver gets ${start}, falling ${d.curve === 'parabolic' ? 'faster at first' : 'quickly then slowly'} to ${floor} after about ${n} solves. Everyone's points update as more teams solve it.`
 }
 
 function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged: () => void }) {
@@ -153,10 +241,11 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
   const delFile = useMutation({ mutationFn: (id: number) => platform.deleteAttachment(id), onSuccess: onChanged })
   const [probe, setProbe] = useState('')
   const test = useMutation({ mutationFn: () => platform.testFlag(challenge.id, probe) })
+  const costOk = inRange(cost, 0, 100000)
   return (
-    <div className="flex flex-col gap-5 border-t border-line pt-5">
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-semibold">Hints</h3>
+    <>
+      <Section title="Hints" help="Players can unlock a hint for its cost, which comes off the challenge when they solve it. Changes here save at once.">
+        {challenge.hints.length === 0 && <p className="text-sm text-muted">No hints yet.</p>}
         {challenge.hints.map((h) => (
           <div key={h.id} className="flex items-start gap-2 rounded-control border border-line p-2.5 text-sm">
             <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{h.content}</span>
@@ -166,18 +255,22 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
             </button>
           </div>
         ))}
-        <div className="flex gap-2">
-          <Input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="New hint" aria-label="New hint" className="min-w-0 flex-1" />
-          <Input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} aria-label="Hint cost" className="w-20 font-mono" />
-          <Button onClick={() => addHint.mutate()} disabled={!hint.trim() || addHint.isPending}>
-            Add
+        <div className="grid grid-cols-[1fr_6rem_auto] items-end gap-2 max-sm:grid-cols-1">
+          <Field label="New hint">
+            <Input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="What should a stuck player try?" />
+          </Field>
+          <Field label="Cost">
+            <Input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} aria-label="Hint cost" className="font-mono" />
+          </Field>
+          <Button onClick={() => addHint.mutate()} disabled={!hint.trim() || !costOk || addHint.isPending}>
+            Add hint
           </Button>
         </div>
         <ErrorText error={addHint.error ?? delHint.error} />
-      </div>
+      </Section>
 
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-semibold">Attachments</h3>
+      <Section title="Attachments" help="Files players download from the challenge, up to 10 MB each. Changes here save at once.">
+        {challenge.attachments.length === 0 && <p className="text-sm text-muted">No files yet.</p>}
         {challenge.attachments.map((a) => (
           <div key={a.id} className="flex items-center gap-2 rounded-control border border-line p-2.5 text-sm">
             <Paperclip size={14} aria-hidden="true" className="text-muted" />
@@ -200,14 +293,12 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
           }}
         />
         <Button className="self-start" onClick={() => file.current?.click()} disabled={upload.isPending}>
-          Upload a file (up to 10 MB)
+          {upload.isPending ? 'Uploading...' : 'Upload a file'}
         </Button>
         <ErrorText error={upload.error ?? delFile.error} />
-      </div>
+      </Section>
 
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-semibold">Test the flag</h3>
-        <p className="text-xs text-muted">Checks a flag without recording a submission or a solve.</p>
+      <Section title="Test the flag" help="Checks a flag the way a player's submission is checked, without recording a submission or a solve.">
         <div className="flex gap-2">
           <Input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Try a flag" aria-label="Flag to test" className="min-w-0 flex-1 font-mono" autoComplete="off" />
           <Button onClick={() => test.mutate()} disabled={!probe || test.isPending}>
@@ -216,8 +307,8 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
         </div>
         {test.data && <p className={test.data.verdict === 'correct' ? 'text-sm text-win' : 'text-sm text-danger'}>{verdictText[test.data.verdict]}</p>}
         <ErrorText error={test.error} />
-      </div>
-    </div>
+      </Section>
+    </>
   )
 }
 
@@ -230,8 +321,16 @@ interface Props {
 
 export function ChallengeEditor({ eventId, categories, challenge, onClose }: Props) {
   const client = useQueryClient()
-  const [d, setD] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : blank(categories[0]?.id ?? 0)))
+  const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : blank(categories[0]?.id ?? 0)))
+  const [d, setD] = useState<Draft>(start)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setD((prev) => ({ ...prev, [key]: value }))
+  const dirty = JSON.stringify(d) !== JSON.stringify(start)
+  const problems = validate(d)
+  const first = Object.values(problems)[0]
+  // Show a field's problem only after it has been touched, so a new form does not open in red.
+  const [touched, setTouched] = useState(false)
+  const shown: Problems = touched || dirty ? problems : {}
+
   const refresh = () => void client.invalidateQueries({ queryKey: ['admin-challenges', eventId] })
   const save = useMutation({
     mutationFn: () => (challenge ? platform.updateChallenge(challenge.id, toBody(d)) : platform.createChallenge(eventId, toBody(d))),
@@ -244,146 +343,158 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
     mutationFn: (action: 'publish' | 'retire') => (action === 'publish' ? platform.publishChallenge(challenge!.id) : platform.retireChallenge(challenge!.id)),
     onSuccess: refresh,
   })
-  const valid = d.title.trim() !== '' && d.flagValue !== '' && d.category_id !== 0 && (!d.requiresInstance || d.image.trim() !== '')
-  // The parent resolves the challenge from the live list, so hint and file changes show up here.
-  const live = challenge
 
   return (
-    <Modal label={challenge ? 'Edit challenge' : 'New challenge'} onClose={onClose} width="44rem">
+    <Modal label={challenge ? 'Edit challenge' : 'New challenge'} onClose={onClose} width="52rem" dirty={dirty} backdropCloses={false}>
       <form
-        className="flex max-h-[88vh] flex-col gap-5 overflow-y-auto p-6"
+        className={modalForm}
         onSubmit={(e) => {
           e.preventDefault()
-          if (valid) save.mutate()
+          setTouched(true)
+          if (!first) save.mutate()
         }}
       >
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold tracking-tight">{challenge ? 'Edit challenge' : 'New challenge'}</h2>
-          {live && (
-            <div className="flex items-center gap-2">
-              <span className="rounded-full border border-line px-2.5 py-0.5 text-xs font-medium capitalize">{live.state}</span>
-              {live.state !== 'published' && (
-                <Button onClick={() => state.mutate('publish')} disabled={state.isPending}>
-                  Publish
-                </Button>
-              )}
-              {live.state === 'published' && (
-                <Button variant="danger" onClick={() => state.mutate('retire')} disabled={state.isPending}>
-                  Retire
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-        <ErrorText error={state.error} />
+        <ModalHeader
+          title={challenge ? 'Edit challenge' : 'New challenge'}
+          subtitle={challenge ? `${challenge.solves} ${challenge.solves === 1 ? 'solve' : 'solves'}` : 'Players see it once you publish it.'}
+          actions={
+            challenge && (
+              <>
+                <Pill tone={challenge.state === 'published' ? 'text-win' : 'text-muted'}>{challenge.state}</Pill>
+                {challenge.state !== 'published' && (
+                  <Button onClick={() => state.mutate('publish')} disabled={state.isPending || dirty} title={dirty ? 'Save your changes first' : undefined}>
+                    Publish
+                  </Button>
+                )}
+                {challenge.state === 'published' && (
+                  <Button variant="danger" onClick={() => state.mutate('retire')} disabled={state.isPending}>
+                    Retire
+                  </Button>
+                )}
+              </>
+            )
+          }
+        />
+        <ModalBody>
+          <ErrorText error={state.error} />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Title">
-            <Input value={d.title} onChange={(e) => set('title', e.target.value)} maxLength={100} autoFocus />
-          </Field>
-          <Field label="Category">
-            <Select value={d.category_id} onChange={(e) => set('category_id', int(e.target.value))}>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <Field label="Description (shown as plain text)">
-          <Textarea value={d.description} onChange={(e) => set('description', e.target.value)} />
-        </Field>
-
-        <fieldset className="flex flex-col gap-3 rounded-card border border-line p-4">
-          <legend className="px-1 text-sm font-semibold">Points</legend>
-          <Select value={d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type" className="self-start">
-            <option value="static">Fixed points</option>
-            <option value="dynamic">Dynamic (drops as more teams solve)</option>
-          </Select>
-          {d.scoring === 'static' ? (
-            <Num label="Points" value={d.points} onChange={(v) => set('points', v)} />
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-4">
-              <Num label="Start at" value={d.initial} onChange={(v) => set('initial', v)} />
-              <Num label="Floor" value={d.minimum} onChange={(v) => set('minimum', v)} />
-              <Num label="Decay" value={d.decay} onChange={(v) => set('decay', v)} />
-              <Field label="Curve">
-                <Select value={d.curve} onChange={(e) => set('curve', e.target.value as Draft['curve'])}>
-                  <option value="parabolic">Parabolic</option>
-                  <option value="linear">Linear</option>
-                  <option value="logarithmic">Logarithmic</option>
+          <Section title="Basics">
+            <div className="grid gap-4 sm:grid-cols-[1fr_14rem]">
+              <Field label="Title" error={shown.title}>
+                <Input value={d.title} onChange={(e) => set('title', e.target.value)} maxLength={100} aria-invalid={shown.title ? true : undefined} />
+              </Field>
+              <Field label="Category" error={shown.category_id}>
+                <Select value={d.category_id} onChange={(e) => set('category_id', int(e.target.value))}>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
                 </Select>
               </Field>
             </div>
-          )}
-        </fieldset>
+            <Field label="Description" hint="Shown to players as plain text. Say what to do, not how to solve it.">
+              <Textarea value={d.description} onChange={(e) => set('description', e.target.value)} rows={4} />
+            </Field>
+          </Section>
 
-        <fieldset className="flex flex-col gap-3 rounded-card border border-line p-4">
-          <legend className="px-1 text-sm font-semibold">Flag</legend>
-          <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-            <Field label="Kind">
-              <Select value={d.flagKind} onChange={(e) => set('flagKind', e.target.value as FlagSpec['kind'])}>
-                <option value="static">Exact text</option>
-                <option value="regex">Pattern (regex)</option>
-                <option value="per_team">Per team</option>
-              </Select>
-            </Field>
-            <Field label={d.flagKind === 'regex' ? 'Pattern (must match the whole flag)' : 'Flag'}>
-              <Input value={d.flagValue} onChange={(e) => set('flagValue', e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} />
-            </Field>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Accepted prefix">
-              <Input value={d.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="KYMO{" className="font-mono" />
-            </Field>
-            <Field label="Accepted suffix">
-              <Input value={d.suffix} onChange={(e) => set('suffix', e.target.value)} placeholder="}" className="font-mono" />
-            </Field>
-          </div>
-          <Toggle label="Case sensitive" checked={d.caseSensitive} onChange={(v) => set('caseSensitive', v)} />
-        </fieldset>
-
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Num label="Attempt limit (empty: none)" value={d.maxAttempts} onChange={(v) => set('maxAttempts', v)} min={1} />
-          <Num label="Order" value={d.position} onChange={(v) => set('position', v)} min={-1000} />
-          <Field label="Release at">
-            <Input type="datetime-local" value={d.release} onChange={(e) => set('release', e.target.value)} />
-          </Field>
-          <Field label="Retire at">
-            <Input type="datetime-local" value={d.retire} onChange={(e) => set('retire', e.target.value)} />
-          </Field>
-        </div>
-
-        <fieldset className="flex flex-col gap-3 rounded-card border border-line p-4">
-          <legend className="px-1 text-sm font-semibold">Instance</legend>
-          <Toggle label="Each player or team starts its own container" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
-          {d.requiresInstance && (
-            <>
-              <Field label="Container image">
-                <Input value={d.image} onChange={(e) => set('image', e.target.value)} placeholder="registry.example.org/ctf/web-1:1.0" className="font-mono" />
+          <Section title="Points">
+            <div className="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-start">
+              <Field label="Scoring">
+                <Select value={d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type">
+                  <option value="static">Fixed points</option>
+                  <option value="dynamic">Dynamic points</option>
+                </Select>
               </Field>
-              <div className="grid gap-3 sm:grid-cols-5">
-                <Num label="Port" value={d.port} onChange={(v) => set('port', v)} min={1} />
-                <Num label="CPU (millicores)" value={d.cpu} onChange={(v) => set('cpu', v)} min={1} />
-                <Num label="Memory (MB)" value={d.memory} onChange={(v) => set('memory', v)} min={1} />
-                <Num label="Processes" value={d.pids} onChange={(v) => set('pids', v)} min={1} />
-                <Num label="Lifetime (s)" value={d.ttl} onChange={(v) => set('ttl', v)} min={1} />
-              </div>
-            </>
-          )}
-        </fieldset>
+              {d.scoring === 'static' ? (
+                <Num label="Points" value={d.points} onChange={(v) => set('points', v)} error={shown.points} />
+              ) : (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <Num label="Start at" value={d.initial} onChange={(v) => set('initial', v)} error={shown.initial} />
+                  <Num label="Floor" value={d.minimum} onChange={(v) => set('minimum', v)} error={shown.minimum} />
+                  <Num label={d.curve === 'linear' ? 'Lost per solve' : 'Solves to floor'} value={d.decay} onChange={(v) => set('decay', v)} error={shown.decay} />
+                  <Field label="Curve">
+                    <Select value={d.curve} onChange={(e) => set('curve', e.target.value as Draft['curve'])}>
+                      <option value="parabolic">Parabolic</option>
+                      <option value="linear">Linear</option>
+                      <option value="logarithmic">Logarithmic</option>
+                    </Select>
+                  </Field>
+                </div>
+              )}
+            </div>
+            {d.scoring === 'dynamic' && <p className="text-xs text-muted">{dynamicSummary(d)}</p>}
+          </Section>
 
-        <ErrorText error={save.error} />
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={!valid || save.isPending}>
+          <Section title="Flag" help="What a player must submit, and the shape that is accepted before it is even compared.">
+            <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
+              <Field label="Kind">
+                <Select value={d.flagKind} onChange={(e) => set('flagKind', e.target.value as FlagSpec['kind'])}>
+                  <option value="static">Exact text</option>
+                  <option value="regex">Pattern (regex)</option>
+                  <option value="per_team">Per team</option>
+                </Select>
+              </Field>
+              <Field label={d.flagKind === 'regex' ? 'Pattern' : 'Flag'} error={shown.flagValue} hint={d.flagKind === 'regex' ? 'Must match the whole submission.' : undefined}>
+                <Input value={d.flagValue} onChange={(e) => set('flagValue', e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={shown.flagValue ? true : undefined} />
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Accepted prefix">
+                <Input value={d.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="KYMO{" className="font-mono" />
+              </Field>
+              <Field label="Accepted suffix">
+                <Input value={d.suffix} onChange={(e) => set('suffix', e.target.value)} placeholder="}" className="font-mono" />
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Toggle label="Case sensitive" checked={d.caseSensitive} onChange={(v) => set('caseSensitive', v)} />
+              {flagHint(d.prefix, d.suffix) && <span className="text-xs text-muted">Players see the shape: <code className="font-mono text-ink">{flagHint(d.prefix, d.suffix)}</code></span>}
+            </div>
+          </Section>
+
+          <Section title="Availability" help="When players can see and solve it, and how many wrong tries they get. Times use your browser's time zone.">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <When label="Release at" value={d.release} onChange={(v) => set('release', v)} hint="Empty: visible as soon as it is published." />
+              <When label="Retire at" value={d.retire} onChange={(v) => set('retire', v)} error={shown.retire} hint="Empty: stays open until the event ends." />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Num label="Attempt limit" value={d.maxAttempts} onChange={(v) => set('maxAttempts', v)} min={1} error={shown.maxAttempts} hint="Empty means unlimited. Wrong-format answers never count." />
+              <Num label="Order" value={d.position} onChange={(v) => set('position', v)} min={-1000} hint="Lower numbers come first in the category." />
+            </div>
+          </Section>
+
+          <Section title="Instance" help="Give every player or team their own copy of a service to attack. Turn it off for a plain flag.">
+            <Toggle label="Each player or team starts its own container" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
+            {d.requiresInstance && (
+              <>
+                <Field label="Container image" error={shown.image} hint="A name the container platform can already run, for example registry.example.org/ctf/web:1.0.">
+                  <Input value={d.image} onChange={(e) => set('image', e.target.value)} placeholder="registry.example.org/ctf/web-1:1.0" className="font-mono" aria-invalid={shown.image ? true : undefined} />
+                </Field>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+                  <Num label="Port" value={d.port} onChange={(v) => set('port', v)} min={1} error={shown.port} hint="The service's port." />
+                  <Num label="CPU" value={d.cpu} onChange={(v) => set('cpu', v)} min={1} error={shown.cpu} hint="Millicores." />
+                  <Num label="Memory" value={d.memory} onChange={(v) => set('memory', v)} min={1} error={shown.memory} hint="MB." />
+                  <Num label="Processes" value={d.pids} onChange={(v) => set('pids', v)} min={1} error={shown.pids} hint="At most." />
+                  <Num label="Lifetime" value={d.ttl} onChange={(v) => set('ttl', v)} min={1} error={shown.ttl} hint="Seconds." />
+                </div>
+              </>
+            )}
+          </Section>
+
+          {challenge ? (
+            <Extras challenge={challenge} onChanged={refresh} />
+          ) : (
+            <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">Hints, attachments and a flag test appear here once the challenge is created.</p>
+          )}
+          <ErrorText error={save.error} />
+        </ModalBody>
+        <ModalFooter note={first && (touched || dirty) ? <span className="text-danger">{first}</span> : dirty ? 'Unsaved changes' : null}>
+          <ModalCancel />
+          <Button type="submit" variant="primary" disabled={save.isPending || (dirty === false && challenge !== null)}>
             {challenge ? 'Save changes' : 'Create challenge'}
           </Button>
-        </div>
-        {live && <Extras challenge={live} onChanged={refresh} />}
+        </ModalFooter>
       </form>
     </Modal>
   )
