@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kymo_instances::{
-    InstanceRuntime, InstanceSpec, Placement, ResourceCaps, RuntimeError, RuntimeStatus,
+    ExtraPort, InstanceRuntime, InstanceSpec, Placement, ResourceCaps, RuntimeError, RuntimeStatus,
     StartRequest,
 };
 use serde::{Deserialize, Serialize};
@@ -32,8 +32,9 @@ use crate::manifest::Manifest;
 use crate::naming::valid_name;
 use crate::protocol::{
     API_VERSION, ArtifactInfo, CreateRequest, ErrorBody, HealthInfo, InstanceInfo, LogLine,
-    ReconcileRequest, Removed,
+    ReadyInfo, ReconcileRequest, Removed,
 };
+use crate::vm::{VmRuntime, VmStart};
 
 const LOG_LINES: usize = 500;
 const AUTH_WINDOW: Duration = Duration::from_secs(60);
@@ -159,6 +160,27 @@ struct Record {
     created_at: i64,
     expires_at: i64,
     host_port: u16,
+    /// `docker` or `vm`: which runtime owns it.
+    #[serde(default = "container_kind")]
+    runtime: String,
+    /// More published services, for a virtual machine that offers several.
+    #[serde(default)]
+    ports: Vec<ExtraPort>,
+    #[serde(default)]
+    ready_secs: Option<u32>,
+}
+
+fn container_kind() -> String {
+    "docker".into()
+}
+
+/// What a request turns into once the manifest and the limits have had their say.
+enum Plan {
+    Container(InstanceSpec),
+    Vm {
+        spec: InstanceSpec,
+        start: Box<VmStart>,
+    },
 }
 
 impl Record {
@@ -178,6 +200,7 @@ type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 pub struct Lab {
     cfg: LabConfig,
     runtime: Arc<dyn InstanceRuntime>,
+    vm: Option<Arc<VmRuntime>>,
     inner: Mutex<Inner>,
     started: Instant,
     clock: Clock,
@@ -246,15 +269,34 @@ impl Lab {
         Self::with_clock(cfg, runtime, system_clock())
     }
 
+    /// A lab host that can also run virtual machines.
+    pub fn with_vm(
+        cfg: LabConfig,
+        runtime: Arc<dyn InstanceRuntime>,
+        vm: Option<Arc<VmRuntime>>,
+    ) -> Arc<Self> {
+        Self::with_parts(cfg, runtime, vm, system_clock())
+    }
+
     pub fn with_clock(
         cfg: LabConfig,
         runtime: Arc<dyn InstanceRuntime>,
+        clock: Clock,
+    ) -> Arc<Self> {
+        Self::with_parts(cfg, runtime, None, clock)
+    }
+
+    pub fn with_parts(
+        cfg: LabConfig,
+        runtime: Arc<dyn InstanceRuntime>,
+        vm: Option<Arc<VmRuntime>>,
         clock: Clock,
     ) -> Arc<Self> {
         let token_hash = Sha256::digest(cfg.token.as_bytes()).into();
         Arc::new(Self {
             cfg,
             runtime,
+            vm,
             inner: Mutex::new(Inner::default()),
             started: Instant::now(),
             clock,
@@ -265,6 +307,33 @@ impl Lab {
 
     fn now(&self) -> i64 {
         (self.clock)()
+    }
+
+    /// The runtime that owns a record.
+    fn runtime_of(&self, kind: &str) -> Option<Arc<dyn InstanceRuntime>> {
+        match kind {
+            "vm" => self.vm.clone().map(|v| v as Arc<dyn InstanceRuntime>),
+            _ => Some(Arc::clone(&self.runtime)),
+        }
+    }
+
+    /// Stops a record's machine or container. A runtime that is gone counts as stopped.
+    async fn stop_record(&self, record: &Record) -> Result<(), RuntimeError> {
+        match self.runtime_of(&record.runtime) {
+            Some(rt) if !record.handle.is_empty() => rt.stop(&record.handle).await,
+            _ => Ok(()),
+        }
+    }
+
+    /// Starts unpacking every virtual machine image in the background, so the first player does
+    /// not wait for it. Called when the lab host starts.
+    pub fn prepare_images(&self) {
+        let Some(vm) = &self.vm else { return };
+        for m in self.cfg.manifests.iter().filter(|m| m.is_vm()) {
+            if let Some(file) = &m.file {
+                vm.spawn_prepare(&m.artifact, file);
+            }
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -302,9 +371,9 @@ impl Lab {
         }
     }
 
-    /// Reads the state file and brings it in line with what the runtime really runs: records
-    /// whose container is gone are dropped, containers nobody recorded are adopted so the next
-    /// reconcile can decide about them.
+    /// Reads the state file and brings it in line with what the runtimes really run: records
+    /// whose container or machine is gone are dropped, ones nobody recorded are adopted so the
+    /// next reconcile can decide about them.
     pub async fn load(&self) {
         if let Some(path) = &self.cfg.state_path
             && let Ok(text) = std::fs::read_to_string(path)
@@ -314,25 +383,49 @@ impl Lab {
                 Err(e) => tracing::warn!("ignoring an unreadable state file: {e}"),
             }
         }
-        let Ok(managed) = self.runtime.list_managed().await else {
-            return;
-        };
+        let mut managed: Vec<(String, kymo_instances::Managed)> = Vec::new();
+        let mut listed = Vec::new();
+        for kind in ["docker", "vm"] {
+            let Some(rt) = self.runtime_of(kind) else {
+                continue;
+            };
+            if kind == "vm" && self.vm.is_none() {
+                continue;
+            }
+            if let Ok(list) = rt.list_managed().await {
+                listed.push(kind);
+                managed.extend(list.into_iter().map(|m| (kind.to_owned(), m)));
+            }
+        }
         let now = self.now();
         let mut inner = self.lock();
-        inner
-            .records
-            .retain(|r| r.creating() || managed.iter().any(|m| m.handle == r.handle));
+        // Only records of a runtime that answered are judged; one that could not be asked says
+        // nothing about its containers.
+        inner.records.retain(|r| {
+            !listed.contains(&r.runtime.as_str())
+                || managed
+                    .iter()
+                    .any(|(k, m)| *k == r.runtime && m.handle == r.handle)
+        });
         // A start that was in progress when the process died has no container to wait for.
         inner.records.retain(|r| !r.creating());
-        for m in &managed {
-            if !inner.records.iter().any(|r| r.handle == m.handle) {
+        for (kind, m) in &managed {
+            if !inner
+                .records
+                .iter()
+                .any(|r| r.runtime == *kind && r.handle == m.handle)
+            {
                 inner.records.push(Record {
                     handle: m.handle.clone(),
-                    name: format!(
-                        "{}adopted-{}",
-                        self.cfg.name_prefix,
-                        &m.handle[..m.handle.len().min(8)]
-                    ),
+                    name: if kind == "vm" && valid_name(&m.handle) {
+                        m.handle.clone()
+                    } else {
+                        format!(
+                            "{}adopted-{}",
+                            self.cfg.name_prefix,
+                            &m.handle[..m.handle.len().min(8)]
+                        )
+                    },
                     instance_id: m.instance_id.clone(),
                     spec: InstanceSpec {
                         image: "unknown".into(),
@@ -348,6 +441,9 @@ impl Lab {
                     created_at: now,
                     expires_at: now + DEFAULT_GRACE_SECS * 10,
                     host_port: 0,
+                    runtime: kind.clone(),
+                    ports: Vec::new(),
+                    ready_secs: None,
                 });
             }
         }
@@ -374,11 +470,14 @@ impl Lab {
         let status = if record.creating() {
             "creating"
         } else {
-            match self.runtime.status(&record.handle).await {
-                Ok(RuntimeStatus::Running) => "running",
-                Ok(RuntimeStatus::Exited) => "exited",
-                Ok(RuntimeStatus::Missing) => "missing",
-                Err(_) => "unknown",
+            match self.runtime_of(&record.runtime) {
+                None => "unknown",
+                Some(rt) => match rt.status(&record.handle).await {
+                    Ok(RuntimeStatus::Running) => "running",
+                    Ok(RuntimeStatus::Exited) => "exited",
+                    Ok(RuntimeStatus::Missing) => "missing",
+                    Err(_) => "unknown",
+                },
             }
         };
         InstanceInfo {
@@ -387,6 +486,9 @@ impl Lab {
             instance_id: record.instance_id.clone(),
             status: status.into(),
             host_port: record.host_port,
+            ports: record.ports.clone(),
+            runtime: record.runtime.clone(),
+            ready_secs: record.ready_secs,
             created_at: record.created_at,
             expires_at: record.expires_at,
             meta: record.meta.clone(),
@@ -394,7 +496,7 @@ impl Lab {
     }
 
     /// Decides what to run for a request, or refuses it.
-    fn plan(&self, request: &CreateRequest) -> Result<InstanceSpec, ApiError> {
+    fn plan(&self, request: &CreateRequest) -> Result<Plan, ApiError> {
         if !valid_name(&request.name) || !request.name.starts_with(&self.cfg.name_prefix) {
             return Err(ApiError::BadRequest(format!(
                 "the name must be lowercase letters, digits and dashes, 3 to 63 characters, starting with {}",
@@ -431,22 +533,57 @@ impl Lab {
                             request.spec.image
                         ))
                     })?;
-                manifest
+                let spec = manifest
                     .resolve(&request.spec, &self.cfg.caps)
-                    .map_err(|e| ApiError::BadRequest(e.0))
+                    .map_err(|e| ApiError::BadRequest(e.0))?;
+                if !manifest.is_vm() {
+                    return Ok(Plan::Container(spec));
+                }
+                let Some(vm) = &self.vm else {
+                    return Err(ApiError::Runtime(RuntimeError::Unavailable(
+                        "this lab host is not set up for virtual machines (QEMU is missing or switched off)".into(),
+                    )));
+                };
+                // The image unpacks in the background the first time; until it is ready a start
+                // is "try again shortly" and creates nothing.
+                if let Some(file) = &manifest.file {
+                    vm.spawn_prepare(&manifest.artifact, file);
+                }
+                if let (false, note) = vm.prepared(&manifest.artifact) {
+                    return Err(ApiError::Runtime(RuntimeError::Unavailable(format!(
+                        "the image {} is not ready: {}",
+                        manifest.artifact,
+                        note.unwrap_or_default()
+                    ))));
+                }
+                let start = VmStart::from_manifest(
+                    manifest,
+                    &request.instance_id,
+                    &request.name,
+                    spec.memory_mb,
+                    spec.cpu_millis,
+                );
+                Ok(Plan::Vm {
+                    spec,
+                    start: Box::new(start),
+                })
             }
             Mode::Open => {
                 let mut spec = request.spec.clone();
                 spec.read_only = true;
                 spec.validate(&self.cfg.caps)
                     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-                Ok(spec)
+                Ok(Plan::Container(spec))
             }
         }
     }
 
     pub async fn create(&self, request: CreateRequest) -> Result<InstanceInfo, ApiError> {
-        let spec = self.plan(&request)?;
+        let plan = self.plan(&request)?;
+        let (spec, kind) = match &plan {
+            Plan::Container(spec) => (spec.clone(), "docker"),
+            Plan::Vm { spec, .. } => (spec.clone(), "vm"),
+        };
         let now = self.now();
         // Reserve the name and a slot before the slow part, so two requests cannot both pass.
         // The lock is released before anything is awaited.
@@ -478,6 +615,9 @@ impl Lab {
                     created_at: now,
                     expires_at: now + spec.ttl_secs,
                     host_port: 0,
+                    runtime: kind.to_owned(),
+                    ports: Vec::new(),
+                    ready_secs: None,
                 });
                 Ok(())
             }
@@ -492,18 +632,27 @@ impl Lab {
                 )))
             };
         }
-        let start = StartRequest {
-            instance_id: request.instance_id.clone(),
-            spec: spec.clone(),
-            placement: Placement::Published,
-            name: Some(request.name.clone()),
-            meta: request
-                .meta
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
+        let outcome = match (&plan, &self.vm) {
+            (Plan::Vm { start, .. }, Some(vm)) => vm.start_vm(start, now).await,
+            (Plan::Vm { .. }, None) => Err(RuntimeError::Unavailable(
+                "no virtual machine runtime".into(),
+            )),
+            (Plan::Container(spec), _) => {
+                let start = StartRequest {
+                    instance_id: request.instance_id.clone(),
+                    spec: spec.clone(),
+                    placement: Placement::Published,
+                    name: Some(request.name.clone()),
+                    meta: request
+                        .meta
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                };
+                self.runtime.start(&start).await
+            }
         };
-        match self.runtime.start(&start).await {
+        match outcome {
             Ok(started) => {
                 let updated = {
                     let mut inner = self.lock();
@@ -514,6 +663,8 @@ impl Lab {
                         .map(|record| {
                             record.handle = started.handle.clone();
                             record.host_port = started.host_port;
+                            record.ports = started.extra_ports.clone();
+                            record.ready_secs = started.ready_secs;
                             record.clone()
                         });
                     if found.is_some() {
@@ -522,14 +673,16 @@ impl Lab {
                     found
                 };
                 let Some(record) = updated else {
-                    // Removed while starting; do not leave the container behind.
-                    let _ = self.runtime.stop(&started.handle).await;
+                    // Removed while starting; do not leave it behind.
+                    if let Some(rt) = self.runtime_of(kind) {
+                        let _ = rt.stop(&started.handle).await;
+                    }
                     return Err(ApiError::NotFound);
                 };
                 self.note(
                     "create",
                     &request.name,
-                    format!("{} for {}", spec.image, meta_text(&request.meta)),
+                    format!("{} ({kind}) for {}", spec.image, meta_text(&request.meta)),
                 );
                 Ok(self.info(&record).await)
             }
@@ -549,9 +702,7 @@ impl Lab {
         let Some(record) = self.find(id) else {
             return Ok(());
         };
-        if !record.handle.is_empty() {
-            self.runtime.stop(&record.handle).await?;
-        }
+        self.stop_record(&record).await?;
         let mut inner = self.lock();
         inner.records.retain(|r| r.name != record.name);
         self.save(&inner);
@@ -567,7 +718,7 @@ impl Lab {
                 "the instance is still being created".into(),
             ));
         }
-        self.runtime.stop(&record.handle).await?;
+        self.stop_record(&record).await?;
         {
             let mut inner = self.lock();
             inner.records.retain(|r| r.name != record.name);
@@ -595,7 +746,7 @@ impl Lab {
             .collect();
         let mut removed = Vec::new();
         for record in due {
-            if self.runtime.stop(&record.handle).await.is_ok() {
+            if self.stop_record(&record).await.is_ok() {
                 let mut inner = self.lock();
                 inner.records.retain(|r| r.name != record.name);
                 self.save(&inner);
@@ -604,7 +755,8 @@ impl Lab {
                 removed.push(record.name);
             }
         }
-        // A record whose container disappeared (removed by hand, crashed host) is forgotten.
+        // A record whose container or machine disappeared (removed by hand, crashed host) is
+        // forgotten.
         let records: Vec<Record> = self
             .lock()
             .records
@@ -613,10 +765,10 @@ impl Lab {
             .cloned()
             .collect();
         for record in records {
-            if matches!(
-                self.runtime.status(&record.handle).await,
-                Ok(RuntimeStatus::Missing)
-            ) {
+            let Some(rt) = self.runtime_of(&record.runtime) else {
+                continue;
+            };
+            if matches!(rt.status(&record.handle).await, Ok(RuntimeStatus::Missing)) {
                 let mut inner = self.lock();
                 inner.records.retain(|r| r.name != record.name);
                 self.save(&inner);
@@ -637,7 +789,7 @@ impl Lab {
             .collect();
         let mut removed = Vec::new();
         for record in orphans {
-            let ok = record.creating() || self.runtime.stop(&record.handle).await.is_ok();
+            let ok = record.creating() || self.stop_record(&record).await.is_ok();
             if ok {
                 let mut inner = self.lock();
                 inner.records.retain(|r| r.name != record.name);
@@ -647,23 +799,34 @@ impl Lab {
                 removed.push(record.name);
             }
         }
-        // Containers the runtime has that this lab never recorded and the platform does not list.
-        if let Ok(managed) = self.runtime.list_managed().await {
+        // Containers and machines the runtimes have that this lab never recorded and the platform
+        // does not list.
+        for kind in ["docker", "vm"] {
+            let Some(rt) = self.runtime_of(kind) else {
+                continue;
+            };
+            if kind == "vm" && self.vm.is_none() {
+                continue;
+            }
+            let Ok(managed) = rt.list_managed().await else {
+                continue;
+            };
             let known: Vec<String> = self
                 .lock()
                 .records
                 .iter()
+                .filter(|r| r.runtime == kind)
                 .map(|r| r.handle.clone())
                 .collect();
             for m in managed {
                 if !known.contains(&m.handle)
                     && !keep.contains(&m.instance_id)
-                    && self.runtime.stop(&m.handle).await.is_ok()
+                    && rt.stop(&m.handle).await.is_ok()
                 {
                     self.note(
                         "reconcile",
                         &m.handle,
-                        "an unrecorded container was removed",
+                        "an unrecorded container or machine was removed",
                     );
                     removed.push(m.handle);
                 }
@@ -682,6 +845,19 @@ impl Lab {
                 lab.cleanup().await;
             }
         });
+    }
+
+    /// What this lab host can run: containers when a container runtime was set up, machines when
+    /// QEMU was.
+    fn runtime_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if !self.cfg.runtime_name.is_empty() {
+            names.push(self.cfg.runtime_name.clone());
+        }
+        if self.vm.is_some() {
+            names.push("vm".to_owned());
+        }
+        names
     }
 
     fn client_check(&self, ip: IpAddr, token: Option<&str>) -> Result<(), ApiError> {
@@ -748,6 +924,15 @@ async fn health(State(lab): State<Arc<Lab>>) -> Json<HealthInfo> {
         artifacts: lab.cfg.manifests.len(),
         uptime_secs: i64::try_from(lab.started.elapsed().as_secs()).unwrap_or(i64::MAX),
         now: lab.now(),
+        runtimes: lab.runtime_names(),
+        accel: lab.vm.as_ref().and_then(|v| v.accel().ok()).map(|a| {
+            if a == crate::vm::Accel::Kvm {
+                "kvm"
+            } else {
+                "tcg"
+            }
+            .to_owned()
+        }),
     })
 }
 
@@ -756,12 +941,28 @@ async fn artifacts(State(lab): State<Arc<Lab>>) -> Json<Vec<ArtifactInfo>> {
         lab.cfg
             .manifests
             .iter()
-            .map(|m| ArtifactInfo {
-                artifact: m.artifact.clone(),
-                runtime: m.runtime.clone(),
-                port: m.port,
-                max_ttl_secs: m.max_ttl_secs.unwrap_or(lab.cfg.caps.max_ttl_secs),
-                env_allow: m.env_allow.clone(),
+            .map(|m| {
+                let (ready, note) = if m.is_vm() {
+                    match &lab.vm {
+                        Some(vm) => vm.prepared(&m.artifact),
+                        None => (
+                            false,
+                            Some("this lab host is not set up for virtual machines".into()),
+                        ),
+                    }
+                } else {
+                    (true, None)
+                };
+                ArtifactInfo {
+                    artifact: m.artifact.clone(),
+                    runtime: m.runtime.clone(),
+                    port: m.primary_port(),
+                    max_ttl_secs: m.max_ttl_secs.unwrap_or(lab.cfg.caps.max_ttl_secs),
+                    env_allow: m.env_allow.clone(),
+                    ports: m.declared_ports(),
+                    ready,
+                    note,
+                }
             })
             .collect(),
     )
@@ -826,6 +1027,73 @@ async fn cleanup(State(lab): State<Arc<Lab>>) -> Json<Removed> {
     })
 }
 
+/// The console of a virtual machine, as a PNG.
+async fn screen(State(lab): State<Arc<Lab>>, Path(id): Path<String>) -> Result<Response, ApiError> {
+    let record = lab.find(&id).ok_or(ApiError::NotFound)?;
+    let vm = match (&lab.vm, record.runtime.as_str()) {
+        (Some(vm), "vm") if !record.creating() => vm,
+        _ => {
+            return Err(ApiError::BadRequest(
+                "only a running virtual machine has a screen".into(),
+            ));
+        }
+    };
+    let png = vm.screenshot(&record.handle).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        png,
+    )
+        .into_response())
+}
+
+#[derive(Deserialize)]
+struct ReadyQuery {
+    port: u16,
+}
+
+/// Whether the service behind a published port answers. A virtual machine is asked about through
+/// QEMU; a container is up when its port is, which the platform checks by connecting.
+async fn ready(
+    State(lab): State<Arc<Lab>>,
+    axum::extract::Query(query): axum::extract::Query<ReadyQuery>,
+) -> Json<ReadyInfo> {
+    let found = {
+        let inner = lab.lock();
+        inner.records.iter().find_map(|r| {
+            if r.creating() {
+                return None;
+            }
+            if r.host_port == query.port {
+                return Some((r.clone(), r.spec.port));
+            }
+            r.ports
+                .iter()
+                .find(|p| p.host == query.port)
+                .map(|p| (r.clone(), p.guest))
+        })
+    };
+    let Some((record, guest)) = found else {
+        // Not one of this lab host's instances: no opinion, the caller's own check decides.
+        return Json(ReadyInfo {
+            ready: true,
+            vouched: false,
+        });
+    };
+    match (&lab.vm, record.runtime.as_str()) {
+        (Some(vm), "vm") => Json(ReadyInfo {
+            ready: vm.guest_ready(&record.handle, query.port, guest).await,
+            vouched: true,
+        }),
+        _ => Json(ReadyInfo {
+            ready: true,
+            vouched: false,
+        }),
+    }
+}
+
 pub fn router(lab: Arc<Lab>) -> Router {
     let authed = Router::new()
         .route("/v1/health", get(health))
@@ -835,6 +1103,8 @@ pub fn router(lab: Arc<Lab>) -> Router {
         .route("/v1/instances/{id}", get(get_one).delete(remove))
         .route("/v1/instances/{id}/stop", post(remove))
         .route("/v1/instances/{id}/restart", post(restart))
+        .route("/v1/instances/{id}/screen", get(screen))
+        .route("/v1/ready", get(ready))
         .route("/v1/reconcile", post(reconcile))
         .route("/v1/cleanup", post(cleanup))
         .layer(middleware::from_fn_with_state(Arc::clone(&lab), auth));
@@ -896,5 +1166,37 @@ pub async fn serve(
                 tracing::debug!("connection from {peer}: {e}");
             }
         });
+    }
+}
+
+/// The container runtime of a lab host that only runs virtual machines.
+pub struct Absent;
+
+#[async_trait::async_trait]
+impl InstanceRuntime for Absent {
+    async fn start(&self, _: &StartRequest) -> Result<kymo_instances::Started, RuntimeError> {
+        Err(RuntimeError::Unavailable(
+            "this lab host does not run containers".into(),
+        ))
+    }
+    async fn stop(&self, _: &str) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn status(&self, _: &str) -> Result<RuntimeStatus, RuntimeError> {
+        Ok(RuntimeStatus::Missing)
+    }
+    async fn list_managed(&self) -> Result<Vec<kymo_instances::Managed>, RuntimeError> {
+        Ok(Vec::new())
+    }
+    async fn ensure_lab(&self, _: &str, _: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Unavailable(
+            "this lab host does not run containers".into(),
+        ))
+    }
+    async fn remove_lab(&self, _: &str) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn reachable(&self, _: u16) -> bool {
+        false
     }
 }

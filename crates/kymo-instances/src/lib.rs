@@ -15,6 +15,7 @@ pub use policy::{
     effective_state, expires_at,
 };
 pub use runtime::{
-    FakeRuntime, InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest, Started,
+    ExtraPort, FakeRuntime, InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest,
+    Started,
 };
 pub use spec::{InstanceSpec, ResourceCaps};

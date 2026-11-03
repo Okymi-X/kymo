@@ -24,9 +24,17 @@ use std::path::Path;
 use kymo_instances::{InstanceSpec, ResourceCaps};
 use serde::{Deserialize, Serialize};
 
-/// What the lab host can run instances with. Only containers exist today; virtual machines and
-/// other runtimes plug in behind the same `InstanceRuntime` interface.
-pub const RUNTIMES: &[&str] = &["docker", "podman"];
+pub use crate::protocol::PortDecl;
+
+/// What a manifest may ask for: containers (`docker`, `podman`) and virtual machines (`vm`, run
+/// with QEMU, KVM-accelerated when the host has it). Other runtimes plug in behind the same
+/// `InstanceRuntime` interface.
+pub const RUNTIMES: &[&str] = &["docker", "podman", "vm"];
+pub const DISKS: &[&str] = &["sata", "ide", "virtio"];
+pub const NICS: &[&str] = &["e1000", "virtio", "rtl8139"];
+pub const FIRMWARES: &[&str] = &["bios", "uefi"];
+const MAX_PORTS: usize = 8;
+const DISK_EXTENSIONS: &[&str] = &[".ova", ".qcow2", ".vmdk", ".img", ".raw", ".vdi"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -34,8 +42,26 @@ pub struct Manifest {
     pub artifact: String,
     #[serde(default = "default_runtime")]
     pub runtime: String,
-    /// TCP port the service listens on inside the container.
+    /// TCP port the service listens on inside the container. A virtual machine lists its services
+    /// in `ports` instead.
+    #[serde(default)]
     pub port: u16,
+    /// A virtual machine's published services, primary first. The platform shows the first as the
+    /// instance's address and the rest by name.
+    #[serde(default)]
+    pub ports: Vec<PortDecl>,
+    /// A virtual machine's disk image (`.ova`, `.qcow2`, `.vmdk`, `.vdi`, `.img` or `.raw`), a file
+    /// name inside the lab host's images directory.
+    pub file: Option<String>,
+    /// Seconds a virtual machine may take to come up before the start counts as failed.
+    pub boot_timeout_secs: Option<u32>,
+    /// Disk controller the guest sees: `sata` (default, works with nearly everything), `ide` or
+    /// `virtio` (fastest, needs guest drivers).
+    pub disk: Option<String>,
+    /// Network card the guest sees: `e1000` (default), `virtio` or `rtl8139`.
+    pub nic: Option<String>,
+    /// `bios` (default, what VirtualBox exports use) or `uefi`.
+    pub firmware: Option<String>,
     /// Fixed environment, always set.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -71,14 +97,24 @@ impl Manifest {
                 RUNTIMES.join(", ")
             ));
         }
-        if self.port == 0 {
-            return Err("port must be between 1 and 65535".into());
+        if self.is_vm() {
+            self.check_vm()?;
+        } else {
+            if self.port == 0 {
+                return Err("port must be between 1 and 65535".into());
+            }
+            if !self.ports.is_empty() || self.file.is_some() {
+                return Err(
+                    "ports and file are for virtual machines (runtime vm); a container uses port"
+                        .into(),
+                );
+            }
         }
         // Run the same validation the platform side uses, so a manifest can never describe
         // something the lab host would refuse to start.
         InstanceSpec {
             image: self.artifact.clone(),
-            port: self.port,
+            port: self.primary_port(),
             cpu_millis: self.cpu_millis.unwrap_or(1),
             memory_mb: self.memory_mb.unwrap_or(1),
             pids: self.pids.unwrap_or(1),
@@ -109,6 +145,93 @@ impl Manifest {
         Ok(())
     }
 
+    pub fn is_vm(&self) -> bool {
+        self.runtime == "vm"
+    }
+
+    /// The service the platform shows as the address: `port`, or a virtual machine's first port.
+    pub fn primary_port(&self) -> u16 {
+        self.ports.first().map_or(self.port, |p| p.port)
+    }
+
+    /// Every published service, primary first.
+    pub fn declared_ports(&self) -> Vec<PortDecl> {
+        if self.ports.is_empty() {
+            vec![PortDecl {
+                name: "main".into(),
+                port: self.port,
+            }]
+        } else {
+            self.ports.clone()
+        }
+    }
+
+    fn check_vm(&self) -> Result<(), String> {
+        let file = self
+            .file
+            .as_deref()
+            .ok_or("a virtual machine needs file: its image in the images directory")?;
+        let lower = file.to_ascii_lowercase();
+        if file.is_empty()
+            || file.len() > 120
+            || file.starts_with('.')
+            || file.contains(['/', '\\', '\0'])
+            || !file
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._- ()".contains(c))
+            || !DISK_EXTENSIONS.iter().any(|e| lower.ends_with(e))
+        {
+            return Err(format!(
+                "file must be a plain file name ending in {} (it is looked up in the images directory)",
+                DISK_EXTENSIONS.join(", ")
+            ));
+        }
+        if self.ports.is_empty() && self.port == 0 {
+            return Err("a virtual machine needs ports: the services players connect to".into());
+        }
+        if self.ports.len() > MAX_PORTS {
+            return Err(format!("at most {MAX_PORTS} ports"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for p in &self.ports {
+            let ok_name = !p.name.is_empty()
+                && p.name.len() <= 16
+                && p.name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+            if p.port == 0 || !ok_name {
+                return Err(format!(
+                    "port {} is not valid: a number and a lowercase name of up to 16 characters",
+                    p.name
+                ));
+            }
+            if !seen.insert(p.port) {
+                return Err(format!("port {} is listed twice", p.port));
+            }
+        }
+        for (field, value, allowed) in [
+            ("disk", &self.disk, DISKS),
+            ("nic", &self.nic, NICS),
+            ("firmware", &self.firmware, FIRMWARES),
+        ] {
+            if let Some(v) = value
+                && !allowed.contains(&v.as_str())
+            {
+                return Err(format!("{field} is one of {}", allowed.join(", ")));
+            }
+        }
+        if self
+            .boot_timeout_secs
+            .is_some_and(|s| !(10..=1800).contains(&s))
+        {
+            return Err("boot_timeout_secs is between 10 and 1800".into());
+        }
+        if !self.env.is_empty() || !self.env_allow.is_empty() {
+            return Err("environment variables cannot be set on a virtual machine".into());
+        }
+        Ok(())
+    }
+
     /// The spec to run for a request: the manifest's image, port and fixed environment, the
     /// platform's own requests clamped to the manifest's and the lab host's limits.
     pub fn resolve(
@@ -124,6 +247,11 @@ impl Manifest {
             .min(self.max_ttl_secs.unwrap_or(caps.max_ttl_secs))
             .min(caps.max_ttl_secs)
             .max(1);
+        if self.is_vm() && !asked.env.is_empty() {
+            return Err(Refusal(
+                "environment variables cannot be set on a virtual machine".into(),
+            ));
+        }
         let mut env: BTreeMap<String, String> = self.env.clone();
         for (key, value) in &asked.env {
             if !self.env_allow.contains(key) {
@@ -136,7 +264,7 @@ impl Manifest {
         }
         let spec = InstanceSpec {
             image: self.artifact.clone(),
-            port: self.port,
+            port: self.primary_port(),
             cpu_millis: clamp_u32(asked.cpu_millis, self.cpu_millis, caps.max_cpu_millis),
             memory_mb: clamp_u32(asked.memory_mb, self.memory_mb, caps.max_memory_mb),
             pids: clamp_u32(asked.pids, self.pids, caps.max_pids),

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::error::RuntimeError;
 use crate::spec::InstanceSpec;
@@ -46,6 +47,15 @@ impl StartRequest {
     }
 }
 
+/// A further published service of an instance, for machines that offer several (a web server and
+/// SSH, say). `host` is where it is reachable, `guest` the port inside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraPort {
+    pub name: String,
+    pub guest: u16,
+    pub host: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Started {
     pub handle: String,
@@ -53,6 +63,23 @@ pub struct Started {
     pub host_port: u16,
     /// The lab address, for a lab placement.
     pub ip: Option<String>,
+    /// More published services, besides the one in `host_port`.
+    pub extra_ports: Vec<ExtraPort>,
+    /// How long the platform should wait for the service to answer before it counts the start as
+    /// failed. A virtual machine takes far longer to boot than a container; none means the default.
+    pub ready_secs: Option<u32>,
+}
+
+impl Started {
+    pub fn new(handle: impl Into<String>, host_port: u16, ip: Option<String>) -> Self {
+        Self {
+            handle: handle.into(),
+            host_port,
+            ip,
+            extra_ports: Vec::new(),
+            ready_secs: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +127,8 @@ struct FakeInner {
     exited: std::collections::HashSet<String>,
     not_reachable: bool,
     fail_starts: bool,
+    extra_ports: Vec<ExtraPort>,
+    ready_secs: Option<u32>,
 }
 
 /// In memory runtime for tests.
@@ -111,6 +140,14 @@ pub struct FakeRuntime {
 impl FakeRuntime {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Makes every start report these extra published services and boot time, as a virtual
+    /// machine with several services would.
+    pub fn set_extras(&self, extra_ports: Vec<ExtraPort>, ready_secs: Option<u32>) {
+        let mut inner = self.lock();
+        inner.extra_ports = extra_ports;
+        inner.ready_secs = ready_secs;
     }
 
     pub fn set_fail_starts(&self, fail: bool) {
@@ -212,11 +249,10 @@ impl InstanceRuntime for FakeRuntime {
         inner
             .placements
             .insert(handle.clone(), request.placement.clone());
-        Ok(Started {
-            handle,
-            host_port,
-            ip,
-        })
+        let mut started = Started::new(handle, host_port, ip);
+        started.extra_ports = inner.extra_ports.clone();
+        started.ready_secs = inner.ready_secs;
+        Ok(started)
     }
 
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {

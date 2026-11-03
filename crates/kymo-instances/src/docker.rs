@@ -211,11 +211,7 @@ impl DockerRuntime {
             let _ = self.stop(&created.id).await;
             return Err(failed(e));
         }
-        Ok(Started {
-            handle: created.id,
-            host_port: spec.port,
-            ip: Some(ip.to_owned()),
-        })
+        Ok(Started::new(created.id, spec.port, Some(ip.to_owned())))
     }
 
     async fn start_published(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
@@ -287,11 +283,7 @@ impl DockerRuntime {
             .and_then(|b| b.host_port)
             .and_then(|p| p.parse::<u16>().ok());
         match host_port {
-            Some(host_port) => Ok(Started {
-                handle: created.id,
-                host_port,
-                ip: None,
-            }),
+            Some(host_port) => Ok(Started::new(created.id, host_port, None)),
             None => {
                 let _ = self.stop(&created.id).await;
                 Err(RuntimeError::Failed("no published port".into()))

@@ -23,8 +23,8 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
 use crate::protocol::{
-    ArtifactInfo, CreateRequest, ErrorBody, HealthInfo, InstanceInfo, LogLine, ReconcileRequest,
-    Removed,
+    ArtifactInfo, CreateRequest, ErrorBody, HealthInfo, InstanceInfo, LogLine, ReadyInfo,
+    ReconcileRequest, Removed,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
@@ -223,6 +223,22 @@ impl RemoteRuntime {
         self.send(Method::GET, "/v1/log", None::<&()>).await
     }
 
+    /// A virtual machine's console as a PNG.
+    pub async fn screen(&self, name: &str) -> Result<Vec<u8>, RuntimeError> {
+        let response = self
+            .call(
+                Method::GET,
+                &format!("/v1/instances/{}/screen", urlencode(name)),
+                None::<&()>,
+            )
+            .await?;
+        response
+            .bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|e| RuntimeError::Unavailable(e.to_string()))
+    }
+
     pub async fn instances(&self) -> Result<Vec<InstanceInfo>, RuntimeError> {
         self.send(Method::GET, "/v1/instances", None::<&()>).await
     }
@@ -283,11 +299,10 @@ impl InstanceRuntime for RemoteRuntime {
         let info: InstanceInfo = self
             .send(Method::POST, "/v1/instances", Some(&body))
             .await?;
-        Ok(Started {
-            handle: info.id,
-            host_port: info.host_port,
-            ip: None,
-        })
+        let mut started = Started::new(info.id, info.host_port, None);
+        started.extra_ports = info.ports;
+        started.ready_secs = info.ready_secs;
+        Ok(started)
     }
 
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {
@@ -345,10 +360,52 @@ impl InstanceRuntime for RemoteRuntime {
     /// That is the check that matters, and it also catches a firewall in the way.
     async fn reachable(&self, host_port: u16) -> bool {
         let address = format!("{}:{host_port}", self.public_host);
-        matches!(
-            tokio::time::timeout(PROBE_TIMEOUT, tokio::net::TcpStream::connect(address)).await,
-            Ok(Ok(_))
-        )
+        match self
+            .send::<ReadyInfo>(
+                Method::GET,
+                &format!("/v1/ready?port={host_port}"),
+                None::<&()>,
+            )
+            .await
+        {
+            // The lab host says the service is not up (a machine still booting).
+            Ok(ready) if !ready.ready => false,
+            // The lab host checked the guest itself: all that is left is that the port can be
+            // reached from here, the way a player will.
+            Ok(ready) if ready.vouched => connects(&address).await,
+            // A container, or a lab host that does not know the question: judge by the connection.
+            _ => probe(&address).await,
+        }
+    }
+}
+
+/// Whether a TCP connection to `address` can be made at all.
+pub async fn connects(address: &str) -> bool {
+    matches!(
+        tokio::time::timeout(PROBE_TIMEOUT, tokio::net::TcpStream::connect(address)).await,
+        Ok(Ok(_))
+    )
+}
+
+/// Whether a service really answers on `address`. A plain connect is not enough: a port forwarded
+/// to a virtual machine or a container that is still starting accepts the connection and drops it
+/// at once. So after connecting, the connection must stay open for a moment (a service waiting for
+/// the client to speak) or send something (a banner).
+pub async fn probe(address: &str) -> bool {
+    use tokio::io::AsyncReadExt;
+    let Ok(Ok(mut stream)) =
+        tokio::time::timeout(PROBE_TIMEOUT, tokio::net::TcpStream::connect(address)).await
+    else {
+        return false;
+    };
+    let mut byte = [0u8; 1];
+    match tokio::time::timeout(Duration::from_millis(400), stream.read(&mut byte)).await {
+        // Silence for a moment: the service is there and waiting for us.
+        Err(_) => true,
+        // Data arrived (a banner): there.
+        Ok(Ok(n)) if n > 0 => true,
+        // Closed or reset straight away: nothing behind the port yet.
+        _ => false,
     }
 }
 

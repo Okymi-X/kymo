@@ -14,6 +14,8 @@ pub mod protocol;
 pub mod server;
 #[cfg(feature = "server")]
 pub mod tls;
+#[cfg(feature = "server")]
+pub mod vm;
 
 pub use client::RemoteRuntime;
 pub use manifest::Manifest;

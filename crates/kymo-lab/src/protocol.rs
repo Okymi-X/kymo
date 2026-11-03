@@ -9,6 +9,8 @@
 //! | `POST /v1/instances`               | Create and start an instance under the given name       |
 //! | `GET  /v1/instances`               | Every instance the lab runs                             |
 //! | `GET  /v1/instances/{id}`          | One instance, by name, id or platform instance id       |
+//! | `GET  /v1/instances/{id}/screen`   | A virtual machine's console as a PNG                    |
+//! | `GET  /v1/ready?port=N`            | Whether the service behind a published port answers     |
 //! | `POST /v1/instances/{id}/restart`  | Remove it and start it again under the same name        |
 //! | `POST /v1/instances/{id}/stop`     | Remove it (same as DELETE, instances are disposable)    |
 //! | `DELETE /v1/instances/{id}`        | Remove it. Removing a missing instance succeeds         |
@@ -18,7 +20,7 @@
 
 use std::collections::BTreeMap;
 
-use kymo_instances::InstanceSpec;
+use kymo_instances::{ExtraPort, InstanceSpec};
 use serde::{Deserialize, Serialize};
 
 pub const API_VERSION: &str = "v1";
@@ -48,6 +50,16 @@ pub struct InstanceInfo {
     pub status: String,
     /// The published port on the lab host.
     pub host_port: u16,
+    /// Further published services, for a machine that offers several.
+    #[serde(default)]
+    pub ports: Vec<ExtraPort>,
+    /// `docker`, `podman` or `vm`.
+    #[serde(default)]
+    pub runtime: String,
+    /// How long the platform should wait for the service to answer, when it is more than the
+    /// usual minute (a virtual machine boots slowly).
+    #[serde(default)]
+    pub ready_secs: Option<u32>,
     pub created_at: i64,
     pub expires_at: i64,
     #[serde(default)]
@@ -69,6 +81,12 @@ pub struct HealthInfo {
     pub artifacts: usize,
     pub uptime_secs: i64,
     pub now: i64,
+    /// What this lab host can run: `docker`, `vm`.
+    #[serde(default)]
+    pub runtimes: Vec<String>,
+    /// How virtual machines are accelerated: `kvm`, or `tcg` (plain emulation, slow).
+    #[serde(default)]
+    pub accel: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +96,31 @@ pub struct ArtifactInfo {
     pub port: u16,
     pub max_ttl_secs: i64,
     pub env_allow: Vec<String>,
+    /// Every published service, primary first.
+    #[serde(default)]
+    pub ports: Vec<PortDecl>,
+    /// False while a virtual machine image is still being unpacked or could not be.
+    #[serde(default = "yes")]
+    pub ready: bool,
+    /// What is wrong or in progress, in words.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A named service port of a manifest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortDecl {
+    #[serde(default = "main_name")]
+    pub name: String,
+    pub port: u16,
+}
+
+fn main_name() -> String {
+    "main".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,4 +149,14 @@ pub struct LogLine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorBody {
     pub error: String,
+}
+
+/// Whether the service behind a published port answers. For a virtual machine the lab host knows
+/// better than a connection can tell: QEMU accepts the host side of a forwarded port while the
+/// guest is still booting. `vouched` says the lab host checked the guest itself, so the platform
+/// only needs to confirm the port is reachable from outside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadyInfo {
+    pub ready: bool,
+    pub vouched: bool,
 }
