@@ -1,18 +1,52 @@
 name: Release
 
-# Push a tag such as v0.2.0 to build the server and publish it as a GitHub release.
+# A release is made automatically: when `version` in Cargo.toml has no matching v* tag yet, the
+# next push to main builds the server and publishes it as that GitHub release, creating the tag.
+# To release, bump the version in Cargo.toml and merge. A v* tag pushed by hand also works,
+# and the workflow can be run manually from the Actions tab.
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')
+          tag="v$version"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then tag="${GITHUB_REF_NAME}"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # Publish when this tag is new, or when a tag was pushed by hand.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] || ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag already exists, nothing to publish."
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     # An older Ubuntu keeps the binary's glibc requirement low, so it runs on current Debian,
     # Ubuntu and most other distributions.
     runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ needs.check.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -30,10 +64,12 @@ jobs:
         working-directory: web
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Never publish a build whose tests fail.
+      - run: cargo test --workspace --locked
       - run: cargo build --release --locked -p kymo-server
       - name: Package
         run: |
-          name="kymo-${GITHUB_REF_NAME}-linux-x86_64"
+          name="kymo-${TAG}-linux-x86_64"
           mkdir "$name"
           cp target/release/kymo-server "$name/"
           cp -r deploy "$name/deploy"
@@ -43,7 +79,10 @@ jobs:
           echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Kymo ${{ env.TAG }}
+          generate_release_notes: true
           files: |
             ${{ env.ASSET }}
             ${{ env.ASSET }}.sha256
-          generate_release_notes: true

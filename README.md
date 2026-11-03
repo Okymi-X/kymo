@@ -342,4 +342,4 @@ Released under the MIT license, see `LICENSE`.
 
 ## Releases
 
-Tagged versions are published on the GitHub Releases page with a Linux x86_64 tarball (the server with the web app embedded, plus `deploy/`) and a SHA-256 checksum. To publish one, push a tag such as `v0.2.0`; the Release workflow builds and attaches it.
+Releases are automatic. When `version` in `Cargo.toml` has no matching tag, the next push to `main` builds the web app and the server on Ubuntu 22.04 and publishes a GitHub release `vX.Y.Z` with a Linux x86_64 tarball (the server with the web app embedded, plus `deploy/`) and a SHA-256 checksum. To release: bump the version, commit, push. Pushing a `v*` tag by hand or running the workflow from the Actions tab works too. Check a download with `sha256sum -c kymo-vX.Y.Z-linux-x86_64.tar.gz.sha256`.
