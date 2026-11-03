@@ -15,6 +15,7 @@ import type {
   EventInfo,
   Health,
   HintUnlock,
+  InstanceListItem,
   InstanceView,
   JeopardySettings,
   LogPage,
@@ -74,6 +75,7 @@ const ch = (slug: string, id: number) => `${ev(slug)}/challenges/${id}`
 
 export const platform = {
   // accounts
+  signUpsOpen: () => request<{ open: boolean }>('GET', '/registration'),
   register: (username: string, password: string, email?: string) =>
     request<SessionOut>('POST', '/auth/register', { username, password, ...(email ? { email } : {}) }),
   playerLogin: (username: string, password: string) => request<SessionOut>('POST', '/auth/player-login', { username, password }),
@@ -97,6 +99,7 @@ export const platform = {
   startInstance: (slug: string, id: number) => request<InstanceView>('POST', `${ch(slug, id)}/instance`),
   restartInstance: (slug: string, id: number) => request<InstanceView>('POST', `${ch(slug, id)}/instance/restart`),
   stopInstance: (slug: string, id: number) => request<InstanceView>('DELETE', `${ch(slug, id)}/instance`),
+  instances: (slug: string) => request<{ instances: InstanceListItem[] }>('GET', `${ev(slug)}/instances`),
   scoreboard: (slug: string) => request<Scoreboard>('GET', `${ev(slug)}/scoreboard?matrix=true`),
   progress: (slug: string) => request<Progress>('GET', `${ev(slug)}/progress`),
 

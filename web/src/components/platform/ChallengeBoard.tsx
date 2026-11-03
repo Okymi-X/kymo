@@ -8,7 +8,7 @@ import { ErrorText } from '../ui'
 import { Empty, Loading } from './bits'
 import { ChallengeDialog } from './ChallengeDialog'
 
-export function ChallengeBoard({ slug }: { slug: string }) {
+export function ChallengeBoard({ slug, vpn = false }: { slug: string; vpn?: boolean }) {
   useEventStream(slug, true)
   const q = useQuery({ queryKey: ['challenges', slug], queryFn: () => platform.challenges(slug), refetchInterval: 20_000 })
   const [openId, setOpenId] = useState<number | null>(null)
@@ -53,7 +53,7 @@ export function ChallengeBoard({ slug }: { slug: string }) {
           </ul>
         </section>
       ))}
-      {selected && <ChallengeDialog slug={slug} challenge={selected} category={category} onClose={() => setOpenId(null)} />}
+      {selected && <ChallengeDialog slug={slug} challenge={selected} category={category} vpn={vpn} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

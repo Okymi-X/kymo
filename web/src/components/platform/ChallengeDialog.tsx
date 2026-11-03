@@ -4,18 +4,21 @@ import { useState, type FormEvent } from 'react'
 import { platform } from '../../api/platform'
 import type { PlayerChallenge, SubmitResult } from '../../api/platformTypes'
 import { fileSize, flagHint, verdictText } from '../../lib/platform'
-import { Modal } from '../Modal'
+import { Modal, ModalBody, ModalHeader } from '../Modal'
 import { Button, ErrorText, Input } from '../ui'
+import { Pill } from './bits'
 import { InstancePanel } from './InstancePanel'
 
 interface Props {
   slug: string
   challenge: PlayerChallenge
   category: string
+  /** Instances of this event are reached through the player's VPN. */
+  vpn?: boolean
   onClose: () => void
 }
 
-export function ChallengeDialog({ slug, challenge, category, onClose }: Props) {
+export function ChallengeDialog({ slug, challenge, category, vpn = false, onClose }: Props) {
   const client = useQueryClient()
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['challenges', slug] })
@@ -45,20 +48,18 @@ export function ChallengeDialog({ slug, challenge, category, onClose }: Props) {
 
   return (
     <Modal label={challenge.title} onClose={onClose} width="40rem">
-      <div className="flex max-h-[85vh] flex-col gap-5 overflow-y-auto p-6">
-        <div>
-          <p className="text-xs font-medium text-muted">{category}</p>
-          <div className="mt-1 flex items-start justify-between gap-4">
-            <h2 className="text-2xl font-semibold tracking-tight">{challenge.title}</h2>
-            <span className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-sm tabular-nums">{challenge.points} pts</span>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            {challenge.solved_by} {challenge.solved_by === 1 ? 'solve' : 'solves'}
+      <ModalHeader
+        title={challenge.title}
+        subtitle={
+          <>
+            {category} · {challenge.solved_by} {challenge.solved_by === 1 ? 'solve' : 'solves'}
             {challenge.solved && ' · solved by you'}
             {!open && ' · closed'}
-          </p>
-        </div>
-
+          </>
+        }
+        actions={<Pill tone="text-ink">{challenge.points} pts</Pill>}
+      />
+      <ModalBody>
         {challenge.description && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{challenge.description}</p>}
 
         {challenge.attachments.length > 0 && (
@@ -79,6 +80,8 @@ export function ChallengeDialog({ slug, challenge, category, onClose }: Props) {
           </div>
         )}
 
+        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} />}
+
         {challenge.hints.length > 0 && (
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">Hints</h3>
@@ -97,11 +100,7 @@ export function ChallengeDialog({ slug, challenge, category, onClose }: Props) {
                     <Button variant="ghost" onClick={() => setConfirming(null)}>
                       Cancel
                     </Button>
-                    <Button
-                      variant="primary"
-                      disabled={unlock.isPending}
-                      onClick={() => unlock.mutate(h.id, { onSettled: () => setConfirming(null) })}
-                    >
+                    <Button variant="primary" disabled={unlock.isPending} onClick={() => unlock.mutate(h.id, { onSettled: () => setConfirming(null) })}>
                       Unlock
                     </Button>
                   </span>
@@ -116,58 +115,51 @@ export function ChallengeDialog({ slug, challenge, category, onClose }: Props) {
             <ErrorText error={unlock.error} />
           </div>
         )}
+      </ModalBody>
 
-        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} />}
-
-        <form onSubmit={onSubmit} className="flex flex-col gap-2">
-          <label htmlFor="flag" className="text-sm font-semibold">
-            Flag
-          </label>
-          {challenge.solved ? (
-            <p className="flex items-center gap-2 text-win" aria-live="polite">
-              <Check size={18} aria-hidden="true" />
-              {result?.correct ? `Correct, ${result.points} points.` : 'You solved this challenge.'}
-            </p>
-          ) : (
-            <>
-              <div className="flex gap-2">
-                <Input
-                  id="flag"
-                  value={flag}
-                  onChange={(e) => setFlag(e.target.value)}
-                  placeholder={hintText || 'Enter the flag'}
-                  disabled={!open}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="min-w-0 flex-1 font-mono"
-                />
-                <Button type="submit" variant="primary" disabled={!open || !flag.trim() || submit.isPending}>
-                  Submit
-                </Button>
-              </div>
-              <div aria-live="polite" className="min-h-5 text-sm">
-                {result && !result.correct && (
-                  <span className="text-danger">
-                    {verdictText[result.verdict]}.
-                    {result.attempts_remaining !== null && ` ${result.attempts_remaining} ${result.attempts_remaining === 1 ? 'attempt' : 'attempts'} left.`}
-                  </span>
-                )}
-                {result?.correct && <span className="text-win">Correct, {result.points} points.</span>}
-              </div>
-            </>
-          )}
-          <ErrorText error={submit.error} />
-          {!challenge.solved && challenge.max_attempts !== null && challenge.attempts_remaining !== null && !result && (
-            <p className="text-xs text-muted">{challenge.attempts_remaining} attempts left on this challenge.</p>
-          )}
-        </form>
-
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </div>
+      {/* The flag form stays in view while the rest scrolls: it is what the player came here to do. */}
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 border-t border-line bg-surface px-6 py-4">
+        {challenge.solved ? (
+          <p className="flex items-center gap-2 text-win" aria-live="polite">
+            <Check size={18} aria-hidden="true" />
+            {result?.correct ? `Correct, ${result.points} points.` : 'You solved this challenge.'}
+          </p>
+        ) : (
+          <>
+            <label htmlFor="flag" className="text-sm font-semibold">
+              Flag
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="flag"
+                value={flag}
+                onChange={(e) => setFlag(e.target.value)}
+                placeholder={hintText || 'Enter the flag'}
+                disabled={!open}
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 font-mono"
+              />
+              <Button type="submit" variant="primary" disabled={!open || !flag.trim() || submit.isPending}>
+                Submit
+              </Button>
+            </div>
+            <div aria-live="polite" className="min-h-5 text-sm">
+              {result && !result.correct && (
+                <span className="text-danger">
+                  {verdictText[result.verdict]}.
+                  {result.attempts_remaining !== null && ` ${result.attempts_remaining} ${result.attempts_remaining === 1 ? 'attempt' : 'attempts'} left.`}
+                </span>
+              )}
+              {!result && challenge.max_attempts !== null && challenge.attempts_remaining !== null && (
+                <span className="text-muted">{challenge.attempts_remaining} attempts left on this challenge.</span>
+              )}
+              {!open && <span className="text-muted">This challenge is closed.</span>}
+            </div>
+          </>
+        )}
+        <ErrorText error={submit.error} />
+      </form>
     </Modal>
   )
 }

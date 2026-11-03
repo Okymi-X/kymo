@@ -119,6 +119,10 @@ export interface InstanceView {
   state: InstanceStateName
   /** `vpn` means the address is private and needs the player's VPN. */
   network?: 'vpn' | 'published'
+  /** True once the service answers. The address is only sent then. */
+  ready?: boolean
+  /** Why the last run failed, when it did. */
+  failure?: 'start_failed' | 'never_ready' | 'exited' | null
   host?: string | null
   port?: number | null
   started_at?: number
@@ -494,4 +498,16 @@ export interface VpnSyncReport {
   clients: number
   allows: number
   disconnected: number
+}
+
+/** One of the player's running or starting instances, with the challenge it belongs to. */
+export interface InstanceListItem {
+  id: number
+  challenge_id: number
+  title: string
+  state: InstanceStateName
+  network: 'vpn' | 'published'
+  host: string | null
+  port: number | null
+  remaining_secs: number
 }

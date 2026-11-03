@@ -8,6 +8,7 @@ import type { EventInfo } from '../api/platformTypes'
 import { ChallengeBoard } from '../components/platform/ChallengeBoard'
 import { Empty, Loading, Panel, Pill, StatePill } from '../components/platform/bits'
 import { MyProgress } from '../components/platform/MyProgress'
+import { MyInstances } from '../components/platform/MyInstances'
 import { VpnPanel } from '../components/platform/VpnPanel'
 import { Scoreboard } from '../components/platform/Scoreboard'
 import { Tabs, type TabItem } from '../components/Tabs'
@@ -138,13 +139,14 @@ export function EventPage() {
       </div>
       {live !== 'archived' && <Registration event={event} />}
       {event.network_mode === 'vpn' && event.registered && <VpnPanel />}
+      {event.registered && <MyInstances slug={event.slug} />}
       <Tabs<View> items={tabs} value={view} label="Event" onChange={(v) => setParams({ view: v }, { replace: true })}>
         {view === 'challenges' &&
           (event.registered ? (
             live === 'draft' || live === 'registration_open' ? (
               <Empty>The challenges open when the event starts.</Empty>
             ) : (
-              <ChallengeBoard slug={event.slug} />
+              <ChallengeBoard slug={event.slug} vpn={event.network_mode === 'vpn'} />
             )
           ) : (
             <Empty>Register to see the challenges.</Empty>
