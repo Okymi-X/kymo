@@ -177,6 +177,11 @@ pub async fn set_network(
             "only Jeopardy events have challenge instances".into(),
         ));
     }
+    if body.mode == "vpn" && event.lab_host_id.is_some() {
+        return Err(ApiError::Conflict(
+            "the private VPN only works with instances on this server: move the event off its lab host first".into(),
+        ));
+    }
     if body.mode == "vpn" && state.vpn_setup().is_none() {
         return Err(ApiError::Conflict(
             "the VPN is not enabled on this server".into(),

@@ -18,6 +18,12 @@ pub struct InstanceRow {
     pub host_port: Option<i64>,
     pub lab_ip: Option<String>,
     pub failure: Option<String>,
+    /// The lab host it runs on; none is this machine's own runtime.
+    pub lab_host_id: Option<i64>,
+    /// The name the platform built for it before asking for it to be started.
+    pub name: Option<String>,
+    /// The address players connect to, as it was when the run started.
+    pub public_host: Option<String>,
     pub state: String,
     pub started_at: i64,
     pub expires_at: i64,
@@ -99,11 +105,14 @@ pub struct NewRun<'a> {
     pub state: &'a str,
     /// The address inside the player's lab, for VPN mode events.
     pub lab_ip: Option<&'a str>,
+    pub lab_host_id: Option<i64>,
+    pub name: &'a str,
+    pub public_host: &'a str,
 }
 
 pub async fn insert(pool: &SqlitePool, run: &NewRun<'_>) -> Result<i64, ApiError> {
     let done = sqlx::query(
-        "INSERT INTO instance (event_id, challenge_id, scorer_kind, scorer_id, user_id, state, started_at, expires_at, lab_ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO instance (event_id, challenge_id, scorer_kind, scorer_id, user_id, state, started_at, expires_at, lab_ip, lab_host_id, name, public_host) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(run.event_id)
     .bind(run.challenge_id)
@@ -114,6 +123,9 @@ pub async fn insert(pool: &SqlitePool, run: &NewRun<'_>) -> Result<i64, ApiError
     .bind(run.started_at)
     .bind(run.expires_at)
     .bind(run.lab_ip)
+    .bind(run.lab_host_id)
+    .bind(run.name)
+    .bind(run.public_host)
     .execute(pool)
     .await?;
     Ok(done.last_insert_rowid())
@@ -212,6 +224,7 @@ pub struct ListRow {
     pub title: String,
     pub state: String,
     pub lab_ip: Option<String>,
+    pub public_host: Option<String>,
     pub host_port: Option<i64>,
     pub started_at: i64,
     pub expires_at: i64,
@@ -223,7 +236,7 @@ pub async fn live_of(
     scorer: Scorer,
 ) -> Result<Vec<ListRow>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
+        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.public_host, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
     )
     .bind(event_id)
     .bind(scorer.kind())

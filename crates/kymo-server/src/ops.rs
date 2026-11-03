@@ -369,8 +369,11 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
         None => (None, 0),
         Some(setup) => match setup.runtime.list_managed().await {
             Ok(managed) => {
-                let owned: std::collections::HashSet<String> =
-                    live.iter().map(|r| r.id.to_string()).collect();
+                let owned: std::collections::HashSet<String> = live
+                    .iter()
+                    .filter(|r| r.lab_host_id.is_none())
+                    .map(|r| r.id.to_string())
+                    .collect();
                 let orphans = managed
                     .iter()
                     .filter(|m| !owned.contains(&m.instance_id))
@@ -380,6 +383,28 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
             Err(_) => (Some(false), 0),
         },
     };
+
+    // Lab hosts: what the last health check (run by the reaper every 30 seconds) found.
+    let lab_rows = crate::lab_store::list(pool).await?;
+    let mut lab_list = Vec::new();
+    for row in &lab_rows {
+        let (_, live_here) = crate::lab_store::counts(pool, row.id).await?;
+        let reachable = row
+            .enabled
+            .then(|| row.last_error.is_none() && row.last_ok_at.is_some());
+        lab_list.push(json!({
+            "id": row.id,
+            "name": row.name,
+            "enabled": row.enabled,
+            "reachable": reachable,
+            "last_checked_at": row.last_checked_at,
+            "last_error": row.last_error,
+            "live_instances": live_here,
+        }));
+    }
+    let labs_failed = lab_rows
+        .iter()
+        .any(|r| r.enabled && r.last_checked_at.is_some() && r.last_error.is_some());
 
     let vpn = match state.vpn_setup() {
         None => json!({ "enabled": false }),
@@ -438,8 +463,12 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
     });
     drop(jobs);
 
-    let degraded =
-        !db_ok || runtime_ok == Some(false) || reaper_failed || backup_failed || vpn_failed;
+    let degraded = !db_ok
+        || runtime_ok == Some(false)
+        || reaper_failed
+        || backup_failed
+        || vpn_failed
+        || labs_failed;
     Ok(json!({
         "status": if degraded { "degraded" } else { "ok" },
         "time": now,
@@ -453,6 +482,7 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
             "throttled": throttled,
             "avg_ms": avg_ms,
         },
+        "labs": lab_list,
         "instances": {
             "enabled": state.instance_setup().is_some(),
             "runtime_ok": runtime_ok,

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::clock::{self, Clock};
+use crate::labs::LabRegistry;
 use crate::monitor::Monitor;
 use crate::ops::{BackupConfig, Ops};
 use crate::vpn::VpnSetup;
@@ -52,6 +53,7 @@ pub struct AppState {
     ops: Arc<Ops>,
     backups: Option<BackupConfig>,
     vpn: Option<VpnSetup>,
+    labs: Arc<LabRegistry>,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             ops: Arc::default(),
             backups: None,
             vpn: None,
+            labs: Arc::default(),
         })
     }
 
@@ -124,6 +127,11 @@ impl AppState {
 
     pub fn monitor(&self) -> &Monitor {
         &self.monitor
+    }
+
+    /// Connections to lab hosts, built from their database rows.
+    pub fn labs(&self) -> &LabRegistry {
+        &self.labs
     }
 
     pub fn instance_setup(&self) -> Option<&InstanceSetup> {

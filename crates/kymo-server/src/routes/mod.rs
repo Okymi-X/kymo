@@ -3,6 +3,7 @@ mod admin_challenges;
 mod challenges;
 mod events;
 mod instances;
+mod labs;
 mod monitor;
 mod ops;
 mod players;
@@ -100,6 +101,12 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/instances/reap", post(instances::admin_reap))
         .route("/vpn", get(vpn::status))
         .route("/vpn/profile", post(vpn::profile))
+        .route("/admin/labs", get(labs::list).post(labs::create))
+        .route("/admin/labs/{id}", put(labs::update).delete(labs::delete))
+        .route("/admin/labs/{id}/test", post(labs::test))
+        .route("/admin/labs/{id}/instances", get(labs::instances))
+        .route("/admin/labs/{id}/reconcile", post(labs::reconcile))
+        .route("/admin/events/{id}/lab", put(labs::set_event_lab))
         .route("/admin/vpn", get(vpn::admin_status))
         .route("/admin/vpn/sync", post(vpn::admin_sync))
         .route("/admin/vpn/clients/{user_id}", delete(vpn::admin_revoke))

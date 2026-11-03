@@ -32,6 +32,8 @@ pub struct EventRow {
     pub roster_locked: bool,
     /// `published` (a host port per instance) or `vpn` (a private lab reached through OpenVPN).
     pub network_mode: String,
+    /// The lab host that runs this event's instances; none means this machine's own runtime.
+    pub lab_host_id: Option<i64>,
     pub created_at: i64,
 }
 
@@ -90,6 +92,7 @@ pub struct EventOut {
     pub allow_invites: bool,
     pub roster_locked: bool,
     pub network_mode: String,
+    pub lab_host_id: Option<i64>,
     pub created_at: i64,
 }
 
@@ -114,6 +117,7 @@ impl EventOut {
             allow_invites: row.allow_invites,
             roster_locked: row.roster_locked,
             network_mode: row.network_mode,
+            lab_host_id: row.lab_host_id,
             created_at: row.created_at,
         })
     }
@@ -454,6 +458,20 @@ pub async fn set_network_mode(pool: &SqlitePool, id: i64, mode: &str) -> Result<
     }
     sqlx::query("UPDATE event SET network_mode = ? WHERE id = ?")
         .bind(mode)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Picks the lab host that runs an event's instances, or none for this machine.
+pub async fn set_lab_host(
+    pool: &SqlitePool,
+    id: i64,
+    lab_host_id: Option<i64>,
+) -> Result<(), ApiError> {
+    sqlx::query("UPDATE event SET lab_host_id = ? WHERE id = ?")
+        .bind(lab_host_id)
         .bind(id)
         .execute(pool)
         .await?;

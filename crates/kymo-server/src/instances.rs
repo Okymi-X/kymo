@@ -14,6 +14,7 @@ use crate::challenge_store::{self, ChallengeRow};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::instance_store::{self as store, InstanceRow, NewRun};
+use crate::labs;
 use crate::state::{AppState, InstanceSetup};
 use crate::submit::{Play, open_for_play};
 use crate::vpn;
@@ -55,6 +56,7 @@ pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64
     let host = row
         .lab_ip
         .clone()
+        .or_else(|| row.public_host.clone())
         .unwrap_or_else(|| setup.public_host.clone());
     json!({
         "id": row.id,
@@ -105,7 +107,12 @@ async fn probe(state: &AppState, setup: &InstanceSetup, row: &InstanceRow) -> bo
         row.host_port.and_then(|p| u16::try_from(p).ok()),
     ) {
         (Some(ip), Some(port)) => vpn::lab_reachable(state, ip, port).await,
-        (None, Some(port)) => setup.runtime.reachable(port).await,
+        // The runtime the run lives on checks its own way: a remote lab host is reached the way
+        // a player will reach it, from this server to its public address.
+        (None, Some(port)) => match labs::target(state, setup, row.lab_host_id).await {
+            Ok(target) => target.runtime.reachable(port).await,
+            Err(_) => false,
+        },
         _ => false,
     }
 }
@@ -133,10 +140,13 @@ async fn refresh(
         }
         return Ok(row);
     };
-    // A platform that cannot be asked right now says nothing about the container.
-    if let Ok(RuntimeStatus::Exited | RuntimeStatus::Missing) = setup.runtime.status(&handle).await
+    // A runtime that cannot be asked right now says nothing about the container.
+    let Ok(target) = labs::target(state, setup, row.lab_host_id).await else {
+        return Ok(row);
+    };
+    if let Ok(RuntimeStatus::Exited | RuntimeStatus::Missing) = target.runtime.status(&handle).await
     {
-        let _ = setup.runtime.stop(&handle).await;
+        let _ = target.runtime.stop(&handle).await;
         store::mark_failed(&state.pool, row.id, now, "exited").await?;
         return store::by_id(&state.pool, row.id).await;
     }
@@ -144,7 +154,7 @@ async fn refresh(
         if probe(state, setup, &row).await {
             store::mark_ready(&state.pool, row.id).await?;
         } else if now - row.started_at > READY_TIMEOUT_SECS {
-            let _ = setup.runtime.stop(&handle).await;
+            let _ = target.runtime.stop(&handle).await;
             store::mark_failed(&state.pool, row.id, now, "never_ready").await?;
         }
         return store::by_id(&state.pool, row.id).await;
@@ -177,7 +187,8 @@ async fn end_run(
     outcome: InstanceState,
 ) -> Result<(), ApiError> {
     if let Some(handle) = &row.handle {
-        setup.runtime.stop(handle).await.map_err(|e| {
+        let target = labs::target(state, setup, row.lab_host_id).await?;
+        target.runtime.stop(handle).await.map_err(|e| {
             tracing::warn!("stopping instance {}: {e}", row.id);
             ApiError::Unavailable("could not stop the instance, try again".into())
         })?;
@@ -215,6 +226,32 @@ async fn begin(
     let now = state.now();
     open_for_play(play, challenge, now)?;
     let scorer = play.scorer;
+
+    // Where this run will live: the event's lab host, or this machine's own runtime.
+    let lab_host_id = play.event.lab_host_id;
+    if let Some(id) = lab_host_id {
+        labs::usable(state, id).await?;
+        if play.event.network_mode == "vpn" {
+            return Err(ApiError::Unavailable(
+                "this event needs the VPN, which is only available for instances on this server, not on a lab host"
+                    .into(),
+            ));
+        }
+    }
+    if lab_host_id.is_none() && !setup.runtime.can_start() {
+        return Err(ApiError::Unavailable(
+            "this server runs no challenge containers itself: an organizer must choose a lab host for this event".into(),
+        ));
+    }
+    let target = labs::target(state, setup, lab_host_id).await?;
+    // The platform builds the name, and records it before asking anyone to start anything.
+    let name = format!(
+        "kymo-c{}-{}{}-{}",
+        challenge.id,
+        &scorer.kind()[..1],
+        scorer.id(),
+        kymo_lab::naming::random_suffix()
+    );
 
     // VPN mode: the player's private network exists and the gateway is on it before we start.
     let vpn_lab = if play.event.network_mode == "vpn" {
@@ -259,6 +296,9 @@ async fn begin(
                 expires_at: expires_at(now, spec.ttl_secs),
                 state: "starting",
                 lab_ip: lab_ip.as_deref(),
+                lab_host_id,
+                name: &name,
+                public_host: &target.host,
             },
         )
         .await?;
@@ -297,8 +337,15 @@ async fn begin(
         instance_id: run_id.to_string(),
         spec,
         placement,
+        name: Some(name.clone()),
+        meta: vec![
+            ("event".into(), play.event.id.to_string()),
+            ("challenge".into(), challenge.id.to_string()),
+            ("owner".into(), format!("{}:{}", scorer.kind(), scorer.id())),
+            ("user".into(), user_id.to_string()),
+        ],
     };
-    match setup.runtime.start(&request).await {
+    match target.runtime.start(&request).await {
         Ok(started) => {
             store::mark_started(&state.pool, run_id, &started.handle, started.host_port).await?;
             wait_ready(state, setup, run_id).await?;
@@ -400,26 +447,54 @@ async fn reap_inner(state: &AppState) -> Result<usize, ApiError> {
             Err(_) => tracing::warn!("instance {} is due but could not be stopped", row.id),
         }
     }
-    let owned: std::collections::HashSet<String> = store::live(&state.pool)
-        .await?
-        .iter()
-        .map(|r| r.id.to_string())
-        .collect();
     // Lab networks nobody uses any more go once their instances are gone.
     if let Err(e) = vpn::collect_idle_labs(state).await {
         tracing::warn!("collecting idle labs: {e:?}");
     }
-    match setup.runtime.list_managed().await {
-        Ok(managed) => {
-            for orphan in managed.iter().filter(|m| !owned.contains(&m.instance_id)) {
-                if setup.runtime.stop(&orphan.handle).await.is_ok() {
-                    ended += 1;
-                }
+    labs::refresh_health(state).await;
+    ended += remove_orphans(state, setup).await?;
+    Ok(ended)
+}
+
+/// Containers a runtime has that no live run owns: left behind by a crash, or started and then
+/// forgotten. Looked for on this machine and on every lab host. The platform decides what should
+/// run; a run's row exists before its container does, so one being created is never an orphan.
+async fn remove_orphans(state: &AppState, setup: &InstanceSetup) -> Result<usize, ApiError> {
+    let mut places: Vec<Option<i64>> = vec![None];
+    places.extend(
+        crate::lab_store::enabled(&state.pool)
+            .await?
+            .into_iter()
+            .map(|l| Some(l.id)),
+    );
+    let mut removed = 0;
+    for place in places {
+        let Ok(target) = labs::target(state, setup, place).await else {
+            continue;
+        };
+        // List first, read the runs second: a run's row is written before its container exists,
+        // so every container seen here already has its row by the time the rows are read.
+        let managed = match target.runtime.list_managed().await {
+            Ok(managed) => managed,
+            // A lab host that is down is not an orphan hunt; its health shows in Operations.
+            Err(e) => {
+                tracing::warn!("listing instances ({place:?}): {e}");
+                continue;
+            }
+        };
+        let owned: std::collections::HashSet<String> = store::live(&state.pool)
+            .await?
+            .iter()
+            .filter(|r| r.lab_host_id == place)
+            .map(|r| r.id.to_string())
+            .collect();
+        for orphan in managed.iter().filter(|m| !owned.contains(&m.instance_id)) {
+            if target.runtime.stop(&orphan.handle).await.is_ok() {
+                removed += 1;
             }
         }
-        Err(e) => tracing::warn!("listing instances: {e}"),
     }
-    Ok(ended)
+    Ok(removed)
 }
 
 /// Admin: stop one run regardless of its owner.
@@ -450,6 +525,7 @@ pub async fn list_for(state: &AppState, play: &Play) -> Result<Value, ApiError> 
         let host = row
             .lab_ip
             .clone()
+            .or_else(|| row.public_host.clone())
             .unwrap_or_else(|| setup.public_host.clone());
         out.push(json!({
             "id": row.id,

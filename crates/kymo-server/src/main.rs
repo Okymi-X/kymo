@@ -59,9 +59,21 @@ async fn run() -> Result<(), String> {
     }
     state = state.with_trusted_proxy(env::var("KYMO_TRUST_PROXY").as_deref() == Ok("1"));
     spawn_maintenance(state.clone());
-    if env::var("KYMO_INSTANCES").as_deref() == Ok("docker") {
-        state = state.with_instances(docker_setup()?);
-        spawn_reaper(state.clone());
+    // `docker` runs challenge containers on this machine (and still lets events use lab hosts);
+    // `labs` runs none here and leaves everything to the lab hosts added in the admin pages.
+    match env::var("KYMO_INSTANCES").as_deref() {
+        Ok("docker") => {
+            state = state.with_instances(docker_setup()?);
+            spawn_reaper(state.clone());
+        }
+        Ok("labs") => {
+            state = state.with_instances(labs_only_setup());
+            spawn_reaper(state.clone());
+        }
+        Ok(other) if !other.is_empty() => {
+            return Err(format!("KYMO_INSTANCES is docker or labs, not {other}"));
+        }
+        _ => {}
     }
     if env::var("KYMO_VPN").as_deref() == Ok("1") {
         let runtime = state
@@ -95,6 +107,17 @@ async fn run() -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// A platform that runs no containers itself: every instance goes to a lab host.
+fn labs_only_setup() -> InstanceSetup {
+    InstanceSetup {
+        runtime: Arc::new(kymo_server::labs::NoLocalRuntime),
+        policy: Policy::default(),
+        caps: ResourceCaps::default(),
+        public_host: "127.0.0.1".into(),
+        reap_grace_secs: 5,
+    }
 }
 
 /// Docker backed instances. The bind address decides who can reach published ports; the host

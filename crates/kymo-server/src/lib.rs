@@ -12,6 +12,8 @@ pub mod events;
 pub mod instance_store;
 pub mod instances;
 pub mod jeopardy_store;
+pub mod lab_store;
+pub mod labs;
 pub mod ladder;
 pub mod monitor;
 pub mod monitor_store;
