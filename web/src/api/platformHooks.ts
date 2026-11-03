@@ -41,6 +41,7 @@ export function useEventStream(slug: string, enabled: boolean) {
     source.addEventListener('update', () => {
       void client.invalidateQueries({ queryKey: ['challenges', slug] })
       void client.invalidateQueries({ queryKey: ['scoreboard', slug] })
+      void client.invalidateQueries({ queryKey: ['timeline', slug] })
       void client.invalidateQueries({ queryKey: ['progress', slug] })
     })
     return () => source.close()

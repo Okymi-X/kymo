@@ -29,6 +29,7 @@ import type {
   Role,
   Scoreboard,
   SessionOut,
+  ScoreTimeline,
   SubmissionLine,
   SubmitResult,
   Team,
@@ -100,6 +101,7 @@ export const platform = {
   restartInstance: (slug: string, id: number) => request<InstanceView>('POST', `${ch(slug, id)}/instance/restart`),
   stopInstance: (slug: string, id: number) => request<InstanceView>('DELETE', `${ch(slug, id)}/instance`),
   instances: (slug: string) => request<{ instances: InstanceListItem[] }>('GET', `${ev(slug)}/instances`),
+  scoreTimeline: (slug: string, top: number) => request<ScoreTimeline>('GET', `${ev(slug)}/scoreboard/timeline?top=${top}`),
   scoreboard: (slug: string) => request<Scoreboard>('GET', `${ev(slug)}/scoreboard?matrix=true`),
   progress: (slug: string) => request<Progress>('GET', `${ev(slug)}/progress`),
 

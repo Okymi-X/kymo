@@ -6,6 +6,7 @@ import { timeAgo } from '../../lib/time'
 import { Avatar } from '../Avatar'
 import { ErrorText } from '../ui'
 import { Empty, Loading } from './bits'
+import { ScoreChart } from './ScoreChart'
 
 export function Scoreboard({ slug }: { slug: string }) {
   useEventStream(slug, true)
@@ -16,7 +17,8 @@ export function Scoreboard({ slug }: { slug: string }) {
   if (board.rows.length === 0) return <Empty>Nobody has registered yet.</Empty>
   const matrix = board.challenges && board.challenges.length > 0 && board.challenges.length <= 40 ? board.challenges : null
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      <ScoreChart slug={slug} />
       {!board.public && <p className="text-sm text-muted">The scoreboard is not public. Only registered players and staff see it.</p>}
       <div className="overflow-x-auto rounded-card border border-line bg-surface">
         <table className="w-full min-w-[32rem] text-sm">

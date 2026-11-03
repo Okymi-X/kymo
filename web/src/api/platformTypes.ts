@@ -515,3 +515,20 @@ export interface InstanceListItem {
   port: number | null
   remaining_secs: number
 }
+
+export interface ScoreSeries {
+  participant_id: number
+  name: string
+  avatar_seed: string
+  rank: number
+  points: number
+  steps: { at: number; total: number }[]
+}
+
+export interface ScoreTimeline {
+  event_id: number
+  mode: string
+  from: number
+  to: number
+  series: ScoreSeries[]
+}

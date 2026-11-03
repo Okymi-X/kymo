@@ -81,6 +81,27 @@ test('a player registers, solves a challenge and reaches the scoreboard', async 
   await expect(row).toBeVisible()
   await expect(row).toContainText('100')
 
+  // The chart shows the same total, can hide a line, and reads out values on hover and by keyboard.
+  await expect(player.getByRole('heading', { name: 'Score over time' })).toBeVisible()
+  const legend = player.getByRole('list', { name: 'Lines' }).getByRole('button', { name: /ada/ })
+  await expect(legend).toContainText('100')
+  const chart = player.getByRole('img', { name: /Score over time for the top 1\. ada leads with 100 points/ })
+  await expect(chart).toBeVisible()
+  const box = await chart.boundingBox()
+  await player.mouse.move((box?.x ?? 0) + (box?.width ?? 0) - 40, (box?.y ?? 0) + (box?.height ?? 0) / 2)
+  await expect(player.getByText('ada').nth(0)).toBeVisible()
+  await expect(player.locator('div.pointer-events-none', { hasText: '100' })).toBeVisible()
+  await player.mouse.move(0, 0)
+  await legend.click()
+  await expect(legend).toHaveAttribute('aria-pressed', 'false')
+  await legend.click()
+  await expect(legend).toHaveAttribute('aria-pressed', 'true')
+  await chart.focus()
+  await player.keyboard.press('End')
+  await expect(player.locator('div.pointer-events-none', { hasText: 'ada' })).toBeVisible()
+  await player.keyboard.press('Escape')
+  await expect(player.locator('div.pointer-events-none', { hasText: 'ada' })).toHaveCount(0)
+
   // The organizer sees the same activity in the monitor and audit trail.
   await page.goto('/monitor')
   await expect(page.getByRole('heading', { name: 'Monitor' })).toBeVisible()

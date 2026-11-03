@@ -32,6 +32,16 @@
     --color-win: #30d158;
     --color-danger: #ff6961;
     --shadow-card: none;
+    --series-1: #4da3ff;
+    --series-2: #3ddc84;
+    --series-3: #ff9446;
+    --series-4: #ff6fa5;
+    --series-5: #a58bff;
+    --series-6: #3cc8dd;
+    --series-7: #ffc933;
+    --series-8: #ff6b6b;
+    --series-9: #e599f7;
+    --series-10: #adb5bd;
     --shadow-lift: 0 0 0 1px rgb(255 255 255 / 0.06), 0 8px 24px rgb(0 0 0 / 0.5);
 }
 
@@ -47,6 +57,16 @@
     --color-accent: #4da3ff;
     --color-win: #30d158;
     --color-danger: #ff6961;
+    --series-1: #4da3ff;
+    --series-2: #3ddc84;
+    --series-3: #ff9446;
+    --series-4: #ff6fa5;
+    --series-5: #a58bff;
+    --series-6: #3cc8dd;
+    --series-7: #ffc933;
+    --series-8: #ff6b6b;
+    --series-9: #e599f7;
+    --series-10: #adb5bd;
     --shadow-card: none;
     --shadow-lift: 0 0 0 1px rgb(255 255 255 / 0.06), 0 8px 24px rgb(0 0 0 / 0.5);
   }
@@ -318,4 +338,35 @@ dialog[open]::backdrop {
   :root:not([data-scheme='light']) [data-tournament-accent] {
     --color-accent: color-mix(in srgb, var(--tournament-accent) 65%, white);
   }
+}
+
+/* The score chart: lines draw in once, and everything respects reduced motion. */
+@keyframes chart-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes chart-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.chart-line.is-drawing { stroke-dasharray: 1; animation: chart-draw 1000ms var(--ease-out) both; }
+.chart-dot { animation: chart-fade 400ms var(--ease-out) 700ms both; }
+.chart-line, .chart-dot, .chart-series { transition: opacity 180ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .chart-line.is-drawing, .chart-dot { animation: none; }
+}
+
+/* Chart series colours. Outside @theme on purpose: Tailwind only emits theme variables that a
+   utility uses, and these are read by the SVG chart directly. */
+:root {
+  --series-1: #0a6fe0;
+  --series-2: #1f9d55;
+  --series-3: #e8590c;
+  --series-4: #d6336c;
+  --series-5: #7048e8;
+  --series-6: #0c8599;
+  --series-7: #d99100;
+  --series-8: #c92a2a;
+  --series-9: #9c36b5;
+  --series-10: #5c677d;
 }
