@@ -1096,3 +1096,91 @@ async fn the_organizer_contact_is_public_but_only_an_admin_can_change_it() {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }
+
+#[tokio::test]
+async fn an_admin_can_create_accounts_while_sign_ups_stay_closed() {
+    let w = world().await;
+    let admin = admin_token(&w.app).await;
+    call(
+        &w.app,
+        "PUT",
+        "/api/v1/admin/registration",
+        Some(&admin),
+        Some(json!({ "open": false })),
+    )
+    .await;
+
+    // Without a password the server makes one and shows it once.
+    let (status, made) = call(
+        &w.app,
+        "POST",
+        "/api/v1/admin/users",
+        Some(&admin),
+        Some(json!({ "username": "walkin", "email": "walkin@example.org" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["user"]["role"], "player");
+    let temporary = made["temporary_password"].as_str().unwrap().to_owned();
+    let (status, session) = call(
+        &w.app,
+        "POST",
+        "/api/v1/auth/player-login",
+        None,
+        Some(json!({ "username": "walkin", "password": temporary })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+
+    // With a password and a role it uses them and returns no temporary password.
+    let (status, made) = call(
+        &w.app,
+        "POST",
+        "/api/v1/admin/users",
+        Some(&admin),
+        Some(json!({ "username": "judge", "role": "referee", "password": PLAYER_PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["user"]["role"], "referee");
+    assert!(made["temporary_password"].is_null());
+
+    // Duplicates, bad roles and non admins are refused, and public sign-up is still closed.
+    for (body, expected) in [
+        (json!({ "username": "walkin" }), StatusCode::CONFLICT),
+        (
+            json!({ "username": "someone", "role": "visitor" }),
+            StatusCode::BAD_REQUEST,
+        ),
+        (json!({ "username": "a b" }), StatusCode::BAD_REQUEST),
+    ] {
+        let (status, _) = call(
+            &w.app,
+            "POST",
+            "/api/v1/admin/users",
+            Some(&admin),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, expected);
+    }
+    let player_token = session["token"].as_str().unwrap().to_owned();
+    let (status, _) = call(
+        &w.app,
+        "POST",
+        "/api/v1/admin/users",
+        Some(&player_token),
+        Some(json!({ "username": "sneaky" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &w.app,
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(json!({ "username": "latecomer", "password": PLAYER_PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}

@@ -58,7 +58,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/admin/events/{id}/state", post(events::set_state))
         .route("/admin/events/{id}/participants", get(events::participants))
-        .route("/admin/users", get(players::list_users))
+        .route(
+            "/admin/users",
+            get(players::list_users).post(players::create_user),
+        )
         .route("/admin/users/{id}", put(players::update_user))
         .route(
             "/admin/registration",

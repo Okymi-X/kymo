@@ -180,6 +180,87 @@ pub async fn list_users(
 }
 
 #[derive(Deserialize)]
+pub struct CreateUserBody {
+    username: String,
+    email: Option<String>,
+    role: Option<String>,
+    /// Left out, the server makes a temporary password and returns it once.
+    password: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CreatedUser {
+    user: UserOut,
+    /// Only present when the server made the password. It is never shown again.
+    temporary_password: Option<String>,
+}
+
+/// Letters and digits without the ones that are easy to misread.
+const PASSWORD_ALPHABET: &[u8] = b"abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+fn temporary_password() -> String {
+    (0..16)
+        .map(|_| {
+            PASSWORD_ALPHABET[usize::from(rand::random::<u8>()) % PASSWORD_ALPHABET.len()] as char
+        })
+        .collect()
+}
+
+/// Lets an admin make an account directly, so sign-ups can stay closed.
+pub async fn create_user(
+    admin: Require<needs::ManageUsers>,
+    State(state): State<AppState>,
+    Json(body): Json<CreateUserBody>,
+) -> Result<(StatusCode, Json<CreatedUser>), ApiError> {
+    let username = users::check_username(&body.username)?;
+    let email = body
+        .email
+        .as_deref()
+        .filter(|e| !e.trim().is_empty())
+        .map(users::check_email)
+        .transpose()?;
+    let role = match body.role.as_deref() {
+        None | Some("") => Role::Player,
+        Some(r) => Role::from_str(r)
+            .ok()
+            .filter(|r| *r != Role::Visitor)
+            .ok_or_else(|| {
+                ApiError::BadRequest("role is player, referee, monitor or admin".into())
+            })?,
+    };
+    let (password, temporary) = match body.password.filter(|p| !p.is_empty()) {
+        Some(p) => (p, None),
+        None => {
+            let p = temporary_password();
+            (p.clone(), Some(p))
+        }
+    };
+    passwords::check_strength(&password)?;
+    let hash = passwords::hash(password).await?;
+    let id = users::create(&state.pool, username, email.as_deref(), &hash, state.now()).await?;
+    if role != Role::Player {
+        users::moderate(&state.pool, id, Some(role), None).await?;
+    }
+    crate::monitor_store::audit(
+        &state.pool,
+        state.now(),
+        Some(&admin.0),
+        "user_create",
+        "user",
+        id,
+        &format!("username={username} role={}", role.as_str()),
+    )
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(CreatedUser {
+            user: UserOut::try_from(users::by_id(&state.pool, id).await?)?,
+            temporary_password: temporary,
+        }),
+    ))
+}
+
+#[derive(Deserialize)]
 pub struct ModerateBody {
     role: Option<String>,
     banned: Option<bool>,
