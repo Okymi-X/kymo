@@ -1415,3 +1415,51 @@ async fn attachments_upload_and_download_safely() {
     let r = send(&c.w.app, "GET", &url, Some(&alice), None, Vec::new(), None).await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn correct_flags_are_masked_for_staff_and_revealed_one_at_a_time_with_an_audit_entry() {
+    let c = Ctx::new("solo", json!({})).await;
+    let id = c.challenge(json!({ "title": "Secret" })).await;
+    let (alice, _) = player(&c.w.app, "alice").await;
+    c.register(&alice).await;
+    c.set_state("live").await;
+    c.submit(&alice, id, "KYMO{wrong_guess}").await;
+    let (status, solved) = c.submit(&alice, id, FLAG).await;
+    assert_eq!(status, StatusCode::OK, "{solved}");
+
+    let page = c.history("").await;
+    let items = page["items"].as_array().unwrap();
+    let correct = items.iter().find(|i| i["verdict"] == "correct").unwrap();
+    assert_eq!(correct["value"], "", "a correct flag is never listed");
+    assert_eq!(correct["hidden"], true);
+    let wrong = items.iter().find(|i| i["verdict"] == "incorrect").unwrap();
+    assert_eq!(
+        wrong["value"], "KYMO{wrong_guess}",
+        "wrong guesses stay readable"
+    );
+    assert_eq!(wrong["hidden"], false);
+    assert!(
+        !page.to_string().contains(FLAG),
+        "the flag is nowhere in the list"
+    );
+
+    // The reveal is a separate call, refused to players and written to the audit trail.
+    let uri = format!(
+        "/api/v1/admin/events/{}/submissions/{}/value",
+        c.event_id, correct["id"]
+    );
+    let (status, _) = call(&c.w.app, "GET", &uri, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, shown) = call(&c.w.app, "GET", &uri, Some(&c.admin), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(shown["value"], FLAG);
+    let (_, audit) = call(
+        &c.w.app,
+        "GET",
+        "/api/v1/admin/monitor/audit?action=reveal_submission",
+        Some(&c.admin),
+        None,
+    )
+    .await;
+    assert_eq!(audit["total"], 1, "{audit}");
+}

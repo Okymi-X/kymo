@@ -166,6 +166,7 @@ export const platform = {
   users: (params: { q?: string; page?: number }) => request<Page<User>>('GET', `/admin/users${query({ per_page: 25, ...params })}`),
   updateUser: (id: number, body: { role?: Role; banned?: boolean }) => request<User>('PUT', `/admin/users/${id}`, body),
   registrationOpen: () => request<{ open: boolean }>('GET', '/admin/registration'),
+  revealSubmission: (eventId: number, id: number) => request<{ value: string }>('GET', `/admin/events/${eventId}/submissions/${id}/value`),
   contact: () => request<{ contact: string }>('GET', '/admin/contact'),
   setContact: (contact: string) => request<{ contact: string }>('PUT', '/admin/contact', { contact }),
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),

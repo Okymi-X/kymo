@@ -194,6 +194,10 @@ pub fn router(state: AppState) -> Router {
             get(admin_challenges::submissions),
         )
         .route(
+            "/admin/events/{id}/submissions/{sid}/value",
+            get(admin_challenges::reveal_submission),
+        )
+        .route(
             "/admin/events/{id}/jeopardy",
             get(admin_challenges::get_settings).put(admin_challenges::put_settings),
         )

@@ -408,9 +408,13 @@ pub struct SubmissionOut {
     pub user_id: i64,
     pub username: Option<String>,
     pub ip: String,
+    /// Empty when the value is a correct flag: staff lists never show answers, see `hidden`.
     pub value: String,
     pub verdict: String,
     pub at: i64,
+    /// True when `value` was left out because it is a correct flag.
+    #[sqlx(skip)]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -440,7 +444,7 @@ pub async fn history(
     .bind(filter.ip.as_deref())
     .fetch_one(pool)
     .await?;
-    let items = sqlx::query_as(&format!(
+    let mut items: Vec<SubmissionOut> = sqlx::query_as(&format!(
         "SELECT s.id, s.challenge_id, c.title AS challenge_title, s.participant_kind, s.participant_id, s.user_id, u.username, s.ip, s.value, s.verdict, s.at \
          FROM submission s JOIN challenge c ON c.id = s.challenge_id LEFT JOIN user u ON u.id = s.user_id \
          WHERE {HISTORY_WHERE} ORDER BY s.id DESC LIMIT ?6 OFFSET ?7"
@@ -454,12 +458,34 @@ pub async fn history(
     .bind((page - 1).saturating_mul(per_page))
     .fetch_all(pool)
     .await?;
+    // A correct submission is the answer itself. Listing it would hand the flag to anyone who
+    // can read the log, or who watches a screen share, so it is revealed one row at a time.
+    for item in &mut items {
+        if item.verdict == "correct" {
+            item.value.clear();
+            item.hidden = true;
+        }
+    }
     Ok(SubmissionPage {
         items,
         page,
         per_page,
         total,
     })
+}
+
+/// The submitted text of one submission, for an audited reveal.
+pub async fn submission_value(
+    pool: &SqlitePool,
+    event_id: i64,
+    id: i64,
+) -> Result<String, ApiError> {
+    sqlx::query_scalar("SELECT value FROM submission WHERE id = ? AND event_id = ?")
+        .bind(id)
+        .bind(event_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(ApiError::NotFound)
 }
 
 /// Solves per challenge for the admin listing.

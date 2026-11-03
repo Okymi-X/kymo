@@ -311,7 +311,9 @@ export interface SubmissionLine {
   user_id: number
   username: string | null
   ip: string
+  /** Empty for a correct flag, see `hidden`. */
   value: string
+  hidden: boolean
   verdict: Verdict
   at: number
 }

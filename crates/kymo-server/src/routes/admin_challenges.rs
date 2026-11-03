@@ -579,6 +579,32 @@ pub async fn submissions(
     submissions_page(&state, event_id, query).await
 }
 
+#[derive(Serialize)]
+pub struct RevealedValue {
+    value: String,
+}
+
+/// Shows one submitted value in full, including a correct flag. Recorded in the audit trail.
+pub async fn reveal_submission(
+    caller: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path((event_id, id)): Path<(i64, i64)>,
+) -> Result<Json<RevealedValue>, ApiError> {
+    jeopardy_event(&state, event_id).await?;
+    let value = jeopardy_store::submission_value(&state.pool, event_id, id).await?;
+    crate::monitor_store::audit(
+        &state.pool,
+        state.now(),
+        Some(&caller.0),
+        "reveal_submission",
+        "submission",
+        id,
+        &format!("event {event_id}"),
+    )
+    .await?;
+    Ok(Json(RevealedValue { value }))
+}
+
 /// Shared by the challenge admin and the monitor, which both read flag submission history.
 pub async fn submissions_page(
     state: &AppState,

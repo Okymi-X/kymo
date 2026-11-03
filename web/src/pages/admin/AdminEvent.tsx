@@ -400,6 +400,33 @@ function Participants({ event }: { event: EventInfo }) {
   )
 }
 
+/** A submitted value. A correct flag is the answer itself, so it stays hidden until asked for. */
+function SubmittedValue({ eventId, line }: { eventId: number; line: SubmissionLine }) {
+  const reveal = useMutation({ mutationFn: () => platform.revealSubmission(eventId, line.id) })
+  if (!line.hidden) return <>{line.value}</>
+  if (reveal.data) {
+    return (
+      <span className="flex flex-col items-start gap-1">
+        <span>{reveal.data.value}</span>
+        <button type="button" onClick={() => reveal.reset()} className="font-sans text-xs font-medium text-accent hover:underline">
+          Hide
+        </button>
+      </span>
+    )
+  }
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <span className="text-muted" aria-label="Correct flag, hidden">
+        ••••••••
+      </span>
+      <button type="button" onClick={() => reveal.mutate()} disabled={reveal.isPending} className="font-sans text-xs font-medium text-accent hover:underline" title="Shows the correct flag and records that you looked">
+        Reveal
+      </button>
+      <ErrorText error={reveal.error} />
+    </span>
+  )
+}
+
 function Submissions({ event }: { event: EventInfo }) {
   const [page, setPage] = useState(1)
   const [verdict, setVerdict] = useState('')
@@ -454,7 +481,9 @@ function Submissions({ event }: { event: EventInfo }) {
                 <td className={TD}>{s.challenge_title}</td>
                 <td className={TD}>{s.username ?? `#${s.user_id}`}</td>
                 <td className={`${TD} font-mono text-xs`}>{s.ip}</td>
-                <td className={`${TD} max-w-56 break-all font-mono text-xs`}>{s.value}</td>
+                <td className={`${TD} max-w-56 break-all font-mono text-xs`}>
+                  <SubmittedValue eventId={event.id} line={s} />
+                </td>
                 <td className={`${TD} ${tone(s.verdict)}`}>{verdictText[s.verdict]}</td>
               </tr>
             ))}
