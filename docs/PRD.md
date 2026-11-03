@@ -18,7 +18,6 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 - Customizable look saved in the database: site name, accent colors, radius, typeface. Professional, restrained design.
 
 ## Non goals (v1)
-- Hosting CTF challenges or flag submission.
 - Swiss (planned). Round robin and groups then knockout are built.
 - Multi tenant SaaS, payments.
 
@@ -34,3 +33,13 @@ CTF organizers run knockout events with spreadsheets or general tournament tools
 - Editing a finished match re-propagates winners downstream or is refused with a clear reason.
 - Public view works without auth and updates live.
 - `docker compose up` or one binary serves API and UI.
+
+## Platform scope (v2, decided 2026-11-02)
+Kymo grows from a bracket manager into a CTF platform with two competition types, each solo or team:
+- Tournament events: single and double elimination, round robin, groups then knockout, Swiss (built).
+- Jeopardy events: categories, flags, hints, attachments, static or dynamic points, scoreboard.
+Events have states: draft, registration_open, live, paused, ended, archived, with registration and start/end times and scheduled challenge releases. Time rules gate challenge access, flag submission and instances.
+Roles: visitor (home, rules, register, login, published scoreboard), player (profile, teams, challenges, submissions), referee (limited interface), admin (events, challenges, participants, scoring, settings, appearance, preview as player), monitor (admin only request view, per endpoint rate limits, auto and manual bans, flag submission history, moderation audit).
+Instances: player started, restarted and stopped containers (Docker first, behind a runtime trait), duration and resource limits, isolation, secret handling, expiry reaper, abandoned cleanup.
+Operations: event health view, error visibility, backup and restore of event data, role based access everywhere.
+Three engines stay separate and share event, user, team and reporting data: bracket (kymo-engine), jeopardy (kymo-jeopardy), instances (kymo-instances).
