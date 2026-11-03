@@ -149,7 +149,7 @@ function VpnSection() {
               <td className={`${TD} font-mono text-xs`}>{l.network}</td>
               <td className={`${TD} font-mono text-xs`}>{l.subnet}</td>
               <td className={TD}>
-                {l.participant.kind} {l.participant.id}
+                {l.participant.name ? (l.participant.kind === 'team' ? `Team ${l.participant.name}` : l.participant.name) : `${l.participant.kind} ${l.participant.id}`}
               </td>
               <td className={`${TD} font-mono`}>#{l.event_id}</td>
               <td className={`${TD} font-mono tabular-nums`}>{l.live_instances}</td>

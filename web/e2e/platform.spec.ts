@@ -9,6 +9,7 @@ async function organizer(page: Page) {
 }
 
 test('a player registers, solves a challenge and reaches the scoreboard', async ({ page, browser }) => {
+  test.setTimeout(120_000)
   // The organizer builds a solo Jeopardy event with one challenge and starts it.
   await organizer(page)
   await page.goto('/admin/events')
@@ -61,6 +62,15 @@ test('a player registers, solves a challenge and reaches the scoreboard', async 
   await dialog.getByLabel('Flag', { exact: true }).fill('KYMO{wrong}')
   await dialog.getByRole('button', { name: 'Submit' }).click()
   await expect(dialog.getByText(/Incorrect/)).toBeVisible()
+
+  // A refresh that fails while the dialog is open must not close it or lose what was typed.
+  await dialog.getByLabel('Flag', { exact: true }).fill('KYMO{half typed')
+  await player.route('**/api/v1/events/e2e-jeopardy/challenges', (route) => route.fulfill({ status: 429, contentType: 'application/json', body: '{"error":"too many requests"}' }))
+  await player.waitForTimeout(21_000) // the board refreshes itself every 20 seconds, and this refresh now fails
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Flag', { exact: true })).toHaveValue('KYMO{half typed')
+  await player.unroute('**/api/v1/events/e2e-jeopardy/challenges')
+
   await dialog.getByLabel('Flag', { exact: true }).fill('KYMO{e2e}')
   await dialog.getByRole('button', { name: 'Submit' }).click()
   await expect(dialog.getByText('Correct, 100 points.')).toBeVisible()
@@ -77,6 +87,15 @@ test('a player registers, solves a challenge and reaches the scoreboard', async 
   await expect(page.getByText('POST /api/v1/events/e2e-jeopardy/challenges/1/submit').first()).toBeVisible()
   await page.getByRole('tab', { name: 'Audit' }).click()
   await expect(page.getByRole('cell', { name: 'event_state' }).first()).toBeVisible()
+
+  // The staff submission list hides the correct flag until it is revealed.
+  await page.goto('/admin/events')
+  await page.getByRole('link', { name: /E2E Jeopardy/ }).first().click()
+  await page.getByRole('tab', { name: 'Submissions' }).click()
+  await expect(page.getByText('KYMO{wrong}')).toBeVisible()
+  await expect(page.getByText('KYMO{e2e}')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reveal' }).first().click()
+  await expect(page.getByText('KYMO{e2e}')).toBeVisible()
   await context.close()
 })
 
@@ -357,4 +376,16 @@ test('an organizer creates an account without opening sign-ups, and correct flag
   } finally {
     await request.put('/api/v1/admin/registration', { headers, data: { open: true } })
   }
+})
+
+test('the contact form appears exactly once on the Users page, before and after a sign-up change', async ({ page }) => {
+  await organizer(page)
+  await page.goto('/admin/users')
+  const field = page.getByLabel('How people reach an organizer')
+  await expect(field).toHaveCount(1)
+  await page.getByLabel('Anyone can create a player account').click()
+  await expect(field).toHaveCount(1)
+  await page.getByLabel('Anyone can create a player account').click()
+  await expect(field).toHaveCount(1)
+  await expect(page.getByText(/Use Create account below/)).toHaveCount(0) // sign-ups are open again here
 })

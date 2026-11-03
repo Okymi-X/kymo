@@ -489,7 +489,7 @@ export interface AdminVpn {
   labs?: {
     id: number
     event_id: number
-    participant: { kind: string; id: number }
+    participant: { kind: string; id: number; name: string | null }
     network: string
     subnet: string
     live_instances: number

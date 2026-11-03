@@ -120,3 +120,7 @@ A run is `starting` from the moment its row is reserved. When the container exis
 `refresh` settles a live run and is called from GET, from `start` and from the reaper: a `starting` run that answers becomes `running`, one that has not answered after 60 seconds is stopped and marked failed (`never_ready`), a run whose container exited or vanished is stopped and marked failed (`exited`), a start that died is `start_failed`. Failed runs do not use the start budget. `instance.failure` holds the reason (migration 0020) and is sent to the page.
 Lab addresses are handed out in turn (`free_lab_ip`): the slot after the most recent one used in that lab, skipping live ones, so a new instance never reuses the address of the one that just ended. Each player's lab is its own /27, so two players never share an address; inside one lab the first slot is simply the first address handed out.
 GET /events/{slug}/instances lists a player's live instances with the challenge title, address and time left.
+
+
+## Instance policy after a solve
+A solved challenge no longer starts new instances (the player or team already has the points). Restarting solved challenges without scoring is a possible later feature, not current behaviour.

@@ -2332,3 +2332,40 @@ async fn a_match_can_be_marked_live_and_the_result_clears_it() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn a_tournament_event_follows_the_tournament_it_wraps() {
+    let app = app().await;
+    let token = login(&app).await;
+    let t = Some(token.as_str());
+    let state_of_event = |app: Router, token: String| async move {
+        let (_, events) = call(&app, "GET", "/api/v1/admin/events", Some(&token), None).await;
+        events
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["name"] == "Wrapped")
+            .map(|e| e["state"].as_str().unwrap().to_owned())
+            .unwrap()
+    };
+    call(
+        &app,
+        "POST",
+        "/api/v1/tournaments",
+        t,
+        Some(json!({"name": "Wrapped", "format": "single_elimination"})),
+    )
+    .await;
+    assert_eq!(state_of_event(app.clone(), token.clone()).await, "draft");
+    let teams: Vec<_> = (1..=2).map(|n| json!({"name": format!("t{n}")})).collect();
+    call(
+        &app,
+        "PUT",
+        "/api/v1/admin/tournaments/1/teams",
+        t,
+        Some(json!({"teams": teams})),
+    )
+    .await;
+    call(&app, "POST", "/api/v1/admin/tournaments/1/start", t, None).await;
+    assert_eq!(state_of_event(app.clone(), token.clone()).await, "live");
+}

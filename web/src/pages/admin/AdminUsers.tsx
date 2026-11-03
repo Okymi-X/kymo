@@ -70,7 +70,7 @@ function Registration() {
       <p className="text-sm text-muted">
         {open
           ? 'Turn this off to close sign-ups, for example once the participant list is final. People who already have an account can still sign in.'
-          : 'Sign-ups are closed. Visitors are told so on the sign-up page. Create accounts for people by turning this back on briefly.'}
+          : 'Sign-ups are closed. Visitors are told so on the sign-up page. Use Create account below to make accounts yourself; turn this on only if you want people to sign up on their own.'}
       </p>
       <ErrorText error={set.error} />
     </Panel>

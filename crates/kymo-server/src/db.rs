@@ -323,5 +323,15 @@ pub async fn save_bracket(
         .bind(id)
         .execute(pool)
         .await?;
+    // The tournament's event follows it, so the events list and Operations do not show a
+    // finished tournament as a draft.
+    sqlx::query(
+        "UPDATE event SET state = CASE ? WHEN 'live' THEN 'live' WHEN 'done' THEN 'ended' ELSE 'draft' END \
+         WHERE id = (SELECT event_id FROM tournament WHERE id = ?)",
+    )
+    .bind(status)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

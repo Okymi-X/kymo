@@ -80,10 +80,18 @@ pub async fn admin_status(
     let labs = store::labs(&state.pool).await?;
     let mut lab_list = Vec::new();
     for lab in &labs {
+        // Name the owner: a handle or a team name reads better than "user 4".
+        let name: Option<String> = if lab.scorer_kind == "team" {
+            sqlx::query_scalar("SELECT name FROM player_team WHERE id = ?").bind(lab.scorer_id)
+        } else {
+            sqlx::query_scalar("SELECT username FROM user WHERE id = ?").bind(lab.scorer_id)
+        }
+        .fetch_optional(&state.pool)
+        .await?;
         lab_list.push(json!({
             "id": lab.id,
             "event_id": lab.event_id,
-            "participant": { "kind": lab.scorer_kind, "id": lab.scorer_id },
+            "participant": { "kind": lab.scorer_kind, "id": lab.scorer_id, "name": name },
             "network": lab.network,
             "subnet": lab_subnet(setup, lab)?.to_string(),
             "live_instances": store::live_instances_in_lab(&state.pool, lab).await?,

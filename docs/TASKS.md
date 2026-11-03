@@ -90,6 +90,9 @@
 
 - [x] Third audit (browser E2E): correct flags masked in the staff submission list with an audited Reveal (GET /admin/events/{id}/submissions/{sid}/value), admin Create account (POST /admin/users, temporary password shown once), failed sign in reads Username or password is incorrect, instance table names owner, team and challenge, Rank label, one Profile heading, Mark as playing keeps the dialog open, download confirmations, loud warning when the VPN address is loopback, contact field no longer shown twice
 
+- [x] Retest fixes: Users page text points to Create account, roster refusals name the event and why (plus notes on the event page), a failed board refresh no longer closes an open challenge (test waits for the real 20 second refresh), a tournament's event follows its status (migration 0021), VPN lab owners are named, solved instance policy written down
+- [ ] Deployment: set KYMO_VPN_HOST to a reachable address and run a real two machine OpenVPN test (the one open release blocker)
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

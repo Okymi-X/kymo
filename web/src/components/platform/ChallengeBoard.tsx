@@ -14,7 +14,8 @@ export function ChallengeBoard({ slug, vpn = false }: { slug: string; vpn?: bool
   const [openId, setOpenId] = useState<number | null>(null)
   const groups = useMemo(() => (q.data ? groupByCategory(q.data.categories, q.data.challenges) : []), [q.data])
   if (q.isPending) return <Loading label="Loading challenges" />
-  if (q.error) return <ErrorText error={q.error} />
+  // A failed refresh must not replace a board that is on screen: an open challenge would vanish with the flag being typed.
+  if (q.error && !q.data) return <ErrorText error={q.error} />
   const selected = q.data?.challenges.find((c) => c.id === openId)
   const category = groups.find((g) => g.challenges.some((c) => c.id === openId))?.category.name ?? ''
   if (groups.length === 0) return <Empty>No challenges are visible yet.</Empty>

@@ -26,9 +26,26 @@ async fn roster_allows(state: &AppState, team_id: i64, rule: RosterRule) -> Resu
     let now = state.now();
     for event in events {
         rule(&event.team_rules()?, size, event.effective_state(now)?)
-            .map_err(|e| ApiError::Conflict(format!("{e} ({})", event.name)))?;
+            .map_err(|e| ApiError::Conflict(roster_message(e, &event.name)))?;
     }
     Ok(())
+}
+
+/// What a person should read when a roster change is refused: the event by name, and why.
+fn roster_message(error: TeamError, event: &str) -> String {
+    match error {
+        TeamError::RosterLocked => format!(
+            "{event} has started and its team rosters are locked, so members cannot join or leave. An organizer can unlock rosters for the event."
+        ),
+        TeamError::EventClosed => {
+            format!("{event} has ended, so its team rosters can no longer change.")
+        }
+        TeamError::Full => format!("The team is full: {event} allows no more members than it has."),
+        TeamError::InvitesDisabled => {
+            format!("Joining with invite codes is turned off, invites are disabled for {event}.")
+        }
+        TeamError::Empty => format!("The team has no members to remove for {event}."),
+    }
 }
 
 /// A team the caller belongs to. Anyone else gets 404, so team ids reveal nothing.

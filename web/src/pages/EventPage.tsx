@@ -87,10 +87,17 @@ function Registration({ event }: { event: EventInfo }) {
   if (event.registered) {
     return (
       <Panel className="flex flex-wrap items-center justify-between gap-3">
-        <p>
-          <span className="font-medium text-win">You are registered</span>
-          {event.mode === 'team' && team ? ` as team ${team.name}.` : '.'}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p>
+            <span className="font-medium text-win">You are registered</span>
+            {event.mode === 'team' && team ? ` as team ${team.name}.` : '.'}
+          </p>
+          {event.mode === 'team' && event.roster_locked && (
+            <p className="text-sm text-muted">
+              {event.effective_state === 'live' || event.effective_state === 'paused' ? 'The event has started, so the roster is locked: members cannot join or leave.' : 'The roster locks when the event starts. Add or remove members now if you need to.'}
+            </p>
+          )}
+        </div>
         <Button onClick={() => leave.mutate()} disabled={leave.isPending}>
           Withdraw
         </Button>
@@ -120,6 +127,7 @@ function Registration({ event }: { event: EventInfo }) {
     <Panel className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-muted">
         {event.mode === 'team' && team ? `Register your team ${team.name} for this event.` : 'Register to see the challenges and score points.'}
+        {event.mode === 'team' && event.roster_locked && ' Team rosters lock when the event starts, so finish adding members first.'}
         {admin && ' (Admins can also preview from the admin page.)'}
       </p>
       <Button variant="primary" onClick={() => join.mutate()} disabled={join.isPending}>
