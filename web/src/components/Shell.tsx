@@ -1,5 +1,5 @@
 import { Menu, Search, X } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useTournaments } from '../api/hooks'
 import { session, useIsAdmin, useIsReferee, useWho } from '../api/client'
@@ -238,7 +238,7 @@ export function Shell({ children }: { children?: ReactNode }) {
         <Header onSearch={() => setPaletteOpen(true)} />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
-        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-10 focus:outline-none">{children ?? <Outlet />}</main>
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-10 focus:outline-none"><Suspense fallback={<p role="status" className="py-10 text-center text-muted">Loading...</p>}>{children ?? <Outlet />}</Suspense></main>
       </div>
     </HeaderProvider>
   )
