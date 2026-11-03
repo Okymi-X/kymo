@@ -20,6 +20,11 @@ ExecStart=/usr/local/bin/kymo-lab
 KillMode=process
 Restart=on-failure
 RestartSec=3
+# A virtual machine on a player's lab network is a machine of its own: the service makes it a tap
+# device on the network's bridge (CAP_NET_ADMIN) and answers its DHCP request on a packet socket
+# (CAP_NET_RAW). Nothing else is granted.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

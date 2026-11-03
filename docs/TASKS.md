@@ -105,7 +105,10 @@
 
 ## Todo
 - [x] Virtual machines on lab hosts (QEMU/KVM, OVA and disk images, overlays, readiness from QEMU, console screenshots), proven with VulnHub's Gaara and doubletrouble through a platform
-- [ ] Lab hosts: the VPN gateway on a lab host (private networks per player on remote labs); several machines per instance on a private network; multi disk images; Windows guest notes
+- [x] Lab hosts: the VPN gateway on a lab host (per host authority, remote gateway driven over the lab API, VPN-only lab hosts, VM ports relayed onto the lab network, installer builds the gateway and opens the lab-to-lab rule, UI per host). Proven with a real OpenVPN client and a container on a rootful engine; the VM path through the tunnel is proven up to the host firewall (see MEMORY) and needs one allow rule to finish
+- [x] Machines are machines: a tap on the lab bridge with DHCP, every port open on the address, manifest `display` machine/service, address-only player view; audit with IP for player instance and VPN actions, searchable paged audit viewer, wording and 320px fixes from the retest
+- [ ] Lab hosts: several machines per instance on a private network; multi disk images; Windows guest notes
+- [ ] Run a VM through a real tunnel end to end once the host firewall allows lab to lab traffic on the VM ports (the installer's rule, or the one in MEMORY)
 - [ ] Lab hosts: per event limits per player/team are the platform policy today; a per lab capacity view and instance quotas per event
 - [x] Real VPN end to end on the test server (rootful Docker): tunnel, private instance, isolation between players
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)

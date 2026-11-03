@@ -3,11 +3,16 @@
 # platform. Run it as root from the unpacked release. Safe to run again to upgrade.
 #
 #   sudo ./install-lab.sh [--public-host ADDRESS] [--port 7400] [--allow-from CIDR] [--mode manifest|open]
-#                         [--with-vm] [--runtimes docker,vm]
+#                         [--with-vm] [--runtimes docker,vm] [--vpn-host ADDRESS] [--vpn-port 1194] [--no-vpn]
 #   sudo ./install-lab.sh --uninstall [--purge]
 #
 # Containers need Docker. Virtual machines need QEMU: --with-vm installs it (Debian, Ubuntu, Fedora,
 # Arch) when it is missing. With neither installed there is nothing to run.
+#
+# By default players reach instances through a VPN gateway that runs on this machine (needs Docker
+# for the gateway container): no instance is published on any port, only the gateway's UDP port
+# faces players. --vpn-host is the address players connect to (default: the public address).
+# --no-vpn publishes each instance on its own port instead.
 set -eu
 
 PORT=7400
@@ -18,6 +23,10 @@ UNINSTALL=0
 PURGE=0
 WITH_VM=0
 RUNTIMES=""
+VPN=1
+VPN_HOST=""
+VPN_PORT=1194
+VPN_POOL=10.77.0.0/16
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 die() { echo "install-lab: $*" >&2; exit 1; }
@@ -31,9 +40,12 @@ while [ $# -gt 0 ]; do
         --mode) MODE=${2:?--mode needs a value}; shift 2 ;;
         --with-vm) WITH_VM=1; shift ;;
         --runtimes) RUNTIMES=${2:?--runtimes needs a value}; shift 2 ;;
+        --vpn-host) VPN_HOST=${2:?--vpn-host needs a value}; shift 2 ;;
+        --vpn-port) VPN_PORT=${2:?--vpn-port needs a value}; shift 2 ;;
+        --no-vpn) VPN=0; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         --purge) PURGE=1; shift ;;
-        -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option $1 (try --help)" ;;
     esac
 done
@@ -46,6 +58,11 @@ if [ "$UNINSTALL" -eq 1 ]; then
     systemctl disable --now kymo-lab 2>/dev/null || true
     rm -f /etc/systemd/system/kymo-lab.service /usr/local/bin/kymo-lab
     systemctl daemon-reload
+    command -v docker >/dev/null 2>&1 && docker rm -f kymo-lab-vpn-gateway >/dev/null 2>&1 || true
+    if command -v ufw >/dev/null 2>&1; then
+        # An earlier version added this rule.
+        ufw delete allow proto tcp from 10.77.0.0/16 to 10.77.0.0/16 port 40000:40999 >/dev/null 2>&1 || true
+    fi
     if [ "$PURGE" -eq 1 ]; then
         rm -rf /etc/kymo-lab /var/lib/kymo-lab
         userdel kymo-lab 2>/dev/null || true
@@ -91,6 +108,12 @@ fi
 case ",$RUNTIMES," in *,docker,*) [ "$HAS_DOCKER" -eq 1 ] || die "--runtimes asks for docker, which is not installed or not running" ;; esac
 case ",$RUNTIMES," in *,vm,*) [ "$HAS_QEMU" -eq 1 ] || die "--runtimes asks for vm, but QEMU is not installed (run with --with-vm)" ;; esac
 say "Running: $RUNTIMES"
+if [ "$VPN" -eq 1 ]; then
+    case ",$RUNTIMES," in
+        *,docker,*) ;;
+        *) say "The VPN gateway needs Docker, which this lab host is not set to use: continuing without the VPN (instances will be published on ports)"; VPN=0 ;;
+    esac
+fi
 command -v openssl >/dev/null 2>&1 || die "openssl is needed to make the token"
 command -v systemctl >/dev/null 2>&1 || die "this installer needs systemd"
 
@@ -99,6 +122,18 @@ if [ -z "$PUBLIC_HOST" ]; then
     [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
     [ -n "$PUBLIC_HOST" ] || die "could not work out this machine's address: pass --public-host"
     say "Using $PUBLIC_HOST as this machine's address (change it with --public-host)"
+fi
+
+if [ "$VPN" -eq 1 ]; then
+    [ -n "$VPN_HOST" ] || VPN_HOST=$PUBLIC_HOST
+    [ -e /dev/net/tun ] || die "the VPN gateway needs /dev/net/tun (modprobe tun), or run with --no-vpn"
+    GW_DIR=""
+    for candidate in "$HERE/vpn-gateway" "$HERE/../vpn-gateway"; do
+        [ -f "$candidate/Dockerfile" ] && { GW_DIR=$candidate; break; }
+    done
+    [ -n "$GW_DIR" ] || die "the vpn-gateway directory is not next to this script"
+    say "Building the VPN gateway image"
+    docker build -q -t localhost/kymo/vpn-gateway:1 "$GW_DIR" >/dev/null || die "could not build the gateway image (it needs to download Alpine packages)"
 fi
 
 say "Creating the service user"
@@ -149,6 +184,11 @@ else
         [ -z "$ALLOW_FROM" ] || echo "KYMO_LAB_ALLOW_FROM=$ALLOW_FROM"
         echo "KYMO_LAB_DATA=/var/lib/kymo-lab"
         echo "KYMO_LAB_MANIFESTS=/etc/kymo-lab/manifests"
+        if [ "$VPN" -eq 1 ]; then
+            echo "KYMO_LAB_VPN_HOST=$VPN_HOST"
+            echo "KYMO_LAB_VPN_PORT=$VPN_PORT"
+            echo "KYMO_LAB_VPN_POOL=$VPN_POOL"
+        fi
     } > /etc/kymo-lab/lab.env
     chown root:kymo-lab /etc/kymo-lab/lab.env
     chmod 0640 /etc/kymo-lab/lab.env
@@ -196,13 +236,22 @@ Add it in the platform (Lab hosts, Add a lab host) with:
 
 Before players use it:
   1. Open TCP $LPORT to the platform only$( [ -n "$ALLOW_FROM" ] && echo " (the API also only answers $ALLOW_FROM)").
+$( if [ "$VPN" -eq 1 ]; then cat <<VPNNOTE
+  2. Open UDP $VPN_PORT to players: that is the VPN gateway, and the only port players need. No
+     instance is published on any port, so nothing vulnerable is reachable from the internet.
+     In the platform, switch the event to the VPN (the event's lab host settings).
+VPNNOTE
+else cat <<PORTNOTE
   2. Open the instance ports to players: Docker publishes each instance on a high port, by default
-     32768-60999 (cat /proc/sys/net/ipv4/ip_local_port_range).
+     32768-60999 (cat /proc/sys/net/ipv4/ip_local_port_range). Anything on those ports is reachable
+     from the internet: prefer the VPN (run this again without --no-vpn).
+PORTNOTE
+fi )
   3. Put the challenge images on this machine and describe each one in
      /etc/kymo-lab/manifests/NAME.json (examples ending in .json.example are there):
        containers:        docker pull IMAGE   (or docker build)
        virtual machines:  copy the .ova or disk file to /var/lib/kymo-lab/images, runtime "vm" in
-                          the manifest; ports 40000-40999 must be open to players
+                          the manifest
      then restart (systemctl restart kymo-lab) and verify: kymo-lab check
 
 Logs: journalctl -u kymo-lab -f      Upgrade: run this script again from a newer release.

@@ -83,6 +83,7 @@ jobs:
           cp target/release/kymo-lab "$lab/"
           cp deploy/lab/install-lab.sh deploy/lab/kymo-lab.service deploy/lab/lab.env.example "$lab/"
           cp -r deploy/lab/manifests "$lab/manifests"
+          cp -r deploy/vpn-gateway "$lab/vpn-gateway"
           cp README.md LICENSE "$lab/"
           tar czf "$lab.tar.gz" "$lab"
           sha256sum "$lab.tar.gz" > "$lab.tar.gz.sha256"

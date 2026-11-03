@@ -198,7 +198,27 @@ players ──► platform (web, accounts, scores)  ──── HTTPS + token �
 - **Separate host**: add the lab host in the admin pages (Lab hosts) and pick it in the event's *Where instances run*. Players are told the lab host's address.
 - **Both**: any number of lab hosts, and each event picks one. An event on a lab host can be moved only while none of its instances run.
 - **Solo and team events** behave the same; only the owner of an instance changes.
-- The private VPN reaches containers on the platform's own machine, so an event that uses the VPN cannot also use a lab host.
+- **Private VPN on a lab host**: see [Players reach a lab host through its VPN](#players-reach-a-lab-host-through-its-vpn). With it nothing vulnerable is published on the internet.
+
+### Players reach a lab host through its VPN
+
+Published ports are the weak point of a CTF server: every instance is a vulnerable machine on an open port, reachable by anyone on the internet who finds it. A lab host avoids that with a **gateway of its own**. It is on by default in the installer (`--no-vpn` turns it off).
+
+```
+player ── OpenVPN (UDP 1194) ──► lab host gateway ──► the player's private lab network ──► their instances
+                                      (nothing else is open; no instance has a public port)
+```
+
+- **One port faces players**: the gateway's UDP port. The platform's API port is for the platform only. Instances, containers and virtual machines alike, sit on a private network per player or team that no one else can reach, and are not published on any port.
+- **The platform keeps the authority**: it issues each player's certificate, decides who may reach which lab, and pushes the result to the lab host (`PUT /v1/vpn/files`, attach, firewall rules, kick). The lab host only runs the gateway container and checks every value it is given (paths, network names, address range).
+- **One authority per lab host.** A certificate for one lab host opens nothing on another, and a new profile for one host does not revoke your profile for another.
+- **Machines are machines.** On a lab network a virtual machine is a tap device on the network's bridge with the address the platform reserved for it (a small built-in DHCP server hands the guest that address). Every port, TCP and UDP, and ping, is open on that one address, so players scan it with `nmap` like a HackTheBox machine; nothing is mapped or listed. A manifest chooses how it is shown with `"display"`: `machine` (just the address, the default for a virtual machine) or `service` (address and port, the default for a container, like a HackTheBox challenge). A container always has its own address on the network and every port it listens on is reachable.
+- **Audit**: every instance start, restart and stop (and every failure), and every VPN profile download, is recorded with the player, the address it came from, the challenge, the lab host and the private address given. Monitor, Audit has search (address, player, challenge), a filter fed by what was recorded, and paging.
+- **Virtual machines need a rootful Docker** on the lab host and the right to make a network device: the installer's service unit grants exactly `CAP_NET_ADMIN` and `CAP_NET_RAW`. With rootless Podman the lab network's bridge lives inside the user's network namespace, out of reach. Containers work with either. The DHCP exchange is read from a packet socket, so no host firewall rule is needed.
+- **Players** open the event, download the profile for it (`POST /vpn/profile?lab_host=ID`, shown on the event page), connect, and start an instance; its private address appears when it answers.
+- **VPN only**: a lab host with a gateway refuses to publish a port at all (`KYMO_LAB_VPN_ONLY`, default on), so a mistake in an event's settings cannot expose a machine. The Lab hosts page shows each host's gateway, and the event settings choose the host and the network mode together.
+- **Firewall**: open UDP 1194 to players and TCP 7400 to the platform. Nothing else needs opening.
+- **Platform setup**: `KYMO_VPN=1` works with `KYMO_INSTANCES=labs` (no gateway on the platform itself, so no `KYMO_VPN_HOST` needed). The platform's `KYMO_VPN_LABS` must lie inside the lab host's `KYMO_LAB_VPN_POOL`; the platform says so if it does not.
 
 ### Install a lab host
 
@@ -257,7 +277,12 @@ The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` docum
 | `KYMO_LAB_TLS` | `on` | `off` serves plain http, only behind a proxy or on a private network |
 | `KYMO_LAB_TLS_NAMES` | hostname | Extra names and addresses for the generated certificate |
 | `KYMO_LAB_TLS_CERT`, `KYMO_LAB_TLS_KEY` | generated | Use your own certificate and key |
-| `KYMO_LAB_BIND` | `0.0.0.0` | Address instance ports are published on |
+| `KYMO_LAB_BIND` | `0.0.0.0` | Address instance ports are published on (without the VPN) |
+| `KYMO_LAB_VPN_HOST` | off | Set it to run the lab host's own VPN gateway: the name or address players connect to |
+| `KYMO_LAB_VPN_PORT` | `1194` | The gateway's UDP port |
+| `KYMO_LAB_VPN_POOL` | `10.77.0.0/16` | The range lab networks are made from |
+| `KYMO_LAB_VPN_ONLY` | `1` | Refuse every instance that is not on a lab network |
+| `KYMO_LAB_VPN_IMAGE` | `localhost/kymo/vpn-gateway:1` | The gateway image (the installer builds it from `deploy/vpn-gateway`) |
 | `KYMO_LAB_DATA` | `/var/lib/kymo-lab` | State file and certificate |
 | `KYMO_LAB_MANIFESTS` | `/etc/kymo-lab/manifests` | Manifest directory |
 
@@ -298,6 +323,7 @@ Set it up on the lab host:
 | `disk` | `sata` (default, works with nearly everything), `ide` or `virtio` (fastest, needs guest drivers) |
 | `nic` | `e1000` (default), `virtio` or `rtl8139` |
 | `firmware` | `bios` (default, what VirtualBox exports use) or `uefi` |
+| `display` | `machine` (players get just the address, every port open on it: the default for a virtual machine) or `service` (address and port: the default for a container). On a lab network `ports` only names what to wait for before the machine counts as ready (the first port) |
 
 How it behaves:
 
