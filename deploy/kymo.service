@@ -1,0 +1,32 @@
+# /etc/systemd/system/kymo.service
+#
+#   sudo useradd --system --home /var/lib/kymo --shell /usr/sbin/nologin kymo
+#   sudo install -m 0755 target/release/kymo-server /usr/local/bin/kymo-server
+#   sudo install -d -m 0750 -o root -g kymo /etc/kymo
+#   sudo install -m 0640 -o root -g kymo deploy/kymo.env.example /etc/kymo/kymo.env   # then edit it
+#   sudo systemctl enable --now kymo
+[Unit]
+Description=Kymo CTF platform
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=kymo
+Group=kymo
+# Only needed for challenge instances and the VPN: this group can use the container socket.
+# Membership of the docker group is equivalent to root on the machine, see the README.
+SupplementaryGroups=docker
+EnvironmentFile=/etc/kymo/kymo.env
+WorkingDirectory=/var/lib/kymo
+StateDirectory=kymo
+ExecStart=/usr/local/bin/kymo-server
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/kymo
+
+[Install]
+WantedBy=multi-user.target

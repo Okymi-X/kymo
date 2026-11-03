@@ -1,0 +1,8 @@
+# Caddy gets and renews the HTTPS certificate by itself.
+ctf.example.org {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080 {
+		# Live updates use server sent events: do not buffer them.
+		flush_interval -1
+	}
+}
