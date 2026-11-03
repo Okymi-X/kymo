@@ -43,6 +43,7 @@ pub async fn requests(
     State(state): State<AppState>,
     Query(q): Query<RequestsQuery>,
 ) -> Result<Json<store::LogPage>, ApiError> {
+    state.monitor().flush().await;
     let filter = LogFilter {
         ip: q.ip.filter(|v| !v.is_empty()),
         user_id: q.user_id,
@@ -68,6 +69,7 @@ pub async fn summary(
     State(state): State<AppState>,
     Query(q): Query<SummaryQuery>,
 ) -> Result<Json<store::Summary>, ApiError> {
+    state.monitor().flush().await;
     let minutes = q.minutes.unwrap_or(60).clamp(1, 7 * 24 * 60);
     Ok(Json(
         store::summary(&state.pool, state.now() - minutes * 60).await?,

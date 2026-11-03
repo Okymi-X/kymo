@@ -13,11 +13,12 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use kymo_core::Permission;
 use kymo_monitor::{BanKind, Decision, Limiter, Rule, Scope, expiry, is_active};
-use tokio::sync::OnceCell;
+use sqlx::SqlitePool;
+use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::auth::client_ip;
 use crate::error::ApiError;
-use crate::monitor_store::{self as store, LogEntry, NewBan};
+use crate::monitor_store::{self as store, NewBan, OwnedLog};
 use crate::state::AppState;
 use crate::{tokens, users};
 
@@ -39,11 +40,74 @@ struct Inner {
 pub struct Monitor {
     inner: Mutex<Inner>,
     loaded: OnceCell<()>,
+    log: std::sync::OnceLock<mpsc::Sender<LogMessage>>,
+}
+
+/// Rows waiting for the background writer, and a way to wait until they are all written.
+enum LogMessage {
+    Row(OwnedLog),
+    Flush(oneshot::Sender<()>),
+}
+
+const LOG_QUEUE: usize = 8192;
+const LOG_BATCH: usize = 100;
+
+/// Writes queued request rows in batches, so no response ever waits for its own log row.
+async fn log_writer(pool: SqlitePool, mut rx: mpsc::Receiver<LogMessage>) {
+    let mut rows: Vec<OwnedLog> = Vec::new();
+    while let Some(first) = rx.recv().await {
+        let mut waiters = Vec::new();
+        let mut take = |message: LogMessage, rows: &mut Vec<OwnedLog>| match message {
+            LogMessage::Row(row) => rows.push(row),
+            LogMessage::Flush(done) => waiters.push(done),
+        };
+        take(first, &mut rows);
+        while rows.len() < LOG_BATCH {
+            match rx.try_recv() {
+                Ok(message) => take(message, &mut rows),
+                Err(_) => break,
+            }
+        }
+        if !rows.is_empty() {
+            if let Err(e) = store::log_batch(&pool, &rows).await {
+                tracing::warn!("could not write {} request log rows: {e:?}", rows.len());
+            }
+            rows.clear();
+        }
+        for done in waiters {
+            let _ = done.send(());
+        }
+    }
 }
 
 impl Monitor {
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Queues a request row for the background writer. When the queue is full the row is dropped
+    /// rather than slowing the response down: the log is for people to look at, not a ledger.
+    pub fn record(&self, pool: &SqlitePool, row: OwnedLog) {
+        let sender = self.log.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(LOG_QUEUE);
+            tokio::spawn(log_writer(pool.clone(), rx));
+            tx
+        });
+        if sender.try_send(LogMessage::Row(row)).is_err() {
+            tracing::warn!("the request log queue is full, a row was dropped");
+        }
+    }
+
+    /// Waits until every row queued so far is in the database. Readers of the log call this
+    /// first so what they show is current.
+    pub async fn flush(&self) {
+        let Some(sender) = self.log.get() else {
+            return;
+        };
+        let (done, wait) = oneshot::channel();
+        if sender.send(LogMessage::Flush(done)).await.is_ok() {
+            let _ = wait.await;
+        }
     }
 
     fn banned(&self, kind: BanKind, subject: &str, now: i64) -> bool {
@@ -297,24 +361,25 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
     };
 
     if !route.starts_with(MONITOR_PREFIX) && route != HEALTH_ROUTE {
-        let entry = LogEntry {
-            at: now,
-            method: &method,
-            route: &route,
-            path: &path,
-            status: response.status().as_u16(),
-            ip: &ip.to_string(),
-            user_id,
-            ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
-        };
-        if let Err(e) = store::log_request(&state.pool, &entry).await {
-            tracing::warn!("could not log a request: {e:?}");
-        }
+        state.monitor().record(
+            &state.pool,
+            OwnedLog {
+                at: now,
+                method,
+                route,
+                path,
+                status: response.status().as_u16(),
+                ip: ip.to_string(),
+                user_id,
+                ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+            },
+        );
     }
     response
 }
 
 /// Deletes request log rows past their retention. Run by the maintenance task.
 pub async fn prune(state: &AppState) -> Result<u64, ApiError> {
+    state.monitor().flush().await;
     store::prune_log(&state.pool, state.now() - store::LOG_RETENTION_SECS).await
 }

@@ -12,31 +12,38 @@ pub const LOG_RETENTION_SECS: i64 = 7 * 24 * 3600;
 
 // ---------- request log ----------
 
-pub struct LogEntry<'a> {
+/// A request log row that owns its text, so it can be queued for the background writer.
+#[derive(Debug, Clone)]
+pub struct OwnedLog {
     pub at: i64,
-    pub method: &'a str,
-    pub route: &'a str,
-    pub path: &'a str,
+    pub method: String,
+    pub route: String,
+    pub path: String,
     pub status: u16,
-    pub ip: &'a str,
+    pub ip: String,
     pub user_id: Option<i64>,
     pub ms: i64,
 }
 
-pub async fn log_request(pool: &SqlitePool, e: &LogEntry<'_>) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO request_log (at, method, route, path, status, ip, user_id, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(e.at)
-    .bind(e.method)
-    .bind(e.route)
-    .bind(e.path)
-    .bind(i64::from(e.status))
-    .bind(e.ip)
-    .bind(e.user_id)
-    .bind(e.ms)
-    .execute(pool)
-    .await?;
+/// Writes many rows in one transaction, so a burst of requests costs one commit.
+pub async fn log_batch(pool: &SqlitePool, rows: &[OwnedLog]) -> Result<(), ApiError> {
+    let mut tx = pool.begin().await?;
+    for e in rows {
+        sqlx::query(
+            "INSERT INTO request_log (at, method, route, path, status, ip, user_id, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(e.at)
+        .bind(&e.method)
+        .bind(&e.route)
+        .bind(&e.path)
+        .bind(i64::from(e.status))
+        .bind(&e.ip)
+        .bind(e.user_id)
+        .bind(e.ms)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 

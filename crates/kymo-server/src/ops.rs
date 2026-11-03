@@ -316,6 +316,7 @@ pub async fn database_ok(pool: &SqlitePool) -> bool {
 }
 
 pub async fn report(state: &AppState) -> Result<Value, ApiError> {
+    state.monitor().flush().await;
     let now = state.now();
     let pool = &state.pool;
     let started = Instant::now();

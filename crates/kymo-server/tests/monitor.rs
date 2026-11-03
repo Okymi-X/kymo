@@ -789,3 +789,48 @@ async fn the_forwarded_address_is_used_only_behind_a_trusted_proxy() {
         assert_eq!(log.body["requests"][0]["ip"], expected, "trusted={trusted}");
     }
 }
+
+#[tokio::test]
+async fn a_burst_of_requests_is_logged_completely_by_the_background_writer() {
+    let w = World::new(false).await;
+    let admin = w.admin().await;
+    for _ in 0..250 {
+        let r = w
+            .call("GET", "/ladder", None, Some("10.0.0.60"), None)
+            .await;
+        assert_eq!(r.status, StatusCode::OK);
+    }
+    // Readers wait for queued rows first, so what they see is complete and current.
+    let log = w
+        .call(
+            "GET",
+            "/admin/monitor/requests?ip=10.0.0.60&per_page=100",
+            Some(&admin),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(log.body["total"], 250, "{}", log.body["total"]);
+    assert_eq!(log.body["requests"].as_array().unwrap().len(), 100);
+    let summary = w
+        .call(
+            "GET",
+            "/admin/monitor/summary?minutes=5",
+            Some(&admin),
+            None,
+            None,
+        )
+        .await;
+    let busiest = summary.body["top_routes"].as_array().unwrap();
+    assert!(
+        busiest
+            .iter()
+            .any(|r| r["key"] == "/api/v1/ladder" && r["count"] == 250),
+        "{busiest:?}"
+    );
+    // The health report is current too, and cleanup counts the rows that were queued.
+    let health = w
+        .call("GET", "/admin/ops/health", Some(&admin), None, None)
+        .await;
+    assert!(health.body["traffic"]["requests"].as_i64().unwrap() >= 250);
+}
