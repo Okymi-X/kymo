@@ -874,3 +874,27 @@ test('a match marked as playing shows live and the result clears it', async ({ p
   await page.getByRole('tab', { name: 'Matches' }).click()
   await expect(page.getByRole('region', { name: 'Playing now' })).toHaveCount(0)
 })
+
+test('a match saved from the Matches tab leaves Playing now at once and appears under Played', async ({ page }) => {
+  await signIn(page)
+  await page.getByLabel('New tournament').fill('Playing Cup')
+  await page.getByRole('button', { name: 'Create' }).click()
+  await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await page.getByRole('button', { name: 'Start tournament' }).click()
+  await page.getByRole('tab', { name: 'Matches' }).click()
+
+  const row = page.getByRole('button', { name: /Alpha.*Delta/ })
+  await row.click()
+  await page.getByRole('button', { name: 'Mark as playing' }).click()
+  await expect(page.getByRole('button', { name: 'Not playing' })).toBeVisible()
+  await page.getByLabel('Score for Alpha').fill('3')
+  await page.getByLabel('Score for Delta').fill('1')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+
+  // No reload and no waiting: the live section is gone and the result is under Played.
+  await expect(page.getByRole('region', { name: 'Playing now' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Played' })).toContainText('Alpha')
+  await expect(page.getByText('LIVE', { exact: true })).toHaveCount(0)
+})

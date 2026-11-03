@@ -85,7 +85,7 @@ export function MatchList({ tournament, teamName, onEdit }: Props) {
         const inGroup = matches.filter((m) => matchState(m) === g.state && (g.state !== 'ready' || (m.started_at !== null) === (g.live === true)))
         const items = g.state === 'played' ? inGroup : bySchedule(inGroup)
         if (g.live && items.length === 0) return null
-        return <MatchSection key={g.state} title={g.title} empty={needle ? 'No match fits that search.' : g.empty} items={items} resetKey={needle} label={label} teamName={teamName} onEdit={onEdit} />
+        return <MatchSection key={g.title} title={g.title} empty={needle ? 'No match fits that search.' : g.empty} items={items} resetKey={needle} label={label} teamName={teamName} onEdit={onEdit} />
       })}
     </div>
   )
