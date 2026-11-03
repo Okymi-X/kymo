@@ -25,6 +25,12 @@ pub struct StartRequest {
     pub instance_id: String,
     pub spec: InstanceSpec,
     pub placement: Placement,
+    /// The container's name, built by the platform before it asks (`kymo-c3-u7-a1b2c3`). Safe
+    /// characters only. When absent the runtime derives one from `instance_id`.
+    pub name: Option<String>,
+    /// Who and what this instance is for (event, challenge, owner), kept as labels so a lab
+    /// host can tell what it is running and log it.
+    pub meta: Vec<(String, String)>,
 }
 
 impl StartRequest {
@@ -34,6 +40,8 @@ impl StartRequest {
             instance_id: instance_id.into(),
             spec,
             placement: Placement::Published,
+            name: None,
+            meta: Vec::new(),
         }
     }
 }
@@ -76,6 +84,11 @@ pub trait InstanceRuntime: Send + Sync {
     /// Whether something accepts TCP connections on the published host port. Only meaningful
     /// for a published placement; a lab is probed through the VPN gateway instead.
     async fn reachable(&self, host_port: u16) -> bool;
+    /// Whether this runtime can start anything. A platform that leaves all containers to lab
+    /// hosts says no, so an event with no lab host can be told why it cannot start instances.
+    fn can_start(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Default)]
@@ -307,6 +320,8 @@ mod tests {
                 network: network.into(),
                 ip: ip.into(),
             },
+            name: None,
+            meta: Vec::new(),
         }
     }
 

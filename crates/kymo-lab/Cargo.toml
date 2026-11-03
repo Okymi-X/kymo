@@ -1,0 +1,43 @@
+[package]
+name = "kymo-lab"
+description = "Kymo lab host: runs challenge instances for a Kymo platform on another machine, over an authenticated API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The client (RemoteRuntime) is always built. The server and the kymo-lab binary are what a lab
+# host installs; the platform depends on this crate without them.
+default = ["server"]
+server = [
+    "dep:axum", "dep:hyper", "dep:hyper-util", "dep:tokio-rustls", "dep:rcgen",
+    "dep:tracing-subscriber", "kymo-instances/docker",
+]
+
+[dependencies]
+kymo-instances = { path = "../kymo-instances" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
+tracing = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+subtle = "2"
+rand = "0.9"
+axum = { version = "0.8", optional = true }
+hyper = { version = "1", optional = true }
+hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tokio", "service"] }
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.14", optional = true, default-features = false, features = ["pem", "crypto", "ring"] }
+tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util"] }
+
+[[bin]]
+name = "kymo-lab"
+path = "src/bin/kymo-lab.rs"
+required-features = ["server"]

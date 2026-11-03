@@ -211,6 +211,8 @@ async fn scenario(env: Env) {
                     network: lab_network.clone(),
                     ip: flag_ip.to_string(),
                 },
+                name: None,
+                meta: Vec::new(),
             })
             .await
             .expect("start the challenge in the lab");

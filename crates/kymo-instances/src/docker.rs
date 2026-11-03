@@ -70,6 +70,32 @@ impl DockerRuntime {
             (LABEL_INSTANCE.to_owned(), instance_id.to_owned()),
         ])
     }
+
+    /// Labels for a request: the managed marker, the platform id, the platform's name for the
+    /// instance and its ownership metadata, so what a host runs can be read from the host.
+    fn request_labels(request: &StartRequest) -> HashMap<String, String> {
+        let mut labels = Self::labels(&request.instance_id);
+        if let Some(name) = &request.name {
+            labels.insert("kymo.name".to_owned(), name.clone());
+        }
+        for (key, value) in &request.meta {
+            if key.chars().all(|c| c.is_ascii_lowercase() || c == '_') && key.len() <= 32 {
+                labels.insert(
+                    format!("kymo.meta.{key}"),
+                    value.chars().take(120).collect(),
+                );
+            }
+        }
+        labels
+    }
+
+    /// The container's name: the platform's, when it gave one and it is safe, else derived.
+    fn container_name(request: &StartRequest) -> String {
+        match &request.name {
+            Some(name) if valid_network_name(name) => name.clone(),
+            _ => Self::network_name(&request.instance_id),
+        }
+    }
 }
 
 /// Limits and hardening shared by every placement.
@@ -124,10 +150,9 @@ impl DockerRuntime {
             ));
         }
         let spec = &request.spec;
-        let id = &request.instance_id;
         let mut host_config = base_host_config(spec);
         host_config.network_mode = Some(network.to_owned());
-        let mut labels = Self::labels(id);
+        let mut labels = Self::request_labels(request);
         labels.insert("kymo.lab".to_owned(), network.to_owned());
         let body = ContainerCreateBody {
             image: Some(spec.image.clone()),
@@ -148,7 +173,7 @@ impl DockerRuntime {
             }),
             ..Default::default()
         };
-        let name = Self::network_name(id);
+        let name = Self::container_name(request);
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         let created = self
             .docker
@@ -201,11 +226,11 @@ impl DockerRuntime {
             image: Some(spec.image.clone()),
             env: Some(spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect()),
             exposed_ports: Some(HashMap::from([(port_key.clone(), HashMap::new())])),
-            labels: Some(Self::labels(id)),
+            labels: Some(Self::request_labels(request)),
             host_config: Some(host_config),
             ..Default::default()
         };
-        let name = Self::network_name(id);
+        let name = Self::container_name(request);
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         let created = match self.docker.create_container(Some(options), body).await {
             Ok(created) => created,
