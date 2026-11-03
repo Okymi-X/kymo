@@ -251,11 +251,12 @@ async fn the_lab_host_does_not_trust_what_the_platform_sends() {
     assert_eq!(seen.port, 8000, "the platform cannot pick the port");
     assert_eq!(seen.ttl_secs, 900, "nor raise the time limit");
     assert!(seen.read_only);
-    // Placement on a private network is not offered by a remote lab.
+    // A lab host with no gateway of its own cannot place an instance on a private network.
     let mut vpn = request("5", "kymo-c1-u7-dddddd");
     vpn.placement = Placement::Lab {
-        network: "n".into(),
-        ip: "10.0.0.2".into(),
+        network: "kymo-lab-1".into(),
+        ip: "10.77.0.42".into(),
+        gateway: Some("10.77.0.33".into()),
     };
     assert!(refused(lab.start(&vpn).await).contains("VPN"));
 }
@@ -494,6 +495,7 @@ async fn the_wire_format_is_the_documented_one() {
         instance_id: "1".into(),
         spec: spec(),
         meta: BTreeMap::new(),
+        lab: None,
     };
     let response = http()
         .post(format!("{}/v1/instances", f.url))
@@ -534,4 +536,243 @@ async fn the_wire_format_is_the_documented_one() {
             .status(),
         204
     );
+}
+
+// ---------- the lab host's own VPN gateway ----------
+
+mod vpn {
+    use super::*;
+    use kymo_lab::client::RemoteGateway;
+
+    fn refused<T>(result: Result<T, RuntimeError>) -> String {
+        match result {
+            Ok(_) => panic!("expected a refusal"),
+            Err(e) => e.to_string(),
+        }
+    }
+    use kymo_lab::vpn::LabVpn;
+    use kymo_vpn::{FakeGateway, Gateway, GatewayConfig};
+
+    struct Vpn {
+        f: Fixture,
+        gateway: Arc<FakeGateway>,
+        remote: RemoteGateway,
+        client: Arc<RemoteRuntime>,
+        lab_dir: std::path::PathBuf,
+        staging: std::path::PathBuf,
+    }
+
+    async fn vpn_lab(only: bool) -> Vpn {
+        let runtime = Arc::new(FakeRuntime::new());
+        let f = start_with(config(), runtime.clone(), None).await;
+        let gateway = Arc::new(FakeGateway::new());
+        let root = std::env::temp_dir().join(format!(
+            "kymo-lab-vpn-{}-{}",
+            std::process::id(),
+            rand_suffix()
+        ));
+        let lab_dir = root.join("lab");
+        let staging = root.join("platform");
+        std::fs::create_dir_all(&lab_dir).unwrap();
+        std::fs::create_dir_all(staging.join("pki")).unwrap();
+        std::fs::create_dir_all(staging.join("ccd")).unwrap();
+        let config = GatewayConfig {
+            name: "gw".into(),
+            image: "img".into(),
+            dir: lab_dir.clone(),
+            publish_ip: "0.0.0.0".into(),
+            publish_port: 1194,
+            bind_options: String::new(),
+        };
+        f.lab.set_vpn(
+            Arc::new(LabVpn::new(
+                gateway.clone(),
+                runtime,
+                config,
+                "lab.example.org".into(),
+                "10.77.0.0/16".parse().unwrap(),
+            )),
+            only,
+        );
+        let client = Arc::new(RemoteRuntime::new(&f.url, TOKEN, None, "127.0.0.1").unwrap());
+        Vpn {
+            remote: RemoteGateway::new(Arc::clone(&client)),
+            client,
+            f,
+            gateway,
+            lab_dir,
+            staging,
+        }
+    }
+
+    fn rand_suffix() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::from(d.subsec_nanos()))
+    }
+
+    fn lab_request(id: &str, name: &str, ip: &str) -> StartRequest {
+        let mut r = request(id, name);
+        r.placement = Placement::Lab {
+            network: "kymo-lab-1".into(),
+            ip: ip.into(),
+            gateway: Some("10.77.0.33".into()),
+        };
+        r
+    }
+
+    #[tokio::test]
+    async fn health_tells_the_platform_where_players_connect() {
+        let v = vpn_lab(true).await;
+        let health = v.client.health().await.unwrap();
+        let info = health.vpn.unwrap();
+        assert_eq!(
+            (info.host.as_str(), info.port, info.pool.as_str()),
+            ("lab.example.org", 1194, "10.77.0.0/16")
+        );
+        assert!(health.vpn_only);
+    }
+
+    #[tokio::test]
+    async fn a_vpn_only_lab_host_never_publishes_a_port() {
+        let v = vpn_lab(true).await;
+        let published = v.client.start(&request("1", "kymo-c1-u7-aaaaaa")).await;
+        assert!(refused(published).contains("only runs instances on a private VPN network"));
+        assert_eq!(v.f.runtime.running_count(), 0);
+
+        v.client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap();
+        let started = v
+            .client
+            .start(&lab_request("2", "kymo-c1-u7-bbbbbb", "10.77.0.42"))
+            .await
+            .unwrap();
+        assert_eq!(started.ip.as_deref(), Some("10.77.0.42"));
+        let placed = v.f.runtime.placement_of(&started.handle).unwrap();
+        assert!(matches!(placed, Placement::Lab { ref network, .. } if network == "kymo-lab-1"));
+    }
+
+    #[tokio::test]
+    async fn addresses_outside_the_vpn_range_are_refused() {
+        let v = vpn_lab(true).await;
+        v.client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap();
+        for (ip, bind) in [
+            ("192.168.1.5", "10.77.0.33"),
+            ("10.77.0.42", "0.0.0.0"),
+            ("10.77.0.42", "127.0.0.1"),
+        ] {
+            let mut r = lab_request("3", "kymo-c1-u7-cccccc", ip);
+            r.placement = Placement::Lab {
+                network: "kymo-lab-1".into(),
+                ip: ip.into(),
+                gateway: Some(bind.into()),
+            };
+            let message = refused(v.client.start(&r).await);
+            assert!(
+                message.contains("outside this lab host's VPN range"),
+                "{ip} {bind}: {message}"
+            );
+        }
+        assert!(v.client.ensure_lab("bridge", "10.77.1.0/27").await.is_err());
+        assert!(
+            v.client
+                .ensure_lab("kymo-lab-2", "172.16.0.0/27")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_platform_drives_the_gateway_through_the_api() {
+        let v = vpn_lab(true).await;
+        for (path, text) in [
+            ("pki/ca.crt", "ca"),
+            ("pki/server.crt", "crt"),
+            ("pki/server.key", "key"),
+            ("pki/ta.key", "ta"),
+            ("pki/crl.pem", "crl"),
+            ("server.conf", "conf"),
+            ("rules.sh", "rules"),
+            ("ccd/u7", "ifconfig-push 10.8.0.2 255.255.0.0"),
+        ] {
+            std::fs::write(v.staging.join(path), text).unwrap();
+        }
+        let config = GatewayConfig {
+            name: "gw".into(),
+            image: String::new(),
+            dir: v.staging.clone(),
+            publish_ip: String::new(),
+            publish_port: 1194,
+            bind_options: String::new(),
+        };
+        v.remote.ensure_running(&config).await.unwrap();
+        // The files crossed over, the secret ones readable by the owner only.
+        assert_eq!(
+            std::fs::read_to_string(v.lab_dir.join("ccd/u7")).unwrap(),
+            "ifconfig-push 10.8.0.2 255.255.0.0"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(v.lab_dir.join("pki/server.key"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "the private key must not be readable by others"
+            );
+        }
+        v.client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap();
+        v.remote.attach("kymo-lab-1").await.unwrap();
+        v.remote.apply_rules().await.unwrap();
+        v.remote.kick("u7").await.unwrap();
+        assert_eq!(v.gateway.networks(), vec!["kymo-lab-1".to_owned()]);
+        assert_eq!(v.gateway.rules_runs(), 1);
+        assert_eq!(v.gateway.kicked(), vec!["u7".to_owned()]);
+        assert!(v.remote.status().await.unwrap().running);
+
+        // A player the platform no longer lists loses the file that lets them in.
+        std::fs::remove_file(v.staging.join("ccd/u7")).unwrap();
+        v.remote.ensure_running(&config).await.unwrap();
+        assert!(!v.lab_dir.join("ccd/u7").exists());
+
+        // Only addresses of lab networks can be probed, so this is no port scanner.
+        assert!(
+            v.remote
+                .reachable("10.77.0.42".parse().unwrap(), 80)
+                .await
+                .unwrap()
+        );
+        assert!(
+            v.remote
+                .reachable("192.168.1.1".parse().unwrap(), 22)
+                .await
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(v.lab_dir.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_lab_host_without_a_gateway_says_so() {
+        let f = start(config()).await;
+        let client = RemoteRuntime::new(&f.url, TOKEN, None, "127.0.0.1").unwrap();
+        let health = client.health().await.unwrap();
+        assert!(health.vpn.is_none() && !health.vpn_only);
+        let message = client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("no VPN gateway"), "{message}");
+    }
 }

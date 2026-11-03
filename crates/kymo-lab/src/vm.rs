@@ -148,6 +148,9 @@ pub struct VmStart {
     pub nic: String,
     pub firmware: String,
     pub boot_secs: u32,
+    /// Put the machine on a lab network as a machine of its own (a tap on the network's bridge
+    /// and its reserved address from DHCP) instead of forwarding ports on the lab host.
+    pub tap: Option<crate::tapnet::TapSpec>,
 }
 
 impl VmStart {
@@ -171,6 +174,7 @@ impl VmStart {
             nic: m.nic.clone().unwrap_or_else(|| "e1000".into()),
             firmware: m.firmware.clone().unwrap_or_else(|| "bios".into()),
             boot_secs: m.boot_timeout_secs.unwrap_or(180),
+            tap: None,
         }
     }
 }
@@ -182,6 +186,20 @@ struct Meta {
     artifact: String,
     created_at: i64,
     ports: Vec<ExtraPort>,
+    /// How it sits on a lab network, so it can be cleaned up and served again after a restart.
+    #[serde(default)]
+    tap: Option<TapMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TapMeta {
+    ifname: String,
+    /// The bridge the tap is on, which DHCP listens on.
+    #[serde(default)]
+    bridge: String,
+    ip: std::net::Ipv4Addr,
+    gateway: std::net::Ipv4Addr,
+    prefix: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +214,8 @@ pub struct VmRuntime {
     prep: Mutex<HashMap<String, Prep>>,
     reserved: Mutex<HashSet<u16>>,
     control: tokio::sync::Mutex<()>,
+    /// The DHCP server of each machine that is on a lab network, by machine name.
+    dhcp: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -271,6 +291,7 @@ impl VmRuntime {
             prep: Mutex::default(),
             reserved: Mutex::default(),
             control: tokio::sync::Mutex::new(()),
+            dhcp: Mutex::default(),
         });
         // Ports of machines that survived a restart stay taken.
         for meta in rt.metas() {
@@ -533,21 +554,41 @@ impl VmRuntime {
                 push(&["-device", "ide-hd,drive=d0,bus=ahci0.0"]);
             }
         }
-        // User mode networking with restrict=on: the guest cannot reach the host or the internet,
-        // and only the forwarded ports lead in.
-        let forwards: String = v
-            .ports
-            .iter()
-            .zip(host_ports)
-            .map(|(p, host)| format!(",hostfwd=tcp:{}:{host}-:{}", self.cfg.bind_ip, p.port))
-            .collect();
-        push(&["-netdev", &format!("user,id=n0,restrict=on{forwards}")]);
+        if let Some(_tap) = &v.tap {
+            // On a lab network as a machine of its own: every port is open on its address. The
+            // network has no route out, so the guest still cannot reach the internet.
+            push(&[
+                "-netdev",
+                &format!(
+                    "tap,id=n0,ifname={},script=no,downscript=no",
+                    crate::tapnet::ifname(&v.name)
+                ),
+            ]);
+        } else {
+            // User mode networking with restrict=on: the guest cannot reach the host or the
+            // internet, and only the forwarded ports lead in.
+            let forwards: String = v
+                .ports
+                .iter()
+                .zip(host_ports)
+                .map(|(p, host)| format!(",hostfwd=tcp:{}:{host}-:{}", self.cfg.bind_ip, p.port))
+                .collect();
+            push(&["-netdev", &format!("user,id=n0,restrict=on{forwards}")]);
+        }
         let nic = match v.nic.as_str() {
             "virtio" => "virtio-net-pci",
             "rtl8139" => "rtl8139",
             _ => "e1000",
         };
-        push(&["-device", &format!("{nic},netdev=n0,addr=0x3")]);
+        let mac = if v.tap.is_some() {
+            format!(
+                ",mac={}",
+                crate::tapnet::mac_text(crate::tapnet::mac(&v.name))
+            )
+        } else {
+            String::new()
+        };
+        push(&["-device", &format!("{nic},netdev=n0,addr=0x3{mac}")]);
         // A control socket per machine (QMP): used for screenshots and to ask whether the guest
         // has accepted a connection. Skipped when the path would not fit a Unix socket.
         let control = dir.join("qmp.sock");
@@ -565,7 +606,7 @@ impl VmRuntime {
         args
     }
 
-    fn allocate_ports(&self, count: usize) -> Result<Vec<u16>, RuntimeError> {
+    fn allocate_ports(&self, count: usize, bind: &str) -> Result<Vec<u16>, RuntimeError> {
         let (lo, hi) = self.cfg.port_range;
         let span = u32::from(hi.saturating_sub(lo)) + 1;
         let offset = rand::random::<u32>() % span;
@@ -580,7 +621,7 @@ impl VmRuntime {
                 continue;
             }
             // Free right now? Binding is the honest test.
-            if std::net::TcpListener::bind((self.cfg.bind_ip.as_str(), port)).is_ok() {
+            if std::net::TcpListener::bind((bind, port)).is_ok() {
                 reserved.insert(port);
                 chosen.push(port);
             }
@@ -624,16 +665,25 @@ impl VmRuntime {
             return Err(failed("an instance with that name already exists"));
         }
         std::fs::create_dir_all(&dir).map_err(|e| failed(format!("{}: {e}", dir.display())))?;
-        let host_ports = match self.allocate_ports(v.ports.len()) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&dir);
-                return Err(e);
+        // On a lab network the machine has an address of its own and needs no forwarded ports.
+        let host_ports = if v.tap.is_some() {
+            v.ports.iter().map(|p| p.port).collect()
+        } else {
+            match self.allocate_ports(v.ports.len(), &self.cfg.bind_ip) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&dir);
+                    return Err(e);
+                }
             }
         };
         let result = self.launch(v, &dir, &base, &host_ports, accel, now).await;
         if result.is_err() {
-            self.release(&host_ports);
+            if v.tap.is_none() {
+                self.release(&host_ports);
+            } else {
+                self.drop_net(&v.name).await;
+            }
             let _ = std::fs::remove_dir_all(&dir);
         }
         result
@@ -673,6 +723,10 @@ impl VmRuntime {
             std::fs::copy(vars, dir.join("vars.fd"))
                 .map_err(|e| failed(format!("uefi variables: {e}")))?;
         }
+        let tap = match &v.tap {
+            Some(t) => Some(self.plug(&v.name, t).await.map_err(failed)?),
+            None => None,
+        };
         let args = self.qemu_args(v, dir, host_ports, accel);
         let log = std::fs::File::create(dir.join("qemu.log")).map_err(|e| failed(e.to_string()))?;
         let log2 = log.try_clone().map_err(|e| failed(e.to_string()))?;
@@ -714,16 +768,88 @@ impl VmRuntime {
             artifact: v.artifact.clone(),
             created_at: now,
             ports: ports.clone(),
+            tap: tap.clone().map(|(t, bridge)| TapMeta {
+                ifname: crate::tapnet::ifname(&v.name),
+                bridge,
+                ip: t.ip,
+                gateway: t.gateway,
+                prefix: t.prefix,
+            }),
         };
         std::fs::write(
             dir.join("meta.json"),
             serde_json::to_vec_pretty(&meta).map_err(|e| failed(e.to_string()))?,
         )
         .map_err(|e| failed(e.to_string()))?;
-        let mut started = Started::new(v.name.clone(), ports[0].host, None);
+        let mut started = Started::new(
+            v.name.clone(),
+            ports[0].host,
+            tap.map(|(t, _)| t.ip.to_string()),
+        );
         started.extra_ports = ports[1..].to_vec();
         started.ready_secs = Some(v.boot_secs);
         Ok(started)
+    }
+
+    /// Puts a machine on its lab network: the tap on the bridge, and DHCP for its one address.
+    async fn plug(
+        &self,
+        name: &str,
+        tap: &crate::tapnet::TapSpec,
+    ) -> Result<(crate::tapnet::TapSpec, String), String> {
+        let ifname = crate::tapnet::ifname(name);
+        let (bridge, prefix) = crate::tapnet::bridge_for(tap.gateway).await?;
+        // The network's own size, as the bridge reports it.
+        let tap = crate::tapnet::TapSpec { prefix, ..*tap };
+        crate::tapnet::create(&ifname, &bridge).await?;
+        match crate::tapnet::serve(&bridge, crate::tapnet::mac(name), tap) {
+            Ok(task) => {
+                lock(&self.dhcp).insert(name.to_owned(), task);
+                Ok((tap, bridge))
+            }
+            Err(e) => {
+                crate::tapnet::remove(&ifname).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Takes a machine off its lab network: DHCP stops and the tap goes.
+    async fn drop_net(&self, name: &str) {
+        if let Some(task) = lock(&self.dhcp).remove(name) {
+            task.abort();
+        }
+        crate::tapnet::remove(&crate::tapnet::ifname(name)).await;
+    }
+
+    /// Answers DHCP again for machines that survived a restart of the lab host (their taps and
+    /// QEMU processes stay up). Called once when the lab host starts.
+    pub fn revive_net(&self) {
+        for meta in self.metas() {
+            let Some(t) = meta.tap else {
+                continue;
+            };
+            let alive = self
+                .pid_of(&self.instance_dir(&meta.name))
+                .is_some_and(|pid| self.alive(&meta.name, pid));
+            if !alive || lock(&self.dhcp).contains_key(&meta.name) {
+                continue;
+            }
+            let spec = crate::tapnet::TapSpec {
+                ip: t.ip,
+                gateway: t.gateway,
+                prefix: t.prefix,
+            };
+            if t.bridge.is_empty() {
+                continue;
+            }
+            match crate::tapnet::serve(&t.bridge, crate::tapnet::mac(&meta.name), spec) {
+                Ok(task) => {
+                    lock(&self.dhcp).insert(meta.name.clone(), task);
+                }
+                Err(e) => tracing::warn!("{}: {e}", meta.name),
+            }
+        }
     }
 
     /// Runs one QMP command against a machine and returns its `return` value. One at a time: a
@@ -881,9 +1007,11 @@ impl InstanceRuntime for VmRuntime {
         if !dir.exists() {
             return Ok(());
         }
-        let ports: Vec<u16> = std::fs::read_to_string(dir.join("meta.json"))
+        let meta = std::fs::read_to_string(dir.join("meta.json"))
             .ok()
-            .and_then(|t| serde_json::from_str::<Meta>(&t).ok())
+            .and_then(|t| serde_json::from_str::<Meta>(&t).ok());
+        let tapped = meta.as_ref().is_some_and(|m| m.tap.is_some());
+        let ports: Vec<u16> = meta
             .map(|m| m.ports.iter().map(|p| p.host).collect())
             .unwrap_or_default();
         if let Some(pid) = self.pid_of(&dir)
@@ -900,6 +1028,9 @@ impl InstanceRuntime for VmRuntime {
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
+        }
+        if tapped {
+            self.drop_net(handle).await;
         }
         std::fs::remove_dir_all(&dir).map_err(|e| failed(format!("{}: {e}", dir.display())))?;
         self.release(&ports);

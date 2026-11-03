@@ -364,10 +364,14 @@ pub struct AuditRow {
     pub target_kind: String,
     pub target_id: String,
     pub detail: String,
+    /// The address the action came from, when there was a request.
+    pub ip: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct AuditPage {
+    /// Every action that has been recorded, with how often, for the filter.
+    pub actions: Vec<(String, i64)>,
     pub total: i64,
     pub page: i64,
     pub per_page: i64,
@@ -388,16 +392,45 @@ pub async fn audit(
         Some(c) => (c.user_id, c.role.as_str()),
         None => (None, "system"),
     };
+    audit_from(
+        pool,
+        now,
+        user,
+        role,
+        None,
+        action,
+        target_kind,
+        target_id,
+        detail,
+    )
+    .await
+}
+
+/// Records an action with who did it and from which address: a player starting a machine, a
+/// profile download. The address is what lets an organizer answer "who was that".
+#[allow(clippy::too_many_arguments)]
+pub async fn audit_from(
+    pool: &SqlitePool,
+    now: i64,
+    user_id: Option<i64>,
+    role: &str,
+    ip: Option<&str>,
+    action: &str,
+    target_kind: &str,
+    target_id: impl ToString,
+    detail: &str,
+) -> Result<(), ApiError> {
     sqlx::query(
-        "INSERT INTO audit (at, actor_user_id, actor_role, action, target_kind, target_id, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO audit (at, actor_user_id, actor_role, action, target_kind, target_id, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(now)
-    .bind(user)
+    .bind(user_id)
     .bind(role)
     .bind(action)
     .bind(target_kind)
     .bind(target_id.to_string())
     .bind(detail.chars().take(500).collect::<String>())
+    .bind(ip)
     .execute(pool)
     .await?;
     Ok(())
@@ -407,25 +440,46 @@ pub async fn audit_page(
     pool: &SqlitePool,
     action: Option<&str>,
     actor: Option<i64>,
+    search: Option<&str>,
     page: i64,
     per_page: i64,
 ) -> Result<AuditPage, ApiError> {
-    const FILTER: &str = "(?1 IS NULL OR a.action = ?1) AND (?2 IS NULL OR a.actor_user_id = ?2)";
-    let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM audit a WHERE {FILTER}"))
-        .bind(action)
-        .bind(actor)
-        .fetch_one(pool)
-        .await?;
+    // The search looks in the address, the target, the detail and the actor's name.
+    const FILTER: &str = "(?1 IS NULL OR a.action = ?1) AND (?2 IS NULL OR a.actor_user_id = ?2) AND (?5 IS NULL OR a.ip LIKE ?5 ESCAPE '\\' OR a.target_id LIKE ?5 ESCAPE '\\' OR a.detail LIKE ?5 ESCAPE '\\' OR u.username LIKE ?5 ESCAPE '\\')";
+    let like = search.map(|t| {
+        format!(
+            "%{}%",
+            t.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        )
+    });
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM audit a LEFT JOIN user u ON u.id = a.actor_user_id WHERE {FILTER}"
+    ))
+    .bind(action)
+    .bind(actor)
+    .bind(0_i64)
+    .bind(0_i64)
+    .bind(like.as_deref())
+    .fetch_one(pool)
+    .await?;
+    let actions: Vec<(String, i64)> =
+        sqlx::query_as("SELECT action, COUNT(*) FROM audit GROUP BY action ORDER BY action")
+            .fetch_all(pool)
+            .await?;
     let entries = sqlx::query_as(&format!(
-        "SELECT a.id, a.at, a.actor_user_id, u.username AS actor_name, a.actor_role, a.action, a.target_kind, a.target_id, a.detail FROM audit a LEFT JOIN user u ON u.id = a.actor_user_id WHERE {FILTER} ORDER BY a.id DESC LIMIT ?3 OFFSET ?4"
+        "SELECT a.id, a.at, a.actor_user_id, u.username AS actor_name, a.actor_role, a.action, a.target_kind, a.target_id, a.detail, a.ip FROM audit a LEFT JOIN user u ON u.id = a.actor_user_id WHERE {FILTER} ORDER BY a.id DESC LIMIT ?3 OFFSET ?4"
     ))
     .bind(action)
     .bind(actor)
     .bind(per_page)
     .bind((page - 1) * per_page)
+    .bind(like.as_deref())
     .fetch_all(pool)
     .await?;
     Ok(AuditPage {
+        actions,
         total,
         page,
         per_page,

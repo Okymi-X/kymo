@@ -357,6 +357,8 @@ pub async fn lift_ban(
 pub struct AuditQuery {
     action: Option<String>,
     actor: Option<i64>,
+    /// Looks in the address, target, detail and actor name.
+    q: Option<String>,
     page: Option<i64>,
     per_page: Option<i64>,
 }
@@ -373,6 +375,7 @@ pub async fn audit(
             &state.pool,
             q.action.as_deref().filter(|a| !a.is_empty()),
             q.actor,
+            q.q.as_deref().map(str::trim).filter(|t| !t.is_empty()),
             page,
             per_page,
         )

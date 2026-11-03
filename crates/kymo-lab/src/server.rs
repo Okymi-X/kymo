@@ -31,10 +31,12 @@ use subtle::ConstantTimeEq;
 use crate::manifest::Manifest;
 use crate::naming::valid_name;
 use crate::protocol::{
-    API_VERSION, ArtifactInfo, CreateRequest, ErrorBody, HealthInfo, InstanceInfo, LogLine,
-    ReadyInfo, ReconcileRequest, Removed,
+    API_VERSION, ArtifactInfo, CreateRequest, ErrorBody, GatewayState, HealthInfo, InstanceInfo,
+    KickBody, LabNetBody, LabPlacement, LogLine, NetworkBody, OkBody, ReadyInfo, ReconcileRequest,
+    Removed, VpnFiles,
 };
 use crate::vm::{VmRuntime, VmStart};
+use crate::vpn::LabVpn;
 
 const LOG_LINES: usize = 500;
 const AUTH_WINDOW: Duration = Duration::from_secs(60);
@@ -160,6 +162,9 @@ struct Record {
     created_at: i64,
     expires_at: i64,
     host_port: u16,
+    /// Players are given just its address, every port open on it (see the manifest's `display`).
+    #[serde(default)]
+    machine: bool,
     /// `docker` or `vm`: which runtime owns it.
     #[serde(default = "container_kind")]
     runtime: String,
@@ -168,6 +173,9 @@ struct Record {
     ports: Vec<ExtraPort>,
     #[serde(default)]
     ready_secs: Option<u32>,
+    /// The lab network it sits on, so a restart puts it back in the same place.
+    #[serde(default)]
+    place: Option<LabPlacement>,
 }
 
 fn container_kind() -> String {
@@ -195,6 +203,13 @@ struct Inner {
     log: VecDeque<LogLine>,
 }
 
+/// A lab placement that passed the checks.
+struct Checked {
+    network: String,
+    ip: std::net::Ipv4Addr,
+    bind: std::net::Ipv4Addr,
+}
+
 type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 pub struct Lab {
@@ -206,6 +221,8 @@ pub struct Lab {
     clock: Clock,
     auth_failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
     token_hash: [u8; 32],
+    vpn: std::sync::OnceLock<Arc<LabVpn>>,
+    vpn_only: std::sync::atomic::AtomicBool,
 }
 
 fn system_clock() -> Clock {
@@ -302,6 +319,8 @@ impl Lab {
             clock,
             auth_failures: Mutex::default(),
             token_hash,
+            vpn: std::sync::OnceLock::new(),
+            vpn_only: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -444,10 +463,16 @@ impl Lab {
                     runtime: kind.clone(),
                     ports: Vec::new(),
                     ready_secs: None,
+                    place: None,
+                    machine: false,
                 });
             }
         }
         self.save(&inner);
+        drop(inner);
+        if let Some(vm) = &self.vm {
+            vm.revive_net();
+        }
     }
 
     fn find(&self, id: &str) -> Option<Record> {
@@ -489,6 +514,7 @@ impl Lab {
             ports: record.ports.clone(),
             runtime: record.runtime.clone(),
             ready_secs: record.ready_secs,
+            machine: record.machine,
             created_at: record.created_at,
             expires_at: record.expires_at,
             meta: record.meta.clone(),
@@ -578,8 +604,77 @@ impl Lab {
         }
     }
 
+    /// The VPN gateway of this lab host, when it has one.
+    pub fn vpn(&self) -> Option<Arc<LabVpn>> {
+        self.vpn.get().cloned()
+    }
+
+    /// Turns the VPN on. `only` refuses every instance that is not on a lab network, so nothing
+    /// can be published on the host by mistake.
+    pub fn set_vpn(&self, vpn: Arc<LabVpn>, only: bool) {
+        let _ = self.vpn.set(vpn);
+        self.vpn_only
+            .store(only, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn is_vpn_only(&self) -> bool {
+        self.vpn_only.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Checks where the request wants its instance, and refuses what this lab host should not do.
+    fn check_placement(&self, request: &CreateRequest) -> Result<Option<Checked>, ApiError> {
+        let Some(place) = &request.lab else {
+            if self.is_vpn_only() {
+                return Err(ApiError::BadRequest(
+                    "this lab host only runs instances on a private VPN network, never on a published port".into(),
+                ));
+            }
+            return Ok(None);
+        };
+        let vpn = self
+            .vpn()
+            .ok_or_else(|| ApiError::BadRequest("this lab host has no VPN gateway".into()))?;
+        if !LabVpn::valid_network(&place.network) {
+            return Err(ApiError::BadRequest("the lab network is not valid".into()));
+        }
+        let ip: std::net::Ipv4Addr = place
+            .ip
+            .parse()
+            .map_err(|_| ApiError::BadRequest("the lab address is not valid".into()))?;
+        let bind: std::net::Ipv4Addr = place
+            .bind
+            .parse()
+            .map_err(|_| ApiError::BadRequest("the lab bind address is not valid".into()))?;
+        if !vpn.in_pool(ip) || !vpn.in_pool(bind) {
+            return Err(ApiError::BadRequest(
+                "the lab address is outside this lab host's VPN range".into(),
+            ));
+        }
+        Ok(Some(Checked {
+            network: place.network.clone(),
+            ip,
+            bind,
+        }))
+    }
+
     pub async fn create(&self, request: CreateRequest) -> Result<InstanceInfo, ApiError> {
-        let plan = self.plan(&request)?;
+        let mut plan = self.plan(&request)?;
+        let lab = self.check_placement(&request)?;
+        if let (Plan::Vm { start, .. }, Some(l)) = (&mut plan, &lab) {
+            // On a lab network the machine is a machine of its own: a tap on the network's bridge
+            // and the address the platform reserved, with every port open on it.
+            start.tap = Some(crate::tapnet::TapSpec {
+                ip: l.ip,
+                gateway: l.bind,
+                prefix: 0,
+            });
+        }
+        let machine = self
+            .cfg
+            .manifests
+            .iter()
+            .find(|m| m.artifact == request.spec.image)
+            .is_some_and(|m| m.machine_style());
         let (spec, kind) = match &plan {
             Plan::Container(spec) => (spec.clone(), "docker"),
             Plan::Vm { spec, .. } => (spec.clone(), "vm"),
@@ -618,6 +713,8 @@ impl Lab {
                     runtime: kind.to_owned(),
                     ports: Vec::new(),
                     ready_secs: None,
+                    machine,
+                    place: request.lab.clone(),
                 });
                 Ok(())
             }
@@ -641,7 +738,14 @@ impl Lab {
                 let start = StartRequest {
                     instance_id: request.instance_id.clone(),
                     spec: spec.clone(),
-                    placement: Placement::Published,
+                    placement: match &lab {
+                        Some(l) => Placement::Lab {
+                            network: l.network.clone(),
+                            ip: l.ip.to_string(),
+                            gateway: Some(l.bind.to_string()),
+                        },
+                        None => Placement::Published,
+                    },
                     name: Some(request.name.clone()),
                     meta: request
                         .meta
@@ -728,6 +832,7 @@ impl Lab {
             instance_id: record.instance_id.clone(),
             spec: record.spec.clone(),
             meta: record.meta.clone(),
+            lab: record.place.clone(),
         };
         let info = self.create(request).await?;
         self.note("restart", &record.name, "");
@@ -933,6 +1038,8 @@ async fn health(State(lab): State<Arc<Lab>>) -> Json<HealthInfo> {
             }
             .to_owned()
         }),
+        vpn: lab.vpn().map(|v| v.info()),
+        vpn_only: lab.is_vpn_only(),
     })
 }
 
@@ -1094,6 +1201,131 @@ async fn ready(
     }
 }
 
+// ---------- the lab host's VPN gateway ----------
+
+fn gateway_error(e: kymo_vpn::GatewayError) -> ApiError {
+    match e {
+        kymo_vpn::GatewayError::Unavailable(m) => ApiError::Runtime(RuntimeError::Unavailable(m)),
+        other => ApiError::Runtime(RuntimeError::Failed(other.to_string())),
+    }
+}
+
+fn vpn_of(lab: &Lab) -> Result<Arc<LabVpn>, ApiError> {
+    lab.vpn()
+        .ok_or_else(|| ApiError::BadRequest("this lab host has no VPN gateway".into()))
+}
+
+async fn vpn_files(
+    State(lab): State<Arc<Lab>>,
+    Json(files): Json<VpnFiles>,
+) -> Result<Json<OkBody>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    vpn.write_files(&files).map_err(ApiError::BadRequest)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+async fn vpn_ensure(State(lab): State<Arc<Lab>>) -> Result<Json<GatewayState>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    vpn.ensure().await.map_err(gateway_error)?;
+    Ok(Json(vpn.status().await.map_err(gateway_error)?))
+}
+
+async fn vpn_state(State(lab): State<Arc<Lab>>) -> Result<Json<GatewayState>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    Ok(Json(vpn.status().await.map_err(gateway_error)?))
+}
+
+async fn vpn_attach(
+    State(lab): State<Arc<Lab>>,
+    Json(body): Json<NetworkBody>,
+) -> Result<Json<OkBody>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    if !LabVpn::valid_network(&body.network) {
+        return Err(ApiError::BadRequest("the lab network is not valid".into()));
+    }
+    vpn.attach(&body.network).await.map_err(gateway_error)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+async fn vpn_detach(
+    State(lab): State<Arc<Lab>>,
+    Json(body): Json<NetworkBody>,
+) -> Result<Json<OkBody>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    if !LabVpn::valid_network(&body.network) {
+        return Err(ApiError::BadRequest("the lab network is not valid".into()));
+    }
+    vpn.detach(&body.network).await.map_err(gateway_error)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+async fn vpn_rules(State(lab): State<Arc<Lab>>) -> Result<Json<OkBody>, ApiError> {
+    vpn_of(&lab)?.rules().await.map_err(gateway_error)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+async fn vpn_kick(
+    State(lab): State<Arc<Lab>>,
+    Json(body): Json<KickBody>,
+) -> Result<Json<OkBody>, ApiError> {
+    if !kymo_vpn::valid_common_name(&body.common_name) {
+        return Err(ApiError::BadRequest("the player name is not valid".into()));
+    }
+    vpn_of(&lab)?
+        .kick(&body.common_name)
+        .await
+        .map_err(gateway_error)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+#[derive(Deserialize)]
+struct ReachQuery {
+    ip: String,
+    port: u16,
+}
+
+async fn vpn_reachable(
+    State(lab): State<Arc<Lab>>,
+    axum::extract::Query(q): axum::extract::Query<ReachQuery>,
+) -> Result<Json<OkBody>, ApiError> {
+    let vpn = vpn_of(&lab)?;
+    let ip: std::net::Ipv4Addr =
+        q.ip.parse()
+            .map_err(|_| ApiError::BadRequest("the address is not valid".into()))?;
+    // Only addresses of lab networks: this must not become a port scanner for the lab host's
+    // own network.
+    if !vpn.in_pool(ip) {
+        return Err(ApiError::BadRequest(
+            "the address is outside this lab host's VPN range".into(),
+        ));
+    }
+    let ok = vpn.reachable(ip, q.port).await.map_err(gateway_error)?;
+    Ok(Json(OkBody { ok }))
+}
+
+async fn vpn_lab_put(
+    State(lab): State<Arc<Lab>>,
+    Path(network): Path<String>,
+    Json(body): Json<LabNetBody>,
+) -> Result<Json<OkBody>, ApiError> {
+    vpn_of(&lab)?
+        .ensure_lab(&network, &body.subnet)
+        .await
+        .map_err(ApiError::BadRequest)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
+async fn vpn_lab_delete(
+    State(lab): State<Arc<Lab>>,
+    Path(network): Path<String>,
+) -> Result<Json<OkBody>, ApiError> {
+    vpn_of(&lab)?
+        .remove_lab(&network)
+        .await
+        .map_err(ApiError::Runtime)?;
+    Ok(Json(OkBody { ok: true }))
+}
+
 pub fn router(lab: Arc<Lab>) -> Router {
     let authed = Router::new()
         .route("/v1/health", get(health))
@@ -1105,6 +1337,20 @@ pub fn router(lab: Arc<Lab>) -> Router {
         .route("/v1/instances/{id}/restart", post(restart))
         .route("/v1/instances/{id}/screen", get(screen))
         .route("/v1/ready", get(ready))
+        .route("/v1/vpn/files", axum::routing::put(vpn_files))
+        .route(
+            "/v1/vpn/gateway",
+            axum::routing::put(vpn_ensure).get(vpn_state),
+        )
+        .route("/v1/vpn/attach", post(vpn_attach))
+        .route("/v1/vpn/detach", post(vpn_detach))
+        .route("/v1/vpn/rules", post(vpn_rules))
+        .route("/v1/vpn/kick", post(vpn_kick))
+        .route("/v1/vpn/reachable", get(vpn_reachable))
+        .route(
+            "/v1/vpn/labs/{network}",
+            axum::routing::put(vpn_lab_put).delete(vpn_lab_delete),
+        )
         .route("/v1/reconcile", post(reconcile))
         .route("/v1/cleanup", post(cleanup))
         .layer(middleware::from_fn_with_state(Arc::clone(&lab), auth));

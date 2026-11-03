@@ -282,11 +282,20 @@ fn root_cause(e: &dyn std::error::Error) -> String {
 #[async_trait]
 impl InstanceRuntime for RemoteRuntime {
     async fn start(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
-        if request.placement != Placement::Published {
-            return Err(RuntimeError::Failed(
-                "private VPN networks are not available on a remote lab host".into(),
-            ));
-        }
+        let lab = match &request.placement {
+            Placement::Published => None,
+            Placement::Lab {
+                network,
+                ip,
+                gateway,
+            } => Some(crate::protocol::LabPlacement {
+                network: network.clone(),
+                ip: ip.clone(),
+                bind: gateway.clone().ok_or_else(|| {
+                    RuntimeError::Failed("a lab placement needs the network's address".into())
+                })?,
+            }),
+        };
         let name = request.name.clone().ok_or_else(|| {
             RuntimeError::Failed("a remote start needs a name built by the platform".into())
         })?;
@@ -295,6 +304,7 @@ impl InstanceRuntime for RemoteRuntime {
             instance_id: request.instance_id.clone(),
             spec: request.spec.clone(),
             meta: request.meta.iter().cloned().collect(),
+            lab,
         };
         let info: InstanceInfo = self
             .send(Method::POST, "/v1/instances", Some(&body))
@@ -302,6 +312,10 @@ impl InstanceRuntime for RemoteRuntime {
         let mut started = Started::new(info.id, info.host_port, None);
         started.extra_ports = info.ports;
         started.ready_secs = info.ready_secs;
+        started.machine = info.machine;
+        if let Placement::Lab { ip, .. } = &request.placement {
+            started.ip = Some(ip.clone());
+        }
         Ok(started)
     }
 
@@ -346,14 +360,26 @@ impl InstanceRuntime for RemoteRuntime {
             .collect())
     }
 
-    async fn ensure_lab(&self, _network: &str, _subnet: &str) -> Result<(), RuntimeError> {
-        Err(RuntimeError::Failed(
-            "private VPN networks are not available on a remote lab host".into(),
-        ))
+    async fn ensure_lab(&self, network: &str, subnet: &str) -> Result<(), RuntimeError> {
+        self.call(
+            Method::PUT,
+            &format!("/v1/vpn/labs/{}", urlencode(network)),
+            Some(&crate::protocol::LabNetBody {
+                subnet: subnet.to_owned(),
+            }),
+        )
+        .await
+        .map(|_| ())
     }
 
-    async fn remove_lab(&self, _network: &str) -> Result<(), RuntimeError> {
-        Ok(())
+    async fn remove_lab(&self, network: &str) -> Result<(), RuntimeError> {
+        self.call(
+            Method::DELETE,
+            &format!("/v1/vpn/labs/{}", urlencode(network)),
+            None::<&()>,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Connects the way a player will: to the lab host's public address and the published port.
@@ -417,6 +443,157 @@ fn urlencode(text: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+/// The gateway that runs on a lab host, driven through the lab API. The platform keeps the
+/// authority (certificates, who may connect); it writes the gateway's files into the staging
+/// directory of `GatewayConfig::dir` as it would for a local gateway, and `ensure_running`
+/// sends them across.
+pub struct RemoteGateway {
+    lab: std::sync::Arc<RemoteRuntime>,
+}
+
+impl RemoteGateway {
+    pub fn new(lab: std::sync::Arc<RemoteRuntime>) -> Self {
+        Self { lab }
+    }
+}
+
+fn gateway_error(e: RuntimeError) -> kymo_vpn::GatewayError {
+    match e {
+        RuntimeError::Unavailable(m) => kymo_vpn::GatewayError::Unavailable(m),
+        RuntimeError::Failed(m) => kymo_vpn::GatewayError::Failed(m),
+    }
+}
+
+/// Everything the gateway reads, as the lab host wants it.
+fn read_vpn_files(dir: &std::path::Path) -> Result<crate::protocol::VpnFiles, String> {
+    use crate::protocol::VpnFile;
+    let mut files = std::collections::BTreeMap::new();
+    let mut add = |rel: String, secret: bool| -> Result<(), String> {
+        let path = dir.join(&rel);
+        let content = std::fs::read_to_string(&path).map_err(|e| format!("{rel}: {e}"))?;
+        files.insert(rel, VpnFile { content, secret });
+        Ok(())
+    };
+    for (rel, secret) in [
+        ("pki/ca.crt", false),
+        ("pki/server.crt", false),
+        ("pki/server.key", true),
+        ("pki/ta.key", true),
+        ("pki/crl.pem", false),
+        ("server.conf", false),
+        ("rules.sh", false),
+    ] {
+        add(rel.to_owned(), secret)?;
+    }
+    if let Ok(entries) = std::fs::read_dir(dir.join("ccd")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if kymo_vpn::valid_common_name(&name) {
+                add(format!("ccd/{name}"), false)?;
+            }
+        }
+    }
+    Ok(crate::protocol::VpnFiles { files })
+}
+
+#[async_trait]
+impl kymo_vpn::Gateway for RemoteGateway {
+    async fn ensure_running(
+        &self,
+        config: &kymo_vpn::GatewayConfig,
+    ) -> Result<(), kymo_vpn::GatewayError> {
+        let files = read_vpn_files(&config.dir).map_err(kymo_vpn::GatewayError::Failed)?;
+        self.lab
+            .call(Method::PUT, "/v1/vpn/files", Some(&files))
+            .await
+            .map_err(gateway_error)?;
+        self.lab
+            .call(Method::PUT, "/v1/vpn/gateway", None::<&()>)
+            .await
+            .map(|_| ())
+            .map_err(gateway_error)
+    }
+
+    async fn attach(&self, network: &str) -> Result<(), kymo_vpn::GatewayError> {
+        self.lab
+            .call(
+                Method::POST,
+                "/v1/vpn/attach",
+                Some(&crate::protocol::NetworkBody {
+                    network: network.to_owned(),
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(gateway_error)
+    }
+
+    async fn detach(&self, network: &str) -> Result<(), kymo_vpn::GatewayError> {
+        self.lab
+            .call(
+                Method::POST,
+                "/v1/vpn/detach",
+                Some(&crate::protocol::NetworkBody {
+                    network: network.to_owned(),
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(gateway_error)
+    }
+
+    async fn apply_rules(&self) -> Result<(), kymo_vpn::GatewayError> {
+        self.lab
+            .call(Method::POST, "/v1/vpn/rules", None::<&()>)
+            .await
+            .map(|_| ())
+            .map_err(gateway_error)
+    }
+
+    async fn kick(&self, common_name: &str) -> Result<(), kymo_vpn::GatewayError> {
+        self.lab
+            .call(
+                Method::POST,
+                "/v1/vpn/kick",
+                Some(&crate::protocol::KickBody {
+                    common_name: common_name.to_owned(),
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(gateway_error)
+    }
+
+    async fn status(&self) -> Result<kymo_vpn::GatewayStatus, kymo_vpn::GatewayError> {
+        let state: crate::protocol::GatewayState = self
+            .lab
+            .send(Method::GET, "/v1/vpn/gateway", None::<&()>)
+            .await
+            .map_err(gateway_error)?;
+        Ok(kymo_vpn::GatewayStatus {
+            running: state.running,
+            networks: state.networks,
+        })
+    }
+
+    async fn reachable(
+        &self,
+        ip: std::net::Ipv4Addr,
+        port: u16,
+    ) -> Result<bool, kymo_vpn::GatewayError> {
+        let ok: crate::protocol::OkBody = self
+            .lab
+            .send(
+                Method::GET,
+                &format!("/v1/vpn/reachable?ip={ip}&port={port}"),
+                None::<&()>,
+            )
+            .await
+            .map_err(gateway_error)?;
+        Ok(ok.ok)
+    }
 }
 
 #[cfg(test)]

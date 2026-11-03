@@ -75,8 +75,10 @@ pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64
         "failure": row.failure,
         "network": if row.lab_ip.is_some() { "vpn" } else { "published" },
         "host": connect.then_some(host),
-        "port": connect.then_some(row.host_port).flatten(),
-        "services": if connect { services(row.extra_ports.as_deref()) } else { json!([]) },
+        // A machine is given as an address alone: every port is open on it, so the player scans it.
+        "machine": row.machine,
+        "port": (connect && !row.machine).then_some(row.host_port).flatten(),
+        "services": if connect && !row.machine { services(row.extra_ports.as_deref()) } else { json!([]) },
         "started_at": row.started_at,
         "expires_at": row.expires_at,
         "remaining_secs": if state.is_live() { (row.expires_at - now).max(0) } else { 0 },
@@ -117,7 +119,9 @@ async fn probe(state: &AppState, setup: &InstanceSetup, row: &InstanceRow) -> bo
         &row.lab_ip,
         row.host_port.and_then(|p| u16::try_from(p).ok()),
     ) {
-        (Some(ip), Some(port)) => vpn::lab_reachable(state, ip, port).await,
+        (Some(ip), Some(port)) => {
+            vpn::lab_reachable(state, row.lab_host_id.unwrap_or(0), ip, port).await
+        }
         // The runtime the run lives on checks its own way: a remote lab host is reached the way
         // a player will reach it, from this server to its public address.
         (None, Some(port)) => match labs::target(state, setup, row.lab_host_id).await {
@@ -247,12 +251,6 @@ async fn begin(
     let lab_host_id = play.event.lab_host_id;
     if let Some(id) = lab_host_id {
         labs::usable(state, id).await?;
-        if play.event.network_mode == "vpn" {
-            return Err(ApiError::Unavailable(
-                "this event needs the VPN, which is only available for instances on this server, not on a lab host"
-                    .into(),
-            ));
-        }
     }
     if lab_host_id.is_none() && !setup.runtime.can_start() {
         return Err(ApiError::Unavailable(
@@ -276,7 +274,7 @@ async fn begin(
                 "this event needs the VPN, which is not enabled on this server".into(),
             ));
         }
-        Some(vpn::lab_for(state, play.event.id, scorer).await?)
+        Some(vpn::lab_for(state, play.event.id, scorer, lab_host_id.unwrap_or(0)).await?)
     } else {
         None
     };
@@ -339,12 +337,18 @@ async fn begin(
         (Some(lab), Some(ip)) => Placement::Lab {
             network: lab.network.clone(),
             ip: ip.clone(),
+            // The network's own address: where a virtual machine's ports are forwarded.
+            gateway: state
+                .vpn_setup()
+                .and_then(|s| vpn::lab_subnet(s, lab).ok())
+                .and_then(|n| n.host(1))
+                .map(|a| a.to_string()),
         },
         _ => Placement::Published,
     };
     if vpn_lab.is_some() {
         // Let the player's tunnel reach the lab before the container is up.
-        if let Err(e) = vpn::sync(state).await {
+        if let Err(e) = vpn::sync_host(state, lab_host_id.unwrap_or(0)).await {
             store::mark_failed(&state.pool, run_id, state.now(), "start_failed").await?;
             return Err(e);
         }
@@ -550,8 +554,9 @@ pub async fn list_for(state: &AppState, play: &Play) -> Result<Value, ApiError> 
             "state": state_name.as_str(),
             "network": if row.lab_ip.is_some() { "vpn" } else { "published" },
             "host": shown.then_some(host),
-            "port": shown.then_some(row.host_port).flatten(),
-            "services": if shown { services(row.extra_ports.as_deref()) } else { json!([]) },
+            "machine": row.machine,
+            "port": (shown && !row.machine).then_some(row.host_port).flatten(),
+            "services": if shown && !row.machine { services(row.extra_ports.as_deref()) } else { json!([]) },
             "remaining_secs": (row.expires_at - now).max(0),
         }));
     }

@@ -15,6 +15,15 @@ pub const SETTING_TLS_CRYPT: &str = "vpn_tls_crypt";
 pub const SETTING_CRL_NUMBER: &str = "vpn_crl_number";
 pub const SETTING_CRL_COUNT: &str = "vpn_crl_count";
 
+/// The setting for one VPN authority: host 0 keeps the plain key it always had.
+pub fn host_key(key: &str, hid: i64) -> String {
+    if hid == 0 {
+        key.to_owned()
+    } else {
+        format!("{key}:{hid}")
+    }
+}
+
 pub async fn setting(pool: &SqlitePool, key: &str) -> Result<Option<String>, ApiError> {
     Ok(
         sqlx::query_scalar("SELECT value FROM setting WHERE key = ?")
@@ -38,27 +47,39 @@ pub async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<()
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct ClientRow {
     pub user_id: i64,
+    pub lab_host_id: i64,
     pub idx: i64,
     pub serial: String,
     pub issued_at: i64,
     pub expires_at: i64,
 }
 
-pub async fn client(pool: &SqlitePool, user_id: i64) -> Result<Option<ClientRow>, ApiError> {
-    Ok(sqlx::query_as("SELECT * FROM vpn_client WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?)
+pub async fn client(
+    pool: &SqlitePool,
+    user_id: i64,
+    hid: i64,
+) -> Result<Option<ClientRow>, ApiError> {
+    Ok(
+        sqlx::query_as("SELECT * FROM vpn_client WHERE user_id = ? AND lab_host_id = ?")
+            .bind(user_id)
+            .bind(hid)
+            .fetch_optional(pool)
+            .await?,
+    )
 }
 
-pub async fn clients(pool: &SqlitePool) -> Result<Vec<ClientRow>, ApiError> {
-    Ok(sqlx::query_as("SELECT * FROM vpn_client ORDER BY idx")
-        .fetch_all(pool)
-        .await?)
+pub async fn clients(pool: &SqlitePool, hid: i64) -> Result<Vec<ClientRow>, ApiError> {
+    Ok(
+        sqlx::query_as("SELECT * FROM vpn_client WHERE lab_host_id = ? ORDER BY idx")
+            .bind(hid)
+            .fetch_all(pool)
+            .await?,
+    )
 }
 
-pub async fn used_client_indices(pool: &SqlitePool) -> Result<BTreeSet<u32>, ApiError> {
-    let rows: Vec<i64> = sqlx::query_scalar("SELECT idx FROM vpn_client")
+pub async fn used_client_indices(pool: &SqlitePool, hid: i64) -> Result<BTreeSet<u32>, ApiError> {
+    let rows: Vec<i64> = sqlx::query_scalar("SELECT idx FROM vpn_client WHERE lab_host_id = ?")
+        .bind(hid)
         .fetch_all(pool)
         .await?;
     Ok(rows
@@ -67,11 +88,12 @@ pub async fn used_client_indices(pool: &SqlitePool) -> Result<BTreeSet<u32>, Api
         .collect())
 }
 
-/// Replaces (or creates) a player's identity. The previous serial, if any, is recorded as
-/// revoked in the same transaction so the two never disagree.
+/// Replaces (or creates) a player's identity on one host. The previous serial, if any, is
+/// recorded as revoked in the same transaction so the two never disagree.
 pub async fn upsert_client(
     pool: &SqlitePool,
     user_id: i64,
+    hid: i64,
     idx: u32,
     serial: &str,
     now: i64,
@@ -79,28 +101,32 @@ pub async fn upsert_client(
 ) -> Result<Option<String>, ApiError> {
     let mut tx = crate::db::begin_write(pool).await?;
     let previous: Option<String> =
-        sqlx::query_scalar("SELECT serial FROM vpn_client WHERE user_id = ?")
+        sqlx::query_scalar("SELECT serial FROM vpn_client WHERE user_id = ? AND lab_host_id = ?")
             .bind(user_id)
+            .bind(hid)
             .fetch_optional(&mut *tx)
             .await?;
     if let Some(old) = &previous {
-        sqlx::query("INSERT OR IGNORE INTO vpn_revoked (serial, at) VALUES (?, ?)")
+        sqlx::query("INSERT OR IGNORE INTO vpn_revoked (serial, at, lab_host_id) VALUES (?, ?, ?)")
             .bind(old)
             .bind(now)
+            .bind(hid)
             .execute(&mut *tx)
             .await?;
         sqlx::query(
-            "UPDATE vpn_client SET serial = ?, issued_at = ?, expires_at = ? WHERE user_id = ?",
+            "UPDATE vpn_client SET serial = ?, issued_at = ?, expires_at = ? WHERE user_id = ? AND lab_host_id = ?",
         )
         .bind(serial)
         .bind(now)
         .bind(expires_at)
         .bind(user_id)
+        .bind(hid)
         .execute(&mut *tx)
         .await?;
     } else {
-        sqlx::query("INSERT INTO vpn_client (user_id, idx, serial, issued_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO vpn_client (user_id, lab_host_id, idx, serial, issued_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(user_id)
+            .bind(hid)
             .bind(i64::from(idx))
             .bind(serial)
             .bind(now)
@@ -112,36 +138,42 @@ pub async fn upsert_client(
     Ok(previous)
 }
 
-/// Revokes a player's current certificate and forgets the identity.
-pub async fn remove_client(pool: &SqlitePool, user_id: i64, now: i64) -> Result<bool, ApiError> {
+/// Revokes every certificate of a player, on every host, and forgets the identities. Returns the
+/// hosts they were on, so each can be told; empty when the player had none.
+pub async fn remove_client(
+    pool: &SqlitePool,
+    user_id: i64,
+    now: i64,
+) -> Result<Vec<i64>, ApiError> {
     let mut tx = crate::db::begin_write(pool).await?;
-    let serial: Option<String> =
-        sqlx::query_scalar("SELECT serial FROM vpn_client WHERE user_id = ?")
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT lab_host_id, serial FROM vpn_client WHERE user_id = ?")
             .bind(user_id)
-            .fetch_optional(&mut *tx)
+            .fetch_all(&mut *tx)
             .await?;
-    let Some(serial) = serial else {
-        return Ok(false);
-    };
-    sqlx::query("INSERT OR IGNORE INTO vpn_revoked (serial, at) VALUES (?, ?)")
-        .bind(&serial)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
+    for (hid, serial) in &rows {
+        sqlx::query("INSERT OR IGNORE INTO vpn_revoked (serial, at, lab_host_id) VALUES (?, ?, ?)")
+            .bind(serial)
+            .bind(now)
+            .bind(hid)
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query("DELETE FROM vpn_client WHERE user_id = ?")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(true)
+    Ok(rows.into_iter().map(|(hid, _)| hid).collect())
 }
 
-pub async fn revoked(pool: &SqlitePool) -> Result<Vec<(String, i64)>, ApiError> {
-    Ok(
-        sqlx::query_as("SELECT serial, at FROM vpn_revoked ORDER BY at, serial")
-            .fetch_all(pool)
-            .await?,
+pub async fn revoked(pool: &SqlitePool, hid: i64) -> Result<Vec<(String, i64)>, ApiError> {
+    Ok(sqlx::query_as(
+        "SELECT serial, at FROM vpn_revoked WHERE lab_host_id = ? ORDER BY at, serial",
     )
+    .bind(hid)
+    .fetch_all(pool)
+    .await?)
 }
 
 // ---------- labs ----------
@@ -150,6 +182,7 @@ pub async fn revoked(pool: &SqlitePool) -> Result<Vec<(String, i64)>, ApiError> 
 pub struct LabRow {
     pub id: i64,
     pub idx: i64,
+    pub lab_host_id: i64,
     pub event_id: i64,
     pub scorer_kind: String,
     pub scorer_id: i64,
@@ -179,6 +212,25 @@ pub async fn labs(pool: &SqlitePool) -> Result<Vec<LabRow>, ApiError> {
         .await?)
 }
 
+/// The labs that live on one host.
+pub async fn labs_on(pool: &SqlitePool, hid: i64) -> Result<Vec<LabRow>, ApiError> {
+    Ok(
+        sqlx::query_as("SELECT * FROM vpn_lab WHERE lab_host_id = ? ORDER BY idx")
+            .bind(hid)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
+/// Every host that has a lab or a player on it, this server's own (0) first.
+pub async fn hosts_in_use(pool: &SqlitePool) -> Result<Vec<i64>, ApiError> {
+    Ok(sqlx::query_scalar(
+        "SELECT lab_host_id FROM vpn_lab UNION SELECT lab_host_id FROM vpn_client ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn used_lab_indices(pool: &SqlitePool) -> Result<BTreeSet<u32>, ApiError> {
     let rows: Vec<i64> = sqlx::query_scalar("SELECT idx FROM vpn_lab")
         .fetch_all(pool)
@@ -195,14 +247,16 @@ pub async fn insert_lab(
     event_id: i64,
     scorer: Scorer,
     network: &str,
+    hid: i64,
     now: i64,
 ) -> Result<LabRow, ApiError> {
-    sqlx::query("INSERT INTO vpn_lab (idx, event_id, scorer_kind, scorer_id, network, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO vpn_lab (idx, event_id, scorer_kind, scorer_id, network, lab_host_id, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(i64::from(idx))
         .bind(event_id)
         .bind(scorer.kind())
         .bind(scorer.id())
         .bind(network)
+        .bind(hid)
         .bind(now)
         .bind(now)
         .execute(pool)

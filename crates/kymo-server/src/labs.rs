@@ -62,6 +62,47 @@ impl InstanceRuntime for NoLocalRuntime {
     }
 }
 
+/// The gateway of a platform with none of its own: players use the one on a lab host.
+pub struct NoLocalGateway;
+
+#[async_trait]
+impl kymo_vpn::Gateway for NoLocalGateway {
+    async fn ensure_running(
+        &self,
+        _: &kymo_vpn::GatewayConfig,
+    ) -> Result<(), kymo_vpn::GatewayError> {
+        Err(no_gateway())
+    }
+    async fn attach(&self, _: &str) -> Result<(), kymo_vpn::GatewayError> {
+        Err(no_gateway())
+    }
+    async fn detach(&self, _: &str) -> Result<(), kymo_vpn::GatewayError> {
+        Ok(())
+    }
+    async fn apply_rules(&self) -> Result<(), kymo_vpn::GatewayError> {
+        Err(no_gateway())
+    }
+    async fn kick(&self, _: &str) -> Result<(), kymo_vpn::GatewayError> {
+        Ok(())
+    }
+    async fn status(&self) -> Result<kymo_vpn::GatewayStatus, kymo_vpn::GatewayError> {
+        Err(no_gateway())
+    }
+    async fn reachable(
+        &self,
+        _: std::net::Ipv4Addr,
+        _: u16,
+    ) -> Result<bool, kymo_vpn::GatewayError> {
+        Ok(false)
+    }
+}
+
+fn no_gateway() -> kymo_vpn::GatewayError {
+    kymo_vpn::GatewayError::Unavailable(
+        "this server has no gateway of its own: use a lab host's".into(),
+    )
+}
+
 fn key(row: &LabHostRow) -> String {
     format!(
         "{}|{}|{}|{}",
@@ -147,7 +188,11 @@ pub async fn refresh_health(state: &AppState) {
         let Ok(client) = state.labs().client(&row) else {
             continue;
         };
-        let error = client.health().await.err().map(|e| e.to_string());
+        let health = client.health().await;
+        let error = health.as_ref().err().map(|e| e.to_string());
         let _ = lab_store::record_check(&state.pool, row.id, state.now(), error.as_deref()).await;
+        if let Ok(h) = &health {
+            let _ = lab_store::record_vpn(&state.pool, row.id, h.vpn.as_ref(), h.vpn_only).await;
+        }
     }
 }

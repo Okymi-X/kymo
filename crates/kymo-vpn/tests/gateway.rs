@@ -210,6 +210,7 @@ async fn scenario(env: Env) {
                 placement: Placement::Lab {
                     network: lab_network.clone(),
                     ip: flag_ip.to_string(),
+                    gateway: None,
                 },
                 name: None,
                 meta: Vec::new(),

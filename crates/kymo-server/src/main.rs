@@ -80,9 +80,12 @@ async fn run() -> Result<(), String> {
             .instance_setup()
             .map(|setup| Arc::clone(&setup.runtime))
             .ok_or(
-                "KYMO_VPN=1 needs KYMO_INSTANCES=docker: the VPN reaches the challenge containers",
+                "KYMO_VPN=1 needs KYMO_INSTANCES=docker or labs: the VPN reaches the challenge containers",
             )?;
-        state = state.with_vpn(vpn_setup(runtime)?);
+        // With `labs` this server has no gateway of its own: each lab host runs one, and this
+        // server keeps the authority and drives them.
+        let local = env::var("KYMO_INSTANCES").as_deref() == Ok("docker");
+        state = state.with_vpn(vpn_setup(runtime, local)?);
         // A gateway that cannot start yet (image not built, platform down) is retried by the
         // maintenance task, so the server still starts and says what is wrong.
         match vpn::sync(&state).await {
@@ -216,11 +219,19 @@ async fn restore(args: &[String]) -> Result<(), String> {
 
 /// The OpenVPN gateway. The directory is created if needed and made absolute, because a bind
 /// mount needs an absolute path.
-fn vpn_setup(runtime: Arc<dyn kymo_instances::InstanceRuntime>) -> Result<VpnSetup, String> {
+fn vpn_setup(
+    runtime: Arc<dyn kymo_instances::InstanceRuntime>,
+    local: bool,
+) -> Result<VpnSetup, String> {
     use kymo_vpn::{GatewayConfig, Ipv4Net, LabPool, TunnelPool, valid_remote_host};
-    let host = env::var("KYMO_VPN_HOST")
-        .map_err(|_| "KYMO_VPN_HOST is required: the name or address players connect to")?;
-    if !valid_remote_host(&host) {
+    let host = match env::var("KYMO_VPN_HOST") {
+        Ok(h) => h,
+        Err(_) if !local => "-".into(),
+        Err(_) => {
+            return Err("KYMO_VPN_HOST is required: the name or address players connect to".into());
+        }
+    };
+    if local && !valid_remote_host(&host) {
         return Err("KYMO_VPN_HOST must be a host name or an IPv4 address".into());
     }
     let number = |name: &str, default: u64| -> Result<u64, String> {
@@ -257,9 +268,13 @@ fn vpn_setup(runtime: Arc<dyn kymo_instances::InstanceRuntime>) -> Result<VpnSet
         publish_port: port,
         bind_options: env::var("KYMO_VPN_BIND_OPTIONS").unwrap_or_default(),
     };
-    let gateway = kymo_vpn::docker::DockerGateway::connect().map_err(|e| format!("docker: {e}"))?;
+    let gateway: Arc<dyn kymo_vpn::Gateway> = if local {
+        Arc::new(kymo_vpn::docker::DockerGateway::connect().map_err(|e| format!("docker: {e}"))?)
+    } else {
+        Arc::new(kymo_server::labs::NoLocalGateway)
+    };
     Ok(VpnSetup {
-        gateway: Arc::new(gateway),
+        gateway,
         runtime,
         dir,
         gateway_config,
@@ -270,5 +285,6 @@ fn vpn_setup(runtime: Arc<dyn kymo_instances::InstanceRuntime>) -> Result<VpnSet
         client_days: i64::try_from(number("KYMO_VPN_CERT_DAYS", 60)?)
             .map_err(|_| "KYMO_VPN_CERT_DAYS is too large")?,
         lock: Arc::default(),
+        local,
     })
 }

@@ -728,6 +728,7 @@ impl InstanceRuntime for PortRuntime {
             ip: None,
             extra_ports: started.extra_ports,
             ready_secs: started.ready_secs,
+            machine: false,
         })
     }
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {
@@ -1154,7 +1155,7 @@ async fn a_lab_host_refuses_what_its_manifest_does_not_allow_and_the_player_sees
 }
 
 #[tokio::test]
-async fn a_platform_with_no_local_containers_asks_for_a_lab_host_and_the_vpn_stays_local() {
+async fn a_platform_with_no_local_containers_asks_for_a_lab_host_and_the_vpn_needs_a_gateway() {
     let (w, state) = {
         let pool = db::connect("sqlite::memory:").await.unwrap();
         let clock = Arc::new(AtomicI64::new(T0));
@@ -1188,7 +1189,7 @@ async fn a_platform_with_no_local_containers_asks_for_a_lab_host_and_the_vpn_sta
         "{body}"
     );
 
-    // With a lab host chosen it works, and the VPN cannot be combined with one.
+    // With a lab host chosen it works; the VPN is another matter when this server has none.
     let lab = lab_host().await;
     let (_, added) = c.add_lab("Lab A", &lab.url, LAB_TOKEN).await;
     c.use_lab(added["lab"]["id"].as_i64()).await;
@@ -1204,7 +1205,7 @@ async fn a_platform_with_no_local_containers_asks_for_a_lab_host_and_the_vpn_sta
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{refused}");
     assert!(
-        refused["error"].as_str().unwrap().contains("lab host"),
+        refused["error"].as_str().unwrap().contains("VPN"),
         "{refused}"
     );
 }
@@ -1306,4 +1307,38 @@ async fn the_console_view_is_for_admins_and_only_for_machines() {
         body["error"].as_str().unwrap().contains("virtual machine"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn operations_degrade_when_a_live_event_depends_on_a_lab_host_that_is_off_or_down() {
+    let lab = lab_host().await;
+    let c = Ctx::new(roomy()).await;
+    let (_, added) = c.add_lab("Lab A", &lab.url, LAB_TOKEN).await;
+    let lab_id = added["lab"]["id"].as_i64().unwrap();
+    let _ = c.challenge(json!({})).await;
+    c.set_state("live").await;
+
+    // Healthy, and no event depends on it yet: green.
+    let (_, health) = c.admin("GET", "/admin/ops/health", None).await;
+    assert_eq!(health["status"], "ok", "{health}");
+    c.use_lab(Some(lab_id)).await;
+    let (_, health) = c.admin("GET", "/admin/ops/health", None).await;
+    assert_eq!(health["status"], "ok", "{health}");
+    assert_eq!(health["labs"][0]["live_events"], 1);
+
+    // Switched off while the live event uses it: players cannot start anything, so it is degraded.
+    c.admin(
+        "PUT",
+        &format!("/admin/labs/{lab_id}"),
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    let (_, health) = c.admin("GET", "/admin/ops/health", None).await;
+    assert_eq!(health["status"], "degraded", "{health}");
+
+    // Switched off with no event depending on it is only a lab host that is off: still fine.
+    c.use_lab(None).await;
+    let (_, health) = c.admin("GET", "/admin/ops/health", None).await;
+    assert_eq!(health["status"], "ok", "{health}");
+    assert_eq!(health["labs"][0]["live_events"], 0);
 }

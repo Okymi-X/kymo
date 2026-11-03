@@ -158,6 +158,7 @@ fn start_of(name: &str) -> VmStart {
         nic: "e1000".into(),
         firmware: "bios".into(),
         boot_secs: 200,
+        tap: None,
     }
 }
 
@@ -265,6 +266,55 @@ async fn a_machine_runs_from_a_throwaway_overlay_with_only_the_listed_ports_forw
     assert!(
         !qemu.contains("accel=kvm"),
         "forced emulation never asks for KVM"
+    );
+}
+
+#[test]
+fn on_a_lab_network_a_machine_is_a_tap_with_its_own_address_and_nothing_is_forwarded() {
+    let f = fixture("tapargs", |_| {});
+    let mut v = start_of("kymo-c1-u1-tapped");
+    v.tap = Some(kymo_lab::tapnet::TapSpec {
+        ip: "10.77.0.42".parse().unwrap(),
+        gateway: "10.77.0.33".parse().unwrap(),
+        prefix: 27,
+    });
+    let args =
+        f.rt.qemu_args(&v, Path::new("/tmp/x"), &[80, 22], Accel::Kvm)
+            .join(" ");
+    let ifname = kymo_lab::tapnet::ifname("kymo-c1-u1-tapped");
+    assert!(
+        args.contains(&format!(
+            "-netdev tap,id=n0,ifname={ifname},script=no,downscript=no"
+        )),
+        "{args}"
+    );
+    assert!(
+        args.contains(&format!(
+            "e1000,netdev=n0,addr=0x3,mac={}",
+            kymo_lab::tapnet::mac_text(kymo_lab::tapnet::mac("kymo-c1-u1-tapped"))
+        )),
+        "{args}"
+    );
+    assert!(
+        !args.contains("hostfwd") && !args.contains("restrict=on"),
+        "{args}"
+    );
+}
+
+#[test]
+fn a_virtual_machine_is_shown_as_a_machine_and_a_container_as_a_service_unless_the_manifest_says() {
+    let m = |json: &str| serde_json::from_str::<kymo_lab::Manifest>(json).unwrap();
+    assert!(
+        m(r#"{"artifact":"b","runtime":"vm","file":"a.ova","ports":[{"port":80}]}"#)
+            .machine_style()
+    );
+    assert!(!m(r#"{"artifact":"b","port":80}"#).machine_style());
+    assert!(m(r#"{"artifact":"b","port":80,"display":"machine"}"#).machine_style());
+    assert!(!m(r#"{"artifact":"b","runtime":"vm","file":"a.ova","ports":[{"port":80}],"display":"service"}"#).machine_style());
+    assert!(
+        m(r#"{"artifact":"b","port":80,"display":"nonsense"}"#)
+            .check()
+            .is_err()
     );
 }
 

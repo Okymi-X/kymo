@@ -19,6 +19,9 @@ pub struct LabHostRow {
     pub last_checked_at: Option<i64>,
     pub last_ok_at: Option<i64>,
     pub last_error: Option<String>,
+    pub vpn_host: Option<String>,
+    pub vpn_port: Option<i64>,
+    pub vpn_only: bool,
 }
 
 /// A lab host as the admin API shows it: everything except the token.
@@ -34,10 +37,20 @@ pub struct LabHostOut {
     pub last_checked_at: Option<i64>,
     pub last_ok_at: Option<i64>,
     pub last_error: Option<String>,
+    /// The host's own VPN gateway as it last reported itself, if it has one.
+    pub vpn: Option<LabVpnOut>,
     /// Events set to run their instances here.
     pub events: i64,
     /// Instances running here right now.
     pub live_instances: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LabVpnOut {
+    pub host: String,
+    pub port: i64,
+    /// The host refuses to publish ports: every instance must go through the gateway.
+    pub only: bool,
 }
 
 impl LabHostRow {
@@ -53,6 +66,11 @@ impl LabHostRow {
             last_checked_at: self.last_checked_at,
             last_ok_at: self.last_ok_at,
             last_error: self.last_error,
+            vpn: self.vpn_host.map(|host| LabVpnOut {
+                host,
+                port: self.vpn_port.unwrap_or(1194),
+                only: self.vpn_only,
+            }),
             events,
             live_instances,
         }
@@ -291,6 +309,23 @@ pub async fn record_check(
         .bind(error)
         .bind(now)
         .bind(error)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Remembers what the lab host said about its gateway (or that it has none).
+pub async fn record_vpn(
+    pool: &SqlitePool,
+    id: i64,
+    vpn: Option<&kymo_lab::VpnInfo>,
+    only: bool,
+) -> Result<(), ApiError> {
+    sqlx::query("UPDATE lab_host SET vpn_host = ?, vpn_port = ?, vpn_only = ? WHERE id = ?")
+        .bind(vpn.map(|v| v.host.as_str()))
+        .bind(vpn.map(|v| i64::from(v.port)))
+        .bind(vpn.is_some() && only)
         .bind(id)
         .execute(pool)
         .await?;

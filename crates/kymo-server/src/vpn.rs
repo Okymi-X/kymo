@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use kymo_instances::InstanceRuntime;
+use kymo_lab::client::RemoteGateway;
 use kymo_vpn::{
     Allow, Ca, CaMaterial, ClientProfile, Gateway, GatewayConfig, Ipv4Net, Issued, LabPool,
     Revoked, TunnelPool, client_config, client_profile, firewall_script, generate_tls_crypt_key,
@@ -43,12 +44,111 @@ pub struct VpnSetup {
     pub client_days: i64,
     /// Serializes `sync` so two changes at once cannot interleave their file writes.
     pub lock: Arc<tokio::sync::Mutex<()>>,
+    /// Whether this server runs a gateway of its own. False when every instance lives on a lab
+    /// host, each of which has its own.
+    pub local: bool,
 }
 
 fn setup(state: &AppState) -> Result<&VpnSetup, ApiError> {
     state
         .vpn_setup()
         .ok_or_else(|| ApiError::Unavailable("the VPN is not enabled on this server".into()))
+}
+
+/// The VPN of one host: this server's own gateway (`hid` 0) or the one on lab host `hid`. A lab
+/// host's gateway is driven over its API; the authority stays here, one per host, so a
+/// certificate for one lab host opens nothing on another.
+pub async fn setup_for(state: &AppState, hid: i64) -> Result<VpnSetup, ApiError> {
+    let base = setup(state)?;
+    if hid == 0 {
+        if !base.local {
+            return Err(ApiError::Unavailable(
+                "this server has no gateway of its own: the event needs a lab host".into(),
+            ));
+        }
+        return Ok(base.clone());
+    }
+    let row = crate::lab_store::get(&state.pool, hid).await?;
+    let client = state.labs().client(&row)?;
+    let health = client.health().await.map_err(|e| {
+        ApiError::Unavailable(format!("the lab host {} did not answer: {e}", row.name))
+    })?;
+    let Some(info) = health.vpn else {
+        return Err(ApiError::Unavailable(format!(
+            "the lab host {} has no VPN gateway (set KYMO_LAB_VPN_HOST on it)",
+            row.name
+        )));
+    };
+    let pool: Ipv4Net = info.pool.parse().map_err(|_| {
+        ApiError::Unavailable(format!("the lab host {} reports a bad VPN range", row.name))
+    })?;
+    let ours = base.labs.pool();
+    if !(pool.contains(ours.network()) && ours.prefix() >= pool.prefix()) {
+        return Err(ApiError::Unavailable(format!(
+            "the lab host {} gives lab networks {pool}, which does not cover this server's {ours} (KYMO_VPN_LABS)",
+            row.name
+        )));
+    }
+    let dir = base.dir.join("hosts").join(hid.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| internal("create the lab host directory", e))?;
+    Ok(VpnSetup {
+        gateway: Arc::new(RemoteGateway::new(Arc::clone(&client))),
+        runtime: client,
+        dir: dir.clone(),
+        gateway_config: GatewayConfig {
+            name: "kymo-lab-vpn-gateway".into(),
+            image: String::new(),
+            dir,
+            publish_ip: String::new(),
+            publish_port: info.port,
+            bind_options: String::new(),
+        },
+        public_host: info.host,
+        public_port: info.port,
+        local: true,
+        ..base.clone()
+    })
+}
+
+/// Whether an event may use `mode` on `lab_host_id` (none is this server): the VPN needs a
+/// gateway there, and a lab host that is VPN only never publishes a port. Says why not, in words
+/// an organizer can act on.
+pub async fn check_mode(
+    state: &AppState,
+    lab_host_id: Option<i64>,
+    mode: &str,
+) -> Result<(), ApiError> {
+    let reason = |e: ApiError| match e {
+        ApiError::Unavailable(m) | ApiError::Conflict(m) | ApiError::BadRequest(m) => {
+            ApiError::Conflict(m)
+        }
+        other => other,
+    };
+    if mode == "vpn" {
+        if state.vpn_setup().is_none() {
+            return Err(ApiError::Conflict(
+                "the VPN is not enabled on this server".into(),
+            ));
+        }
+        return setup_for(state, lab_host_id.unwrap_or(0))
+            .await
+            .map(|_| ())
+            .map_err(reason);
+    }
+    if let Some(id) = lab_host_id {
+        let row = crate::lab_store::get(&state.pool, id).await?;
+        // A lab host that cannot be asked right now is not a reason to refuse: starts will fail
+        // plainly if it still is not there.
+        if let Ok(health) = state.labs().client(&row)?.health().await
+            && health.vpn_only
+        {
+            return Err(ApiError::Conflict(format!(
+                "the lab host {} only runs instances through its VPN: switch the event to the VPN",
+                row.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn internal(what: &str, e: impl std::fmt::Display) -> ApiError {
@@ -97,10 +197,13 @@ struct Material {
     ta: String,
 }
 
-async fn authority(state: &AppState, setup: &VpnSetup) -> Result<Material, ApiError> {
-    let _ = setup;
+async fn authority(state: &AppState, hid: i64) -> Result<Material, ApiError> {
     let now = state.now();
-    let ca = match store::setting(&state.pool, SETTING_CA).await? {
+    let (ca_key, ta_key) = (
+        store::host_key(SETTING_CA, hid),
+        store::host_key(SETTING_TLS_CRYPT, hid),
+    );
+    let ca = match store::setting(&state.pool, &ca_key).await? {
         Some(json) => {
             let material: CaMaterial =
                 serde_json::from_str(&json).map_err(|e| internal("read the CA", e))?;
@@ -109,15 +212,15 @@ async fn authority(state: &AppState, setup: &VpnSetup) -> Result<Material, ApiEr
         None => {
             let material = Ca::generate(now, 3650).map_err(|e| internal("make the CA", e))?;
             let json = serde_json::to_string(&material).map_err(|e| internal("store the CA", e))?;
-            store::set_setting(&state.pool, SETTING_CA, &json).await?;
+            store::set_setting(&state.pool, &ca_key, &json).await?;
             Ca::load(material).map_err(|e| internal("load the CA", e))?
         }
     };
-    let ta = match store::setting(&state.pool, SETTING_TLS_CRYPT).await? {
+    let ta = match store::setting(&state.pool, &ta_key).await? {
         Some(key) => key,
         None => {
             let key = generate_tls_crypt_key();
-            store::set_setting(&state.pool, SETTING_TLS_CRYPT, &key).await?;
+            store::set_setting(&state.pool, &ta_key, &key).await?;
             key
         }
     };
@@ -125,9 +228,10 @@ async fn authority(state: &AppState, setup: &VpnSetup) -> Result<Material, ApiEr
 }
 
 /// The gateway's own certificate, reissued when it is within a month of expiring.
-async fn server_certificate(state: &AppState, ca: &Ca) -> Result<Issued, ApiError> {
+async fn server_certificate(state: &AppState, ca: &Ca, hid: i64) -> Result<Issued, ApiError> {
     let now = state.now();
-    let stored = store::setting(&state.pool, SETTING_SERVER).await?;
+    let key = store::host_key(SETTING_SERVER, hid);
+    let stored = store::setting(&state.pool, &key).await?;
     if let Some((issued, expires)) =
         stored.and_then(|json| serde_json::from_str::<(Issued, i64)>(&json).ok())
         && expires - now > 30 * DAY
@@ -139,21 +243,25 @@ async fn server_certificate(state: &AppState, ca: &Ca) -> Result<Issued, ApiErro
         .map_err(|e| internal("issue the gateway certificate", e))?;
     let json = serde_json::to_string(&(&issued, now + 365 * DAY))
         .map_err(|e| internal("store the gateway certificate", e))?;
-    store::set_setting(&state.pool, SETTING_SERVER, &json).await?;
+    store::set_setting(&state.pool, &key, &json).await?;
     Ok(issued)
 }
 
-async fn write_crl(state: &AppState, setup: &VpnSetup, ca: &Ca) -> Result<(), ApiError> {
-    let revoked = store::revoked(&state.pool).await?;
+async fn write_crl(state: &AppState, setup: &VpnSetup, ca: &Ca, hid: i64) -> Result<(), ApiError> {
+    let revoked = store::revoked(&state.pool, hid).await?;
+    let (count_key, number_key) = (
+        store::host_key(SETTING_CRL_COUNT, hid),
+        store::host_key(SETTING_CRL_NUMBER, hid),
+    );
     let path = setup.dir.join("pki/crl.pem");
-    let stored: usize = store::setting(&state.pool, SETTING_CRL_COUNT)
+    let stored: usize = store::setting(&state.pool, &count_key)
         .await?
         .and_then(|v| v.parse().ok())
         .unwrap_or(usize::MAX);
     if path.exists() && stored == revoked.len() {
         return Ok(());
     }
-    let number: u64 = store::setting(&state.pool, SETTING_CRL_NUMBER)
+    let number: u64 = store::setting(&state.pool, &number_key)
         .await?
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
@@ -166,15 +274,21 @@ async fn write_crl(state: &AppState, setup: &VpnSetup, ca: &Ca) -> Result<(), Ap
         .crl(&list, number, state.now(), 365)
         .map_err(|e| internal("make the revocation list", e))?;
     write_atomic(&path, &pem, false)?;
-    store::set_setting(&state.pool, SETTING_CRL_NUMBER, &number.to_string()).await?;
-    store::set_setting(&state.pool, SETTING_CRL_COUNT, &list.len().to_string()).await
+    store::set_setting(&state.pool, &number_key, &number.to_string()).await?;
+    store::set_setting(&state.pool, &count_key, &list.len().to_string()).await
 }
 
 // ---------- labs ----------
 
 /// The lab of a participant, made (network, gateway attachment) when it does not exist yet.
-pub async fn lab_for(state: &AppState, event_id: i64, scorer: Scorer) -> Result<LabRow, ApiError> {
-    let setup = setup(state)?;
+pub async fn lab_for(
+    state: &AppState,
+    event_id: i64,
+    scorer: Scorer,
+    hid: i64,
+) -> Result<LabRow, ApiError> {
+    let setup = setup_for(state, hid).await?;
+    let setup = &setup;
     let now = state.now();
     let lab = match store::lab_of(&state.pool, event_id, scorer).await? {
         Some(lab) => lab,
@@ -189,6 +303,7 @@ pub async fn lab_for(state: &AppState, event_id: i64, scorer: Scorer) -> Result<
                 event_id,
                 scorer,
                 &format!("kymo-lab-{idx}"),
+                hid,
                 now,
             )
             .await?
@@ -203,11 +318,12 @@ pub async fn lab_for(state: &AppState, event_id: i64, scorer: Scorer) -> Result<
             tracing::warn!("making lab {}: {e}", lab.network);
             ApiError::Unavailable("could not prepare your private network, try again later".into())
         })?;
-    setup
-        .gateway
-        .attach(&lab.network)
-        .await
-        .map_err(gateway_down)?;
+    // Joining the gateway to the lab is `sync_host`'s job, which the start flow runs next and
+    // which also starts the gateway if it is not running yet (a new lab host's is not). A
+    // failure here is therefore not final.
+    if let Err(e) = setup.gateway.attach(&lab.network).await {
+        tracing::debug!("gateway not on {} yet: {e}", lab.network);
+    }
     store::touch_lab(&state.pool, lab.id, now).await?;
     Ok(lab)
 }
@@ -246,8 +362,11 @@ pub async fn free_lab_ip(state: &AppState, lab: &LabRow) -> Result<String, ApiEr
 }
 
 /// Whether the service at a lab address accepts connections, asked from inside the gateway.
-pub async fn lab_reachable(state: &AppState, ip: &str, port: u16) -> bool {
-    let (Some(setup), Ok(ip)) = (state.vpn_setup(), ip.parse::<std::net::Ipv4Addr>()) else {
+pub async fn lab_reachable(state: &AppState, hid: i64, ip: &str, port: u16) -> bool {
+    let (Ok(setup), Ok(ip)) = (
+        setup_for(state, hid).await,
+        ip.parse::<std::net::Ipv4Addr>(),
+    ) else {
         return false;
     };
     setup.gateway.reachable(ip, port).await.unwrap_or(false)
@@ -261,31 +380,41 @@ pub struct Profile {
     pub expires_at: i64,
 }
 
-/// Issues a fresh certificate for a player. Any older profile of theirs stops working.
-pub async fn issue_profile(state: &AppState, user_id: i64) -> Result<Profile, ApiError> {
-    let setup = setup(state)?;
+/// Issues a fresh certificate for a player on one host. Any older profile of theirs for that
+/// host stops working; their profiles for other hosts are unaffected.
+pub async fn issue_profile(state: &AppState, user_id: i64, hid: i64) -> Result<Profile, ApiError> {
+    let setup = setup_for(state, hid).await?;
     if store::is_banned(&state.pool, user_id).await? {
         return Err(ApiError::Banned);
     }
     let now = state.now();
-    let material = authority(state, setup).await?;
+    let material = authority(state, hid).await?;
     let cn = common_name(user_id);
     let issued = material
         .ca
         .issue_client(&cn, now, setup.client_days)
         .map_err(|e| internal("issue a client certificate", e))?;
     let expires_at = now + setup.client_days * DAY;
-    let idx = match store::client(&state.pool, user_id).await? {
+    let idx = match store::client(&state.pool, user_id, hid).await? {
         Some(existing) => u32::try_from(existing.idx).map_err(|_| ApiError::Internal)?,
         None => {
-            let used = store::used_client_indices(&state.pool).await?;
+            let used = store::used_client_indices(&state.pool, hid).await?;
             setup
                 .tunnel
                 .next_free(&used)
                 .map_err(|_| ApiError::Unavailable("no tunnel addresses are left".into()))?
         }
     };
-    store::upsert_client(&state.pool, user_id, idx, &issued.serial, now, expires_at).await?;
+    store::upsert_client(
+        &state.pool,
+        user_id,
+        hid,
+        idx,
+        &issued.serial,
+        now,
+        expires_at,
+    )
+    .await?;
     let tunnel_ip = setup.tunnel.client(idx).ok_or(ApiError::Internal)?;
     let text = client_profile(&ClientProfile {
         remote_host: &setup.public_host,
@@ -297,7 +426,9 @@ pub async fn issue_profile(state: &AppState, user_id: i64) -> Result<Profile, Ap
     })
     .map_err(|e| internal("render the profile", e))?;
     // The old certificate and the new address file take effect at once.
-    sync_quiet(state).await;
+    if let Err(e) = sync_host(state, hid).await {
+        tracing::warn!("vpn sync of host {hid} failed: {e:?}");
+    }
     Ok(Profile {
         text,
         tunnel_ip: tunnel_ip.to_string(),
@@ -305,12 +436,16 @@ pub async fn issue_profile(state: &AppState, user_id: i64) -> Result<Profile, Ap
     })
 }
 
-/// Takes a player off the VPN: the certificate is revoked and their session ends.
+/// Takes a player off the VPN everywhere: their certificates are revoked and sessions end.
 pub async fn revoke_client(state: &AppState, user_id: i64) -> Result<bool, ApiError> {
     setup(state)?;
-    let removed = store::remove_client(&state.pool, user_id, state.now()).await?;
-    sync_quiet(state).await;
-    Ok(removed)
+    let hosts = store::remove_client(&state.pool, user_id, state.now()).await?;
+    for hid in &hosts {
+        if let Err(e) = sync_host(state, *hid).await {
+            tracing::warn!("vpn sync of host {hid} failed: {e:?}");
+        }
+    }
+    Ok(!hosts.is_empty())
 }
 
 // ---------- sync ----------
@@ -323,12 +458,48 @@ pub struct SyncReport {
     pub removed_clients: usize,
 }
 
-/// Brings the gateway in line with the database. Safe to call at any time.
+/// Brings every gateway in line with the database: this server's own, and each lab host's that
+/// has players or labs. A host that does not answer does not hold up the others; the first
+/// error is returned once all have been tried.
 pub async fn sync(state: &AppState) -> Result<SyncReport, ApiError> {
-    let setup = setup(state)?;
+    let base = setup(state)?;
+    let mut hosts = store::hosts_in_use(&state.pool).await?;
+    if base.local && !hosts.contains(&0) {
+        hosts.insert(0, 0);
+    }
+    // Leftovers of an earlier local gateway mean nothing on a server that has none.
+    if !base.local {
+        hosts.retain(|h| *h != 0);
+    }
+    let mut total = SyncReport::default();
+    let mut first_error = None;
+    for hid in hosts {
+        match sync_host(state, hid).await {
+            Ok(r) => {
+                total.labs += r.labs;
+                total.clients += r.clients;
+                total.allows += r.allows;
+                total.removed_clients += r.removed_clients;
+            }
+            Err(e) => {
+                tracing::warn!("vpn sync of host {hid} failed: {e:?}");
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+    match first_error {
+        Some(e) => Err(e),
+        None => Ok(total),
+    }
+}
+
+/// Brings one gateway in line with the database. Safe to call at any time.
+pub async fn sync_host(state: &AppState, hid: i64) -> Result<SyncReport, ApiError> {
+    let setup = setup_for(state, hid).await?;
+    let setup = &setup;
     let _guard = setup.lock.lock().await;
-    let material = authority(state, setup).await?;
-    let server = server_certificate(state, &material.ca).await?;
+    let material = authority(state, hid).await?;
+    let server = server_certificate(state, &material.ca, hid).await?;
 
     // Static files the gateway reads.
     let dir = &setup.dir;
@@ -336,7 +507,7 @@ pub async fn sync(state: &AppState) -> Result<SyncReport, ApiError> {
     write_atomic(&dir.join("pki/server.crt"), &server.cert_pem, false)?;
     write_atomic(&dir.join("pki/server.key"), &server.key_pem, true)?;
     write_atomic(&dir.join("pki/ta.key"), &material.ta, true)?;
-    write_crl(state, setup, &material.ca).await?;
+    write_crl(state, setup, &material.ca, hid).await?;
     write_atomic(
         &dir.join("server.conf"),
         &server_conf(&setup.tunnel, &setup.labs.pool()),
@@ -345,7 +516,7 @@ pub async fn sync(state: &AppState) -> Result<SyncReport, ApiError> {
 
     // Which players exist and may connect.
     let mut desired: HashMap<i64, ClientRow> = HashMap::new();
-    for client in store::clients(&state.pool).await? {
+    for client in store::clients(&state.pool, hid).await? {
         if !store::is_banned(&state.pool, client.user_id).await? {
             desired.insert(client.user_id, client);
         }
@@ -376,7 +547,7 @@ pub async fn sync(state: &AppState) -> Result<SyncReport, ApiError> {
     }
 
     // Labs: the network exists, the gateway is on it, and the right players may reach it.
-    let labs = store::labs(&state.pool).await?;
+    let labs = store::labs_on(&state.pool, hid).await?;
     let mut allows = Vec::new();
     for lab in &labs {
         let subnet = lab_subnet(setup, lab)?;
@@ -398,6 +569,8 @@ pub async fn sync(state: &AppState) -> Result<SyncReport, ApiError> {
         false,
     )?;
 
+    // The labs must exist before the gateway joins them, and the gateway must run before it can
+    // join anything. For a lab host, `ensure_running` also sends the files above across.
     setup
         .gateway
         .ensure_running(&setup.gateway_config)
@@ -440,11 +613,11 @@ pub async fn sync_quiet(state: &AppState) {
 
 /// Removes labs nobody uses: the event is over (or gone), or no instance has run for a while.
 pub async fn collect_idle_labs(state: &AppState) -> Result<usize, ApiError> {
-    let Some(setup) = state.vpn_setup() else {
+    if state.vpn_setup().is_none() {
         return Ok(0);
-    };
+    }
     let now = state.now();
-    let mut removed = 0;
+    let mut removed_on: BTreeSet<i64> = BTreeSet::new();
     for lab in store::labs(&state.pool).await? {
         if store::live_instances_in_lab(&state.pool, &lab).await? > 0 {
             store::touch_lab(&state.pool, lab.id, now).await?;
@@ -460,6 +633,10 @@ pub async fn collect_idle_labs(state: &AppState) -> Result<usize, ApiError> {
         if !over && now - lab.last_used_at < IDLE_LAB_SECS {
             continue;
         }
+        // A lab host that does not answer keeps its labs until it does.
+        let Ok(setup) = setup_for(state, lab.lab_host_id).await else {
+            continue;
+        };
         if setup.gateway.detach(&lab.network).await.is_err() {
             continue;
         }
@@ -469,10 +646,12 @@ pub async fn collect_idle_labs(state: &AppState) -> Result<usize, ApiError> {
             continue;
         }
         store::delete_lab(&state.pool, lab.id).await?;
-        removed += 1;
+        removed_on.insert(lab.lab_host_id);
     }
-    if removed > 0 {
-        sync_quiet(state).await;
+    for hid in &removed_on {
+        if let Err(e) = sync_host(state, *hid).await {
+            tracing::warn!("vpn sync of host {hid} failed: {e:?}");
+        }
     }
-    Ok(removed)
+    Ok(removed_on.len())
 }

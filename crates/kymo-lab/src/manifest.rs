@@ -62,6 +62,11 @@ pub struct Manifest {
     pub nic: Option<String>,
     /// `bios` (default, what VirtualBox exports use) or `uefi`.
     pub firmware: Option<String>,
+    /// How players are told to reach it. `machine`: just its address, with every port open on it,
+    /// to be scanned like a HackTheBox machine (the default for a virtual machine). `service`:
+    /// the address and port of the service, like a HackTheBox challenge (the default for a
+    /// container).
+    pub display: Option<String>,
     /// Fixed environment, always set.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -87,6 +92,12 @@ pub struct Refusal(pub String);
 impl Manifest {
     /// Checks the manifest itself: a usable artifact, a known runtime, a port.
     pub fn check(&self) -> Result<(), String> {
+        if let Some(d) = &self.display
+            && d != "machine"
+            && d != "service"
+        {
+            return Err("display is machine or service".into());
+        }
         if self.artifact.is_empty() || self.artifact.len() > 200 {
             return Err("artifact is missing or too long".into());
         }
@@ -147,6 +158,15 @@ impl Manifest {
 
     pub fn is_vm(&self) -> bool {
         self.runtime == "vm"
+    }
+
+    /// Whether players are given just an address (every port open on it) instead of the address
+    /// of one service.
+    pub fn machine_style(&self) -> bool {
+        match self.display.as_deref() {
+            Some(d) => d == "machine",
+            None => self.is_vm(),
+        }
     }
 
     /// The service the platform shows as the address: `port`, or a virtual machine's first port.

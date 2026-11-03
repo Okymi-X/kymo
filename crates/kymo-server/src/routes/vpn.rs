@@ -2,7 +2,7 @@
 //! event between published ports and the VPN, and revoke a player.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::header::{
     CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS,
 };
@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::{Player, Require, needs};
+use crate::auth::{ClientIp, Player, Require, needs};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::monitor_store;
@@ -19,15 +19,33 @@ use crate::state::AppState;
 use crate::vpn::{self, lab_subnet};
 use crate::vpn_store as store;
 
+#[derive(Deserialize, Default)]
+pub struct HostQuery {
+    /// The lab host whose gateway the profile is for; none is this server's own.
+    lab_host: Option<i64>,
+}
+
 /// What a player needs to know before they download a profile.
 pub async fn status(
     player: Player,
     State(state): State<AppState>,
+    Query(q): Query<HostQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let Some(setup) = state.vpn_setup() else {
+    if state.vpn_setup().is_none() {
         return Ok(Json(json!({ "enabled": false })));
+    }
+    let hid = q.lab_host.unwrap_or(0);
+    let setup = match vpn::setup_for(&state, hid).await {
+        Ok(s) => s,
+        // The gateway of this host cannot be reached or does not exist: say so, do not hide it.
+        Err(ApiError::Unavailable(reason)) => {
+            return Ok(Json(
+                json!({ "enabled": true, "available": false, "reason": reason }),
+            ));
+        }
+        Err(e) => return Err(e),
     };
-    let client = store::client(&state.pool, player.id).await?;
+    let client = store::client(&state.pool, player.id, hid).await?;
     let tunnel_ip = client
         .as_ref()
         .and_then(|c| u32::try_from(c.idx).ok())
@@ -35,6 +53,7 @@ pub async fn status(
         .map(|ip| ip.to_string());
     Ok(Json(json!({
         "enabled": true,
+        "available": true,
         "host": setup.public_host,
         "port": setup.public_port,
         "has_profile": client.is_some(),
@@ -44,10 +63,29 @@ pub async fn status(
     })))
 }
 
-/// Issues a new certificate and returns the `.ovpn` file. The previous profile stops working.
-/// A POST because it changes state; the response is never cached.
-pub async fn profile(player: Player, State(state): State<AppState>) -> Result<Response, ApiError> {
-    let profile = vpn::issue_profile(&state, player.id).await?;
+/// Issues a new certificate and returns the `.ovpn` file. The previous profile for the same
+/// host stops working. A POST because it changes state; the response is never cached.
+pub async fn profile(
+    player: Player,
+    ip: ClientIp,
+    State(state): State<AppState>,
+    Query(q): Query<HostQuery>,
+) -> Result<Response, ApiError> {
+    let hid = q.lab_host.unwrap_or(0);
+    let profile = vpn::issue_profile(&state, player.id, hid).await?;
+    // Every new profile revokes the old one: worth knowing who asked, and from where.
+    let _ = monitor_store::audit_from(
+        &state.pool,
+        state.now(),
+        Some(player.id),
+        "player",
+        Some(&ip.0.to_string()),
+        "vpn_profile",
+        "lab_host",
+        hid,
+        &format!("tunnel_ip={}", profile.tunnel_ip),
+    )
+    .await;
     let mut response = profile.text.into_response();
     let headers = response.headers_mut();
     headers.insert(
@@ -70,12 +108,16 @@ pub async fn admin_status(
     _: Require<needs::Monitor>,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let Some(setup) = state.vpn_setup() else {
+    let Some(base) = state.vpn_setup() else {
         return Ok(Json(json!({ "enabled": false })));
     };
-    let gateway = match setup.gateway.status().await {
-        Ok(s) => json!({ "running": s.running, "networks": s.networks, "error": null }),
-        Err(e) => json!({ "running": false, "networks": [], "error": e.to_string() }),
+    let gateway = if base.local {
+        match base.gateway.status().await {
+            Ok(s) => json!({ "running": s.running, "networks": s.networks, "error": null }),
+            Err(e) => json!({ "running": false, "networks": [], "error": e.to_string() }),
+        }
+    } else {
+        json!({ "running": false, "networks": [], "error": null, "none": true })
     };
     let labs = store::labs(&state.pool).await?;
     let mut lab_list = Vec::new();
@@ -90,25 +132,64 @@ pub async fn admin_status(
         .await?;
         lab_list.push(json!({
             "id": lab.id,
+            "lab_host_id": lab.lab_host_id,
             "event_id": lab.event_id,
             "participant": { "kind": lab.scorer_kind, "id": lab.scorer_id, "name": name },
             "network": lab.network,
-            "subnet": lab_subnet(setup, lab)?.to_string(),
+            "subnet": lab_subnet(base, lab)?.to_string(),
             "live_instances": store::live_instances_in_lab(&state.pool, lab).await?,
             "last_used_at": lab.last_used_at,
         }));
     }
-    let clients = store::clients(&state.pool).await?;
+    // Each lab host's own gateway.
+    let mut hosts = Vec::new();
+    for row in crate::lab_store::list(&state.pool).await? {
+        let clients = store::clients(&state.pool, row.id).await?.len();
+        let host_labs = labs.iter().filter(|l| l.lab_host_id == row.id).count();
+        let (info, gateway) = match vpn::setup_for(&state, row.id).await {
+            Ok(setup) => (
+                json!({ "host": setup.public_host, "port": setup.public_port }),
+                match setup.gateway.status().await {
+                    Ok(s) => json!({ "running": s.running, "networks": s.networks, "error": null }),
+                    Err(e) => json!({ "running": false, "networks": [], "error": e.to_string() }),
+                },
+            ),
+            Err(e) => (
+                json!(null),
+                json!({ "running": false, "networks": [], "error": api_reason(&e) }),
+            ),
+        };
+        hosts.push(json!({
+            "id": row.id,
+            "name": row.name,
+            "enabled": row.enabled,
+            "vpn": info,
+            "gateway": gateway,
+            "labs": host_labs,
+            "clients": clients,
+        }));
+    }
+    let clients = store::clients(&state.pool, 0).await?;
     Ok(Json(json!({
         "enabled": true,
-        "host": setup.public_host,
-        "port": setup.public_port,
+        "local": base.local,
+        "host": base.public_host,
+        "port": base.public_port,
         "gateway": gateway,
-        "tunnel": { "net": setup.tunnel.net().to_string(), "capacity": setup.tunnel.capacity(), "used": clients.len() },
-        "lab_pool": { "net": setup.labs.pool().to_string(), "capacity": setup.labs.capacity(), "used": labs.len() },
+        "tunnel": { "net": base.tunnel.net().to_string(), "capacity": base.tunnel.capacity(), "used": clients.len() },
+        "lab_pool": { "net": base.labs.pool().to_string(), "capacity": base.labs.capacity(), "used": labs.len() },
         "labs": lab_list,
         "clients": clients.len(),
+        "hosts": hosts,
     })))
+}
+
+/// The words of an error, for showing next to the lab host that caused it.
+fn api_reason(e: &ApiError) -> String {
+    match e {
+        ApiError::Unavailable(m) | ApiError::Conflict(m) | ApiError::BadRequest(m) => m.clone(),
+        other => format!("{other:?}"),
+    }
 }
 
 pub async fn admin_sync(
@@ -177,16 +258,7 @@ pub async fn set_network(
             "only Jeopardy events have challenge instances".into(),
         ));
     }
-    if body.mode == "vpn" && event.lab_host_id.is_some() {
-        return Err(ApiError::Conflict(
-            "the private VPN only works with instances on this server: move the event off its lab host first".into(),
-        ));
-    }
-    if body.mode == "vpn" && state.vpn_setup().is_none() {
-        return Err(ApiError::Conflict(
-            "the VPN is not enabled on this server".into(),
-        ));
-    }
+    vpn::check_mode(&state, event.lab_host_id, &body.mode).await?;
     if event.network_mode != body.mode {
         let _guard = state.write_lock.lock().await;
         let live: i64 = sqlx::query_scalar(

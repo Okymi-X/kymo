@@ -336,7 +336,8 @@ async fn json_errors(response: Response<Body>) -> Response<Body> {
     (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
 }
 
-const CSP_BASE: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:";
+const CSP_BASE: &str =
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:";
 
 /// Everything is denied framing except the embed pages, whose whole purpose is to sit in an
 /// iframe on someone else's site or a stream overlay.

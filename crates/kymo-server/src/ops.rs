@@ -389,6 +389,14 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
     let mut lab_list = Vec::new();
     for row in &lab_rows {
         let (_, live_here) = crate::lab_store::counts(pool, row.id).await?;
+        // Events that are open or running and send their instances here: players cannot start
+        // anything for them while this lab host is off or down.
+        let live_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM event WHERE lab_host_id = ? AND state IN ('registration_open', 'live', 'paused')",
+        )
+        .bind(row.id)
+        .fetch_one(pool)
+        .await?;
         let reachable = row
             .enabled
             .then(|| row.last_error.is_none() && row.last_ok_at.is_some());
@@ -400,9 +408,19 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
             "last_checked_at": row.last_checked_at,
             "last_error": row.last_error,
             "live_instances": live_here,
+            "live_events": live_events,
         }));
     }
-    let labs_failed = lab_rows
+    // A lab host that is down, or switched off while a live event depends on it, is an outage
+    // for that event's players.
+    let labs_failed = lab_list.iter().any(|l| {
+        let broken = if l["enabled"] == true {
+            l["reachable"] == false || l["last_error"].is_string()
+        } else {
+            true
+        };
+        broken && l["live_events"].as_i64().unwrap_or(0) > 0
+    }) || lab_rows
         .iter()
         .any(|r| r.enabled && r.last_checked_at.is_some() && r.last_error.is_some());
 
@@ -410,8 +428,20 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
         None => json!({ "enabled": false }),
         Some(setup) => {
             let labs = crate::vpn_store::labs(pool).await?.len();
-            let clients = crate::vpn_store::clients(pool).await?.len();
-            match setup.gateway.status().await {
+            let clients: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vpn_client")
+                .fetch_one(pool)
+                .await?;
+            // A server with no gateway of its own has nothing to check here; each lab host's
+            // gateway is shown with the lab hosts.
+            let status = if setup.local {
+                setup.gateway.status().await
+            } else {
+                Ok(kymo_vpn::GatewayStatus {
+                    running: true,
+                    networks: Vec::new(),
+                })
+            };
+            match status {
                 Ok(s) => {
                     json!({ "enabled": true, "gateway_ok": s.running, "labs": labs, "clients": clients, "error": null })
                 }

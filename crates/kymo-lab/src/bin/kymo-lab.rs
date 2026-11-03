@@ -38,7 +38,21 @@ struct Settings {
     key: Option<PathBuf>,
     docker: bool,
     vm: Option<VmConfig>,
+    vpn: Option<VpnSettings>,
     config: LabConfig,
+}
+
+/// The lab host's own VPN gateway: how players reach instances without any published port.
+struct VpnSettings {
+    host: String,
+    port: u16,
+    bind: String,
+    bind_options: String,
+    pool: kymo_vpn::Ipv4Net,
+    dir: PathBuf,
+    image: String,
+    /// Refuse every instance that is not on a lab network.
+    only: bool,
 }
 
 /// A program found on PATH.
@@ -172,6 +186,44 @@ fn settings() -> Result<Settings, String> {
             "a manifest asks for a virtual machine but QEMU is not set up (install qemu, or set KYMO_LAB_RUNTIMES=docker,vm)"
         );
     }
+    let vpn = match var("KYMO_LAB_VPN_HOST") {
+        None => None,
+        Some(host) => {
+            if !kymo_vpn::valid_remote_host(&host) {
+                return Err("KYMO_LAB_VPN_HOST must be a host name or an IPv4 address".into());
+            }
+            let port = var("KYMO_LAB_VPN_PORT")
+                .map(|p| p.parse::<u16>())
+                .transpose()
+                .map_err(|_| "KYMO_LAB_VPN_PORT must be 1 to 65535".to_owned())?
+                .filter(|p| *p != 0)
+                .unwrap_or(1194);
+            let pool = var("KYMO_LAB_VPN_POOL")
+                .unwrap_or_else(|| "10.77.0.0/16".into())
+                .parse::<kymo_vpn::Ipv4Net>()
+                .map_err(|e| format!("KYMO_LAB_VPN_POOL: {e}"))?;
+            let dir = var("KYMO_LAB_VPN_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| data.join("vpn"));
+            std::fs::create_dir_all(&dir).map_err(|e| format!("KYMO_LAB_VPN_DIR: {e}"))?;
+            let dir = std::fs::canonicalize(&dir).map_err(|e| format!("KYMO_LAB_VPN_DIR: {e}"))?;
+            Some(VpnSettings {
+                host,
+                port,
+                bind: var("KYMO_LAB_VPN_BIND").unwrap_or_else(|| "0.0.0.0".into()),
+                bind_options: var("KYMO_LAB_VPN_BIND_OPTIONS").unwrap_or_default(),
+                pool,
+                dir,
+                image: var("KYMO_LAB_VPN_IMAGE")
+                    .unwrap_or_else(|| "localhost/kymo/vpn-gateway:1".into()),
+                // On by default: a lab host with a gateway should never also publish ports.
+                only: var("KYMO_LAB_VPN_ONLY").as_deref() != Some("0"),
+            })
+        }
+    };
+    if vpn.is_some() && !docker {
+        return Err("the VPN gateway needs the docker runtime (KYMO_LAB_RUNTIMES)".into());
+    }
     Ok(Settings {
         addr: var("KYMO_LAB_ADDR").unwrap_or_else(|| "0.0.0.0:7400".into()),
         data,
@@ -189,6 +241,7 @@ fn settings() -> Result<Settings, String> {
         key: var("KYMO_LAB_TLS_KEY").map(Into::into),
         docker,
         vm,
+        vpn,
         config,
     })
 }
@@ -278,6 +331,22 @@ async fn check(s: &Settings) -> Result<(), String> {
         }
         None => println!("vm:            off (QEMU not found, or KYMO_LAB_RUNTIMES leaves it out)"),
     }
+    match &s.vpn {
+        Some(v) => println!(
+            "vpn:           gateway on {}:{} (udp), lab networks in {}, {}",
+            v.host,
+            v.port,
+            v.pool,
+            if v.only {
+                "instances only through it"
+            } else {
+                "published ports also allowed"
+            }
+        ),
+        None => println!(
+            "vpn:           off (set KYMO_LAB_VPN_HOST to give players a tunnel instead of open ports)"
+        ),
+    }
     if s.tls {
         println!("fingerprint:   {}", identity(s)?.fingerprint);
     }
@@ -334,7 +403,39 @@ async fn run(s: Settings) -> Result<(), String> {
         None
     };
     let vm = s.vm.map(VmRuntime::new);
-    let lab = Lab::with_vm(s.config, runtime, vm);
+    let lab = Lab::with_vm(s.config, Arc::clone(&runtime), vm);
+    if let Some(v) = s.vpn {
+        let gateway = kymo_vpn::docker::DockerGateway::connect()
+            .map_err(|e| format!("docker (for the VPN gateway): {e}"))?;
+        let config = kymo_vpn::GatewayConfig {
+            name: "kymo-lab-vpn-gateway".into(),
+            image: v.image,
+            dir: v.dir,
+            publish_ip: v.bind,
+            publish_port: v.port,
+            bind_options: v.bind_options,
+        };
+        lab.set_vpn(
+            Arc::new(kymo_lab::vpn::LabVpn::new(
+                Arc::new(gateway),
+                runtime,
+                config,
+                v.host.clone(),
+                v.pool,
+            )),
+            v.only,
+        );
+        tracing::info!(
+            "VPN gateway: players connect to {}:{}; instances are {}",
+            v.host,
+            v.port,
+            if v.only {
+                "reachable only through it"
+            } else {
+                "also allowed on published ports"
+            }
+        );
+    }
     lab.load().await;
     lab.spawn_reaper();
     lab.prepare_images();

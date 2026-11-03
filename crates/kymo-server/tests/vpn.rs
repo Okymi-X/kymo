@@ -95,6 +95,7 @@ impl Lab {
                 labs: LabPool::new("10.77.0.0/16".parse().unwrap(), 27).unwrap(),
                 client_days: 60,
                 lock: Arc::default(),
+                local: true,
             });
         }
         let app = router(state.clone());
@@ -1076,4 +1077,362 @@ async fn a_player_sees_their_own_instances_with_the_challenge_each_belongs_to() 
         0,
         "stopped instances leave the list"
     );
+}
+
+// ---------- a lab host with its own gateway ----------
+
+const LAB_TOKEN: &str = "lab-test-token-with-enough-length-1";
+
+/// A lab host with a gateway of its own, served over a real socket, with everything it drives
+/// kept in memory so the test can look at it.
+struct RemoteLab {
+    url: String,
+    runtime: Arc<FakeRuntime>,
+    gateway: Arc<FakeGateway>,
+    dir: tempfile::TempDir,
+}
+
+async fn remote_lab() -> RemoteLab {
+    let manifest: kymo_lab::Manifest = serde_json::from_value(json!({
+        "artifact": "ctf/web:1", "port": 8000, "env_allow": [], "max_ttl_secs": 600,
+    }))
+    .unwrap();
+    let mut cfg = kymo_lab::server::LabConfig::new("remote", LAB_TOKEN);
+    cfg.manifests = vec![manifest];
+    let runtime = Arc::new(FakeRuntime::new());
+    let lab = kymo_lab::server::Lab::new(cfg, runtime.clone());
+    let gateway = Arc::new(FakeGateway::new());
+    let dir = tempfile::tempdir().unwrap();
+    lab.set_vpn(
+        Arc::new(kymo_lab::vpn::LabVpn::new(
+            gateway.clone(),
+            runtime.clone(),
+            GatewayConfig {
+                name: "kymo-lab-vpn-gateway".into(),
+                image: "img".into(),
+                dir: dir.path().to_path_buf(),
+                publish_ip: "0.0.0.0".into(),
+                publish_port: 1194,
+                bind_options: String::new(),
+            },
+            "lab.example.org".into(),
+            "10.77.0.0/16".parse().unwrap(),
+        )),
+        true,
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    tokio::spawn(kymo_lab::server::serve(
+        listener,
+        kymo_lab::server::router(lab),
+        None,
+        std::future::pending(),
+    ));
+    RemoteLab {
+        url,
+        runtime,
+        gateway,
+        dir,
+    }
+}
+
+impl Lab {
+    /// Registers the remote lab host, gives the event to it and switches the event to the VPN.
+    async fn use_remote(&self, remote: &RemoteLab) -> i64 {
+        let (s, added) = self
+            .admin(
+                "POST",
+                "/admin/labs",
+                Some(json!({
+                    "name": "Remote", "api_url": remote.url, "token": LAB_TOKEN,
+                    "public_host": "203.0.113.9",
+                })),
+            )
+            .await;
+        assert_eq!(s, StatusCode::CREATED, "{added}");
+        let id = added["lab"]["id"].as_i64().unwrap();
+        let (s, b) = self
+            .admin(
+                "PUT",
+                &format!("/admin/events/{}/lab", self.event_id),
+                Some(json!({ "lab_host_id": id, "network_mode": "vpn" })),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(b["network_mode"], "vpn");
+        id
+    }
+}
+
+#[tokio::test]
+async fn a_vpn_event_on_a_lab_host_uses_that_hosts_gateway_and_publishes_nothing() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = remote_lab().await;
+    let challenge = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    let host_id = lab.use_remote(&remote).await;
+
+    // The profile points at the lab host's gateway, not this server's.
+    let profile = lab
+        .raw(
+            "POST",
+            &format!("/vpn/profile?lab_host={host_id}"),
+            Some(&pat),
+            None,
+        )
+        .await;
+    assert_eq!(profile.status, StatusCode::OK, "{}", profile.text());
+    let text = profile.text();
+    assert!(text.contains("remote lab.example.org 1194"), "{text}");
+    assert!(!text.contains("vpn.example.org"));
+    // That host's gateway knows the player; this server's own gateway has not been touched.
+    assert!(remote.dir.path().join("ccd/u1").exists());
+    assert_eq!(lab.gateway.networks(), Vec::<String>::new());
+
+    let (s, started) = lab.act(&pat, "POST", challenge, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    assert_eq!(started["network"], "vpn");
+    assert_eq!(started["host"], "10.77.0.10");
+    assert_eq!(started["port"], 8000);
+    assert!(!started.to_string().contains("203.0.113.9"));
+
+    // The lab network, the placement and the gateway attachment are all on the lab host.
+    assert_eq!(
+        remote.runtime.labs(),
+        vec![("kymo-lab-0".to_owned(), "10.77.0.0/27".to_owned())]
+    );
+    assert_eq!(remote.gateway.networks(), vec!["kymo-lab-0".to_owned()]);
+    assert!(lab.runtime.labs().is_empty(), "nothing was made locally");
+    assert_eq!(remote.runtime.running_count(), 1);
+    let rules = std::fs::read_to_string(remote.dir.path().join("rules.sh")).unwrap();
+    assert!(
+        rules.contains("-s 10.8.0.2 -d 10.77.0.0/27 -j ACCEPT"),
+        "{rules}"
+    );
+
+    // Stopping and then waiting past the idle time takes the lab down on the lab host too.
+    lab.act(&pat, "DELETE", challenge, "").await;
+    lab.set_time(T0 + vpn::IDLE_LAB_SECS + 60);
+    instances::reap(&lab.state).await.unwrap();
+    assert!(remote.runtime.labs().is_empty());
+    assert!(remote.gateway.networks().is_empty());
+}
+
+#[tokio::test]
+async fn certificates_are_per_host_so_one_hosts_profile_opens_nothing_on_another() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = remote_lab().await;
+    let (pat, _) = lab.player("pat").await;
+    let host_id = lab.use_remote(&remote).await;
+    let local = lab.profile(&pat).await.text();
+    let first = lab
+        .raw(
+            "POST",
+            &format!("/vpn/profile?lab_host={host_id}"),
+            Some(&pat),
+            None,
+        )
+        .await
+        .text();
+    assert_ne!(first, local);
+    // Different authorities: a different CA for each host.
+    let ca = |t: &str| {
+        t.split("<ca>")
+            .nth(1)
+            .and_then(|r| r.split("</ca>").next())
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    };
+    assert_ne!(ca(&first), ca(&local));
+    // A new profile for the lab host replaces only that host's: the local one stays valid.
+    let serials = |hid: i64| {
+        let pool = lab.state.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT serial FROM vpn_client WHERE lab_host_id = ? AND user_id = 1",
+            )
+            .bind(hid)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let (local_before, remote_before) = (serials(0).await, serials(host_id).await);
+    lab.raw(
+        "POST",
+        &format!("/vpn/profile?lab_host={host_id}"),
+        Some(&pat),
+        None,
+    )
+    .await;
+    assert_eq!(serials(0).await, local_before);
+    assert_ne!(serials(host_id).await, remote_before);
+    let revoked: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vpn_revoked WHERE lab_host_id = 0")
+        .fetch_one(&lab.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(revoked, 0, "nothing was revoked on this server's gateway");
+}
+
+#[tokio::test]
+async fn an_event_cannot_use_the_vpn_on_a_lab_host_that_has_no_gateway() {
+    let lab = Lab::new(true, "solo").await;
+    let manifest: kymo_lab::Manifest = serde_json::from_value(
+        json!({ "artifact": "ctf/web:1", "port": 8000, "env_allow": [], "max_ttl_secs": 600 }),
+    )
+    .unwrap();
+    let mut cfg = kymo_lab::server::LabConfig::new("plain", LAB_TOKEN);
+    cfg.manifests = vec![manifest];
+    let plain = kymo_lab::server::Lab::new(cfg, Arc::new(FakeRuntime::new()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    tokio::spawn(kymo_lab::server::serve(
+        listener,
+        kymo_lab::server::router(plain),
+        None,
+        std::future::pending(),
+    ));
+    let (_, added) = lab
+        .admin(
+            "POST",
+            "/admin/labs",
+            Some(json!({ "name": "Plain", "api_url": url, "token": LAB_TOKEN, "public_host": "203.0.113.9" })),
+        )
+        .await;
+    let id = added["lab"]["id"].as_i64().unwrap();
+    lab.admin(
+        "PUT",
+        &format!("/admin/events/{}/lab", lab.event_id),
+        Some(json!({ "lab_host_id": id })),
+    )
+    .await;
+    let (s, b) = lab.network("vpn").await;
+    assert_eq!(s, StatusCode::CONFLICT, "{b}");
+    assert!(
+        b["error"].as_str().unwrap().contains("no VPN gateway"),
+        "{b}"
+    );
+}
+
+#[tokio::test]
+async fn starting_stopping_and_profiles_are_audited_with_who_and_from_where() {
+    let lab = Lab::new(true, "solo").await;
+    let a = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    assert_eq!(lab.network("vpn").await.0, StatusCode::OK);
+    lab.profile(&pat).await;
+    lab.act(&pat, "POST", a, "").await;
+    lab.act(&pat, "DELETE", a, "").await;
+
+    let (s, page) = lab
+        .admin("GET", "/admin/monitor/audit?per_page=100", None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{page}");
+    let entries = page["entries"].as_array().unwrap();
+    let find = |action: &str| {
+        entries
+            .iter()
+            .find(|e| e["action"] == action)
+            .unwrap_or_else(|| panic!("no {action} in {page}"))
+    };
+    for action in ["vpn_profile", "instance_start", "instance_stop"] {
+        let e = find(action);
+        assert_eq!(e["ip"], "10.0.0.1", "{e}");
+        assert_eq!(e["actor_name"], "pat");
+        assert_eq!(e["actor_role"], "player");
+    }
+    let start = find("instance_start");
+    assert!(
+        start["detail"].as_str().unwrap().contains("Box A"),
+        "{start}"
+    );
+    assert!(
+        start["detail"]
+            .as_str()
+            .unwrap()
+            .contains("address=10.77.0.10:8000"),
+        "{start}"
+    );
+    // The filter offers what has actually been recorded.
+    let actions: Vec<&str> = page["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a[0].as_str().unwrap())
+        .collect();
+    assert!(actions.contains(&"instance_start") && actions.contains(&"vpn_profile"));
+
+    // Search by address, by player, and page through.
+    let (_, by_ip) = lab
+        .admin("GET", "/admin/monitor/audit?q=10.0.0.1", None)
+        .await;
+    assert!(by_ip["total"].as_i64().unwrap() >= 3);
+    let (_, by_name) = lab
+        .admin(
+            "GET",
+            "/admin/monitor/audit?q=pat&action=instance_start",
+            None,
+        )
+        .await;
+    assert_eq!(by_name["total"], 1);
+    let (_, none) = lab
+        .admin("GET", "/admin/monitor/audit?q=203.0.113.99", None)
+        .await;
+    assert_eq!(none["total"], 0);
+    let (_, wild) = lab.admin("GET", "/admin/monitor/audit?q=%25", None).await;
+    assert_eq!(
+        wild["total"], 0,
+        "a percent sign is searched for, not a wildcard"
+    );
+    let (_, first) = lab
+        .admin("GET", "/admin/monitor/audit?per_page=2&page=1", None)
+        .await;
+    let (_, second) = lab
+        .admin("GET", "/admin/monitor/audit?per_page=2&page=2", None)
+        .await;
+    assert_eq!(first["entries"].as_array().unwrap().len(), 2);
+    assert_ne!(first["entries"][0]["id"], second["entries"][0]["id"]);
+}
+
+#[tokio::test]
+async fn a_machine_is_given_as_an_address_alone_and_a_service_as_address_and_port() {
+    let lab = Lab::new(true, "solo").await;
+    let a = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    assert_eq!(lab.network("vpn").await.0, StatusCode::OK);
+    let (_, service) = lab.act(&pat, "POST", a, "").await;
+    assert_eq!(
+        (service["machine"].clone(), service["port"].clone()),
+        (json!(false), json!(8000))
+    );
+
+    // The lab host marks it a machine: every port is open on the address, so there is no port.
+    sqlx::query("UPDATE instance SET machine = 1 WHERE state = 'running'")
+        .execute(&lab.state.pool)
+        .await
+        .unwrap();
+    let (_, machine) = lab.act(&pat, "GET", a, "").await;
+    assert_eq!(machine["machine"], true);
+    assert_eq!(machine["host"], "10.77.0.10");
+    assert!(
+        machine["port"].is_null() && machine["services"] == json!([]),
+        "{machine}"
+    );
+    let (_, mine) = lab
+        .call(
+            "GET",
+            &format!("/events/{}/instances", lab.slug),
+            Some(&pat),
+            None,
+        )
+        .await;
+    assert_eq!(mine["instances"][0]["machine"], true);
+    assert!(mine["instances"][0]["port"].is_null());
 }

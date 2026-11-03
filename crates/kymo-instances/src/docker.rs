@@ -297,7 +297,7 @@ impl InstanceRuntime for DockerRuntime {
     async fn start(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
         match &request.placement {
             Placement::Published => self.start_published(request).await,
-            Placement::Lab { network, ip } => self.start_lab(request, network, ip).await,
+            Placement::Lab { network, ip, .. } => self.start_lab(request, network, ip).await,
         }
     }
 

@@ -17,6 +17,8 @@ pub struct InstanceRow {
     pub handle: Option<String>,
     pub host_port: Option<i64>,
     pub lab_ip: Option<String>,
+    /// Players are given just the address, with every port open on it.
+    pub machine: bool,
     pub failure: Option<String>,
     /// The lab host it runs on; none is this machine's own runtime.
     pub lab_host_id: Option<i64>,
@@ -147,11 +149,12 @@ pub async fn mark_started(
     } else {
         Some(serde_json::to_string(&started.extra_ports).map_err(|_| ApiError::Internal)?)
     };
-    sqlx::query("UPDATE instance SET handle = ?, host_port = ?, extra_ports = ?, ready_secs = ? WHERE id = ?")
+    sqlx::query("UPDATE instance SET handle = ?, host_port = ?, extra_ports = ?, ready_secs = ?, machine = ? WHERE id = ?")
         .bind(&started.handle)
         .bind(i64::from(started.host_port))
         .bind(extra)
         .bind(started.ready_secs.map(i64::from))
+        .bind(started.machine)
         .bind(id)
         .execute(pool)
         .await?;
@@ -234,6 +237,7 @@ pub struct ListRow {
     pub title: String,
     pub state: String,
     pub lab_ip: Option<String>,
+    pub machine: bool,
     pub public_host: Option<String>,
     pub extra_ports: Option<String>,
     pub host_port: Option<i64>,
@@ -247,7 +251,7 @@ pub async fn live_of(
     scorer: Scorer,
 ) -> Result<Vec<ListRow>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.public_host, i.extra_ports, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
+        "SELECT i.id, i.challenge_id, c.title, i.state, i.lab_ip, i.machine, i.public_host, i.extra_ports, i.host_port, i.started_at, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id WHERE i.event_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND i.state IN ('starting', 'running') ORDER BY i.id DESC",
     )
     .bind(event_id)
     .bind(scorer.kind())

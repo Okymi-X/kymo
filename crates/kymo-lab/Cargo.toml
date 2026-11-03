@@ -11,11 +11,12 @@ license.workspace = true
 default = ["server"]
 server = [
     "dep:axum", "dep:hyper", "dep:hyper-util", "dep:tokio-rustls", "dep:rcgen",
-    "dep:tracing-subscriber", "kymo-instances/docker",
+    "dep:tracing-subscriber", "dep:libc", "kymo-instances/docker", "kymo-vpn/docker",
 ]
 
 [dependencies]
 kymo-instances = { path = "../kymo-instances" }
+kymo-vpn = { path = "../kymo-vpn" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
@@ -32,9 +33,11 @@ hyper = { version = "1", optional = true }
 hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tokio", "service"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring", "tls12"] }
 rcgen = { version = "0.14", optional = true, default-features = false, features = ["pem", "crypto", "ring"] }
+libc = { version = "0.2", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util", "process"] }
 
 [[bin]]

@@ -16,8 +16,14 @@ pub enum Placement {
     /// A private network of its own, with the service port published on the host.
     Published,
     /// A named lab network (made with `ensure_lab`) at a fixed address. Nothing is published
-    /// on the host; the service is reachable only from inside the lab.
-    Lab { network: String, ip: String },
+    /// on the host; the service is reachable only from inside the lab. `gateway` is the
+    /// network's own address on the host, used where a machine cannot join the network itself
+    /// (a virtual machine forwards its ports there).
+    Lab {
+        network: String,
+        ip: String,
+        gateway: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +74,9 @@ pub struct Started {
     /// How long the platform should wait for the service to answer before it counts the start as
     /// failed. A virtual machine takes far longer to boot than a container; none means the default.
     pub ready_secs: Option<u32>,
+    /// Players are given just the address, with every port open on it (a machine to scan), rather
+    /// than the address of one service.
+    pub machine: bool,
 }
 
 impl Started {
@@ -78,6 +87,7 @@ impl Started {
             ip,
             extra_ports: Vec::new(),
             ready_secs: None,
+            machine: false,
         }
     }
 }
@@ -222,12 +232,12 @@ impl InstanceRuntime for FakeRuntime {
         }
         let ip = match &request.placement {
             Placement::Published => None,
-            Placement::Lab { network, ip } => {
+            Placement::Lab { network, ip, .. } => {
                 if !inner.labs.contains_key(network) {
                     return Err(RuntimeError::Failed(format!("no lab network {network}")));
                 }
                 let taken = inner.placements.iter().any(|(h, p)| {
-                    inner.live.contains_key(h) && matches!(p, Placement::Lab { network: n, ip: i } if n == network && i == ip)
+                    inner.live.contains_key(h) && matches!(p, Placement::Lab { network: n, ip: i, .. } if n == network && i == ip)
                 });
                 if taken {
                     return Err(RuntimeError::Failed(format!("{ip} is already in use")));
@@ -355,6 +365,7 @@ mod tests {
             placement: Placement::Lab {
                 network: network.into(),
                 ip: ip.into(),
+                gateway: None,
             },
             name: None,
             meta: Vec::new(),

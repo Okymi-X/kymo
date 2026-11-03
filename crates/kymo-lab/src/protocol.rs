@@ -17,6 +17,19 @@
 //! | `POST /v1/reconcile`               | Remove every instance the platform no longer wants      |
 //! | `POST /v1/cleanup`                 | Remove the expired ones now                             |
 //! | `GET  /v1/log`                     | The lab host's recent actions                           |
+//!
+//! With the lab host's own VPN gateway enabled (`KYMO_LAB_VPN_HOST`), players reach instances
+//! through a tunnel to the lab host instead of through published ports:
+//!
+//! | `PUT  /v1/vpn/files`               | Replace the gateway's certificates, config, rules       |
+//! | `PUT  /v1/vpn/gateway`             | Make sure the gateway container is running              |
+//! | `GET  /v1/vpn/gateway`             | Whether it runs and which lab networks it is on         |
+//! | `POST /v1/vpn/attach` / `detach`   | Join or leave a lab network                             |
+//! | `POST /v1/vpn/rules`               | Apply the firewall script                               |
+//! | `POST /v1/vpn/kick`                | End a player's session                                  |
+//! | `GET  /v1/vpn/reachable?ip=&port=` | Whether a service answers, asked from inside the gateway |
+//! | `PUT  /v1/vpn/labs/{network}`      | Create a private lab network with the given subnet      |
+//! | `DELETE /v1/vpn/labs/{network}`    | Remove it                                               |
 
 use std::collections::BTreeMap;
 
@@ -38,6 +51,20 @@ pub struct CreateRequest {
     /// Event, challenge and owner, for the lab host's log and labels.
     #[serde(default)]
     pub meta: BTreeMap<String, String>,
+    /// Put the instance on a private lab network, with nothing published on the host.
+    #[serde(default)]
+    pub lab: Option<LabPlacement>,
+}
+
+/// A private lab network (made with `PUT /v1/vpn/labs/{network}`) and the instance's place in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabPlacement {
+    pub network: String,
+    /// The address a container takes on the network.
+    pub ip: String,
+    /// The network's own address on the lab host (its `.1`), which names the bridge a virtual
+    /// machine's tap is plugged into.
+    pub bind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +87,10 @@ pub struct InstanceInfo {
     /// usual minute (a virtual machine boots slowly).
     #[serde(default)]
     pub ready_secs: Option<u32>,
+    /// Players are given just the machine's address, with every port open on it, instead of the
+    /// address of one service.
+    #[serde(default)]
+    pub machine: bool,
     pub created_at: i64,
     pub expires_at: i64,
     #[serde(default)]
@@ -87,6 +118,62 @@ pub struct HealthInfo {
     /// How virtual machines are accelerated: `kvm`, or `tcg` (plain emulation, slow).
     #[serde(default)]
     pub accel: Option<String>,
+    /// The lab host's own VPN gateway, when it has one.
+    #[serde(default)]
+    pub vpn: Option<VpnInfo>,
+    /// True when the lab host refuses to publish ports: every instance must sit on a lab network.
+    #[serde(default)]
+    pub vpn_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VpnInfo {
+    /// The name or address players connect their VPN client to.
+    pub host: String,
+    pub port: u16,
+    /// The address range lab networks may use.
+    pub pool: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VpnFile {
+    pub content: String,
+    /// Written readable by the owner only.
+    #[serde(default)]
+    pub secret: bool,
+}
+
+/// Every file the gateway reads, by path under its directory. Files not listed under `ccd/`
+/// are removed, so a player who is no longer listed cannot connect.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VpnFiles {
+    pub files: BTreeMap<String, VpnFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkBody {
+    pub network: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabNetBody {
+    pub subnet: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KickBody {
+    pub common_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OkBody {
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct GatewayState {
+    pub running: bool,
+    pub networks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -75,6 +75,7 @@ async fn check(state: &AppState, row: &LabHostRow) -> Result<Value, ApiError> {
         Ok(health) => {
             let artifacts = client.artifacts().await.unwrap_or_default();
             store::record_check(&state.pool, row.id, state.now(), None).await?;
+            store::record_vpn(&state.pool, row.id, health.vpn.as_ref(), health.vpn_only).await?;
             let mut notes = Vec::new();
             if health.mode == "manifest" && artifacts.is_empty() {
                 notes.push("This lab host is in manifest mode and has no manifests, so it will refuse every start. Add manifest files on the lab host.".to_owned());
@@ -296,6 +297,10 @@ pub async fn reconcile(
 pub struct EventLabBody {
     /// The lab host to use, or null for this machine's own runtime.
     lab_host_id: Option<i64>,
+    /// Set together with the lab host, because the two must agree: the VPN needs a gateway where
+    /// the event lives, and a VPN-only lab host refuses published ports. Left out keeps the mode.
+    #[serde(default)]
+    network_mode: Option<String>,
 }
 
 /// Chooses where an event's instances run. Not while instances are running, because their
@@ -317,14 +322,19 @@ pub async fn set_event_lab(
             ApiError::NotFound => ApiError::BadRequest("that lab host does not exist".into()),
             other => other,
         })?;
-        if event.network_mode == "vpn" {
-            return Err(ApiError::Conflict(
-                "this event uses the private VPN, which only works with instances on this server: switch it to published ports first".into(),
-            ));
-        }
         let _ = row;
     }
-    if event.lab_host_id != body.lab_host_id {
+    // The event's network mode must work on its new home: a gateway for the VPN, and published
+    // ports only where the lab host allows them.
+    let mode = body
+        .network_mode
+        .clone()
+        .unwrap_or_else(|| event.network_mode.clone());
+    if !event_store::NETWORK_MODES.contains(&mode.as_str()) {
+        return Err(ApiError::BadRequest("mode is published or vpn".into()));
+    }
+    crate::vpn::check_mode(&state, body.lab_host_id, &mode).await?;
+    if event.lab_host_id != body.lab_host_id || event.network_mode != mode {
         let _guard = state.write_lock.lock().await;
         let live: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM instance WHERE event_id = ? AND state IN ('starting', 'running')",
@@ -338,6 +348,9 @@ pub async fn set_event_lab(
             ));
         }
         event_store::set_lab_host(&state.pool, id, body.lab_host_id).await?;
+        if event.network_mode != mode {
+            event_store::set_network_mode(&state.pool, id, &mode).await?;
+        }
         monitor_store::audit(
             &state.pool,
             state.now(),
@@ -350,6 +363,6 @@ pub async fn set_event_lab(
         .await?;
     }
     Ok(Json(
-        json!({ "event_id": id, "lab_host_id": body.lab_host_id }),
+        json!({ "event_id": id, "lab_host_id": body.lab_host_id, "network_mode": mode }),
     ))
 }

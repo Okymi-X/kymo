@@ -13,9 +13,13 @@ pub mod protocol;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "server")]
+pub mod tapnet;
+#[cfg(feature = "server")]
 pub mod tls;
 #[cfg(feature = "server")]
 pub mod vm;
+#[cfg(feature = "server")]
+pub mod vpn;
 
 pub use client::RemoteRuntime;
 pub use manifest::Manifest;

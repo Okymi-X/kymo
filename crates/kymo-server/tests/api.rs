@@ -1286,6 +1286,13 @@ async fn only_embed_pages_may_be_framed() {
                 .contains("frame-ancestors 'none'"),
             "{path}"
         );
+        // The VM console is an image made from a downloaded blob; the policy must allow it.
+        assert!(
+            header(&res, "content-security-policy")
+                .unwrap()
+                .contains("img-src 'self' data: blob:"),
+            "{path}"
+        );
         assert_eq!(
             header(&res, "x-content-type-options").as_deref(),
             Some("nosniff")
