@@ -1,5 +1,5 @@
 import { Check, Copy } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useIsAdmin, useSignedIn, useWho, useCanMonitor } from '../../api/client'
 import type { EventState } from '../../api/platformTypes'
@@ -107,23 +107,55 @@ export function Stat({ label, value, tone }: { label: string; value: ReactNode; 
   )
 }
 
-/** Shared table look: a bordered, horizontally scrollable card. */
+/** True while there is more to scroll to on the right, so a wide table can say so. */
+function useMoreToTheRight() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+    check()
+    el.addEventListener('scroll', check, { passive: true })
+    const observer = new ResizeObserver(check)
+    observer.observe(el)
+    if (el.firstElementChild) observer.observe(el.firstElementChild)
+    return () => {
+      el.removeEventListener('scroll', check)
+      observer.disconnect()
+    }
+  }, [])
+  return { ref, more }
+}
+
+/** Shared table look: a bordered card that scrolls sideways, and says so when it does. */
 export function DataTable({ caption, head, children }: { caption: string; head: string[]; children: ReactNode }) {
+  const { ref, more } = useMoreToTheRight()
   return (
-    <div className="overflow-x-auto rounded-card border border-line bg-surface">
-      <table className="w-full min-w-[36rem] text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr className="border-b border-line text-left text-xs text-muted">
-            {head.map((h) => (
-              <th key={h} scope="col" className="px-4 py-3 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="relative rounded-card border border-line bg-surface">
+        <div ref={ref} className="overflow-x-auto rounded-card">
+          <table className="w-full min-w-[32rem] text-sm">
+            <caption className="sr-only">{caption}</caption>
+            <thead>
+              <tr className="border-b border-line text-left text-xs text-muted">
+                {head.map((h) => (
+                  <th key={h} scope="col" className="px-4 py-3 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>{children}</tbody>
+          </table>
+        </div>
+        {more && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-card bg-gradient-to-l from-surface to-transparent" />}
+      </div>
+      {more && (
+        <p aria-hidden="true" className="text-xs text-muted sm:hidden">
+          Swipe sideways to see more columns.
+        </p>
+      )}
     </div>
   )
 }

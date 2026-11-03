@@ -20,15 +20,17 @@ function statusTone(status: number): string {
 
 function Top({ title, rows }: { title: string; rows: { key: string; count: number }[] }) {
   return (
-    <Panel>
+    <Panel className="min-w-0">
       <h3 className="mb-2 text-sm font-semibold">{title}</h3>
       {rows.length === 0 ? (
         <p className="text-sm text-muted">Nothing yet.</p>
       ) : (
         <ul className="flex flex-col gap-1 text-sm">
           {rows.map((r) => (
-            <li key={r.key} className="flex justify-between gap-3">
-              <span className="truncate font-mono text-xs">{r.key}</span>
+            <li key={r.key} className="flex min-w-0 justify-between gap-3">
+              <span className="min-w-0 truncate font-mono text-xs" title={r.key}>
+                {r.key}
+              </span>
               <span className="font-mono tabular-nums">{r.count}</span>
             </li>
           ))}
@@ -84,7 +86,7 @@ function Traffic() {
           <Input value={ip} onChange={(e) => reset(setIp)(e.target.value)} placeholder="10.0.0.5" className="font-mono" />
         </Field>
         <Field label="Endpoint">
-          <Input value={route} onChange={(e) => reset(setRoute)(e.target.value)} placeholder="/api/v1/auth/player-login" className="w-72 font-mono" />
+          <Input value={route} onChange={(e) => reset(setRoute)(e.target.value)} placeholder="/api/v1/auth/player-login" className="w-full font-mono sm:w-72" />
         </Field>
         <Field label="Status">
           <Input value={status} onChange={(e) => reset(setStatus)(e.target.value.replace(/\D/g, ''))} placeholder="429" className="w-24 font-mono" inputMode="numeric" />

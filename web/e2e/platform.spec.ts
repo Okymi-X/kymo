@@ -274,3 +274,32 @@ test('a long event description says there is more', async ({ page }) => {
   await card.click()
   await expect(page.getByText(long.trim())).toBeVisible()
 })
+
+test('administration pages fit a phone and keep their actions on screen', async ({ browser, request }) => {
+  await request.post('/api/v1/auth/register', { data: { username: 'phoneuser', password: 'a long player password' } })
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const page = await context.newPage()
+  await organizer(page)
+  const fits = async () => expect(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')).toBe(true)
+
+  await page.goto('/admin/users')
+  const ban = page.getByRole('button', { name: /^(Ban|Unban)$/ }).first()
+  await expect(ban).toBeVisible()
+  const box = await ban.boundingBox()
+  expect(box).not.toBeNull()
+  expect((box?.x ?? 999) + (box?.width ?? 999)).toBeLessThanOrEqual(390)
+  await fits()
+
+  await page.goto('/monitor')
+  await expect(page.getByRole('heading', { name: 'Busiest endpoints' })).toBeVisible()
+  await fits()
+  for (const tab of ['Rate limits', 'Bans', 'Audit']) {
+    await page.getByRole('tab', { name: tab }).click()
+    await fits()
+  }
+
+  await page.goto('/admin/ops')
+  await expect(page.getByRole('heading', { name: 'Background jobs' })).toBeVisible()
+  await fits()
+  await context.close()
+})

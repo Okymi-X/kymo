@@ -77,32 +77,63 @@ function Body() {
         <Empty>No users found.</Empty>
       ) : (
         <>
-          <DataTable caption="Users" head={['User', 'Role', 'Joined', 'Status', '']}>
+          {/* A wide table on larger screens; on a phone each account is a card, so role, status and
+              the ban button are never pushed off the edge. */}
+          <div className="hidden sm:block">
+            <DataTable caption="Users" head={['User', 'Role', 'Joined', 'Status', '']}>
+              {data.items.map((u) => (
+                <tr key={u.id}>
+                  <td className={TD}>
+                    <span className="font-medium">{u.display_name || u.username}</span>
+                    <span className="ml-2 text-xs text-muted">@{u.username}</span>
+                  </td>
+                  <td className={TD}>
+                    <Select value={u.role} aria-label={`Role of ${u.username}`} onChange={(e) => update.mutate({ id: u.id, role: e.target.value as Role })} className="h-9 py-0">
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
+                  <td className={`${TD} text-muted`}>{timeAgo(u.created_at)}</td>
+                  <td className={TD}>{u.banned ? <Pill tone="text-danger">Banned</Pill> : <Pill>Active</Pill>}</td>
+                  <td className={TD}>
+                    <Button variant={u.banned ? 'secondary' : 'danger'} onClick={() => update.mutate({ id: u.id, banned: !u.banned })} disabled={update.isPending}>
+                      {u.banned ? 'Unban' : 'Ban'}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </DataTable>
+          </div>
+          <ul className="flex flex-col gap-3 sm:hidden" aria-label="Users">
             {data.items.map((u) => (
-              <tr key={u.id}>
-                <td className={TD}>
-                  <span className="font-medium">{u.display_name || u.username}</span>
-                  <span className="ml-2 text-xs text-muted">@{u.username}</span>
-                </td>
-                <td className={TD}>
-                  <Select value={u.role} aria-label={`Role of ${u.username}`} onChange={(e) => update.mutate({ id: u.id, role: e.target.value as Role })} className="h-9 py-0">
+              <li key={u.id} className="flex flex-col gap-3 rounded-card border border-line bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{u.display_name || u.username}</span>
+                    <span className="block truncate text-xs text-muted">
+                      @{u.username} · joined {timeAgo(u.created_at)}
+                    </span>
+                  </span>
+                  {u.banned ? <Pill tone="text-danger">Banned</Pill> : <Pill>Active</Pill>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={u.role} aria-label={`Role of ${u.username}`} onChange={(e) => update.mutate({ id: u.id, role: e.target.value as Role })} className="min-w-0 flex-1">
                     {ROLES.map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
                     ))}
                   </Select>
-                </td>
-                <td className={`${TD} text-muted`}>{timeAgo(u.created_at)}</td>
-                <td className={TD}>{u.banned ? <Pill tone="text-danger">Banned</Pill> : <Pill>Active</Pill>}</td>
-                <td className={TD}>
                   <Button variant={u.banned ? 'secondary' : 'danger'} onClick={() => update.mutate({ id: u.id, banned: !u.banned })} disabled={update.isPending}>
                     {u.banned ? 'Unban' : 'Ban'}
                   </Button>
-                </td>
-              </tr>
+                </div>
+              </li>
             ))}
-          </DataTable>
+          </ul>
           <Pager page={page} pages={pages} from={(page - 1) * data.per_page + 1} to={Math.min(data.total, page * data.per_page)} total={data.total} onChange={setPage} noun="users" />
         </>
       )}
