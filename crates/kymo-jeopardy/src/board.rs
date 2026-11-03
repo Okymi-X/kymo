@@ -396,7 +396,7 @@ mod tests {
                     .all(|w| w[0].at <= w[1].at && w[0].total <= w[1].total)
             );
         }
-        assert!(steps.get(&4).is_none(), "no solves, no steps");
+        assert!(!steps.contains_key(&4), "no solves, no steps");
         assert_eq!(steps[&3][0].total, 30, "hint cost is taken off the solve");
     }
 
