@@ -1,9 +1,18 @@
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { ApiToken, LadderLine, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
 const SCOPE_KEY = 'kymo.referee'
+const WHO_KEY = 'kymo.who'
+
+/** Who is signed in beyond the token: a player account with its role. The legacy organizer
+ *  password and referee tokens have no account, so they store nothing here. */
+export interface Who {
+  id: number
+  username: string
+  role: 'player' | 'referee' | 'monitor' | 'admin'
+}
 
 const listeners = new Set<() => void>()
 
@@ -25,14 +34,26 @@ function readScope(): number[] | null {
   }
 }
 
+function readWho(): Who | null {
+  try {
+    const raw = sessionStorage.getItem(WHO_KEY)
+    return raw === null ? null : (JSON.parse(raw) as Who)
+  } catch {
+    return null
+  }
+}
+
 export const session = {
   token: readToken,
   scope: readScope,
-  set(token: string, scope: number[] | null = null) {
+  who: readWho,
+  set(token: string, scope: number[] | null = null, who: Who | null = null) {
     try {
       sessionStorage.setItem(TOKEN_KEY, token)
       if (scope === null) sessionStorage.removeItem(SCOPE_KEY)
       else sessionStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
+      if (who === null) sessionStorage.removeItem(WHO_KEY)
+      else sessionStorage.setItem(WHO_KEY, JSON.stringify(who))
     } catch {
       /* storage unavailable: session lasts until reload */
     }
@@ -42,6 +63,7 @@ export const session = {
     try {
       sessionStorage.removeItem(TOKEN_KEY)
       sessionStorage.removeItem(SCOPE_KEY)
+      sessionStorage.removeItem(WHO_KEY)
     } catch {
       /* nothing stored */
     }
@@ -53,14 +75,43 @@ export const session = {
   },
 }
 
-/** Signed in as the organizer, with every tool. A referee is not an admin. */
+/** The signed in player account, or null for visitors, the legacy organizer and referee tokens. */
+export function useWho(): Who | null {
+  const raw = useSyncExternalStore(session.subscribe, () => sessionStorage.getItem(WHO_KEY))
+  return useMemo(() => {
+    try {
+      return raw === null ? null : (JSON.parse(raw) as Who)
+    } catch {
+      return null
+    }
+  }, [raw])
+}
+
+/** Signed in at all, with any kind of session. */
+export function useSignedIn(): boolean {
+  return useSyncExternalStore(session.subscribe, () => session.token() !== null)
+}
+
+/** Signed in as the organizer, with every tool: the organizer password or an admin account.
+ *  A referee is not an admin. */
 export function useIsAdmin(): boolean {
-  return useSyncExternalStore(session.subscribe, () => session.token() !== null && sessionStorage.getItem(SCOPE_KEY) === null)
+  return useSyncExternalStore(session.subscribe, () => {
+    if (session.token() === null) return false
+    const who = readWho()
+    return who ? who.role === 'admin' : sessionStorage.getItem(SCOPE_KEY) === null
+  })
 }
 
 /** Signed in as a referee, who can only record results and schedules for some tournaments. */
 export function useIsReferee(): boolean {
   return useSyncExternalStore(session.subscribe, () => sessionStorage.getItem(SCOPE_KEY) !== null && session.token() !== null)
+}
+
+/** Whether the signed in account may use the monitor: monitors and admins. */
+export function useCanMonitor(): boolean {
+  const who = useWho()
+  const admin = useIsAdmin()
+  return admin || who?.role === 'monitor'
 }
 
 /** Whether this visitor can enter results for a tournament: the organizer, or a referee covering it. */
@@ -78,7 +129,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   const token = session.token()
   if (token) headers.authorization = `Bearer ${token}`

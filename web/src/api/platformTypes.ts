@@ -1,0 +1,497 @@
+// Shapes of the platform API (events, accounts, teams, Jeopardy, instances, operations).
+// Mirrored by hand from the server, like types.ts.
+
+export type Role = 'visitor' | 'player' | 'referee' | 'monitor' | 'admin'
+export type EventState = 'draft' | 'registration_open' | 'live' | 'paused' | 'ended' | 'archived'
+export type Verdict = 'correct' | 'incorrect' | 'bad_format'
+
+export interface User {
+  id: number
+  username: string
+  email: string | null
+  role: Role
+  banned: boolean
+  display_name: string
+  bio: string
+  created_at: number
+}
+
+export interface Me extends User {
+  team_id: number | null
+}
+
+export interface SessionOut {
+  token: string
+  user: User
+}
+
+export interface EventInfo {
+  id: number
+  kind: 'tournament' | 'jeopardy'
+  mode: 'solo' | 'team'
+  name: string
+  slug: string
+  state: EventState
+  effective_state: EventState
+  registration_opens: number | null
+  registration_closes: number | null
+  starts_at: number | null
+  ends_at: number | null
+  scoreboard_public: boolean
+  description: string
+  team_min: number
+  team_max: number
+  allow_invites: boolean
+  roster_locked: boolean
+  /** Where instances are reached: a published host port, or a private lab through the player's VPN. */
+  network_mode: 'published' | 'vpn'
+  created_at: number
+  /** Only on the single event response. */
+  registered?: boolean
+}
+
+export interface Category {
+  id: number
+  event_id: number
+  name: string
+  position: number
+}
+
+export interface PlayerHint {
+  id: number
+  cost: number
+  unlocked: boolean
+  content: string | null
+}
+
+export interface PlayerAttachment {
+  id: number
+  name: string
+  mime: string
+  size: number
+  sha256: string
+  url: string
+}
+
+export interface PlayerChallenge {
+  id: number
+  category_id: number
+  title: string
+  description: string
+  points: number
+  solved: boolean
+  solved_at: number | null
+  solved_by: number
+  status: 'open' | 'closed'
+  release_at: number | null
+  retire_at: number | null
+  flag_format: { prefix: string; suffix: string }
+  max_attempts: number | null
+  attempts_remaining: number | null
+  requires_instance: boolean
+  hints: PlayerHint[]
+  attachments: PlayerAttachment[]
+}
+
+export interface ChallengeList {
+  categories: Category[]
+  challenges: PlayerChallenge[]
+}
+
+export interface SubmitResult {
+  verdict: Verdict
+  correct: boolean
+  points: number | null
+  attempts_remaining: number | null
+}
+
+export interface HintUnlock {
+  hint_id: number
+  cost: number
+  content: string
+  newly_unlocked: boolean
+}
+
+export type InstanceStateName = 'none' | 'starting' | 'running' | 'stopped' | 'expired' | 'failed'
+
+export interface InstanceView {
+  id?: number
+  state: InstanceStateName
+  /** `vpn` means the address is private and needs the player's VPN. */
+  network?: 'vpn' | 'published'
+  host?: string | null
+  port?: number | null
+  started_at?: number
+  expires_at?: number
+  remaining_secs?: number
+  starts_used: number
+  starts_max: number
+}
+
+export interface BoardRow {
+  rank: number
+  participant_id: number
+  kind: 'user' | 'team'
+  name: string
+  avatar_seed: string
+  points: number
+  solves: number
+  last_solve_at: number | null
+  solved?: number[] | null
+}
+
+export interface Scoreboard {
+  event_id: number
+  mode: string
+  public: boolean
+  rows: BoardRow[]
+  challenges?: { id: number; title: string; category_id: number }[] | null
+}
+
+export interface SolveLine {
+  challenge_id: number
+  title: string
+  at: number
+  hints_cost: number
+  points: number
+}
+
+export interface Progress {
+  participant_id: number
+  kind: 'user' | 'team'
+  name: string
+  rank: number | null
+  points: number
+  solved_count: number
+  total_challenges: number
+  solves: SolveLine[]
+}
+
+export interface MemberProgress {
+  user_id: number
+  username: string
+  display_name: string
+  points: number
+  solves: { challenge_id: number; title: string; at: number; points: number }[]
+}
+
+export interface TeamProgress {
+  team: Progress
+  members: MemberProgress[]
+}
+
+export interface Member {
+  user_id: number
+  username: string
+  display_name: string
+  role: 'owner' | 'member'
+  joined_at: number
+}
+
+export interface Team {
+  id: number
+  name: string
+  owner_user_id: number
+  invite_code: string | null
+  created_at: number
+  members: Member[]
+}
+
+// ---------- administration ----------
+
+export type Scoring =
+  | { kind: 'static'; points: number }
+  | { kind: 'dynamic'; initial: number; minimum: number; decay: number; curve: 'linear' | 'parabolic' | 'logarithmic' }
+
+export type FlagSpec = { kind: 'static'; value: string } | { kind: 'regex'; pattern: string } | { kind: 'per_team'; expected: string }
+
+export interface InstanceConfig {
+  image: string
+  port: number
+  cpu_millis: number
+  memory_mb: number
+  pids: number
+  ttl_secs: number
+  env?: [string, string][]
+  read_only?: boolean
+}
+
+export interface AdminHint {
+  id: number
+  challenge_id: number
+  content: string
+  cost: number
+  position: number
+}
+
+export interface AdminAttachment {
+  id: number
+  challenge_id: number
+  name: string
+  mime: string
+  size: number
+  sha256: string
+}
+
+export interface AdminChallenge {
+  id: number
+  event_id: number
+  category_id: number
+  title: string
+  description: string
+  scoring: Scoring
+  flag: FlagSpec
+  flag_prefix: string
+  flag_suffix: string
+  case_sensitive: boolean
+  max_attempts: number | null
+  state: 'draft' | 'published' | 'retired'
+  release_at: number | null
+  retire_at: number | null
+  position: number
+  requires_instance: boolean
+  instance_config: InstanceConfig | null
+  created_at: number
+  solves: number
+  hints: AdminHint[]
+  attachments: AdminAttachment[]
+}
+
+export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'solves' | 'hints' | 'attachments' | 'state'>
+
+export interface JeopardySettings {
+  tie_breaks: ('earliest_last_solve' | 'most_solves' | 'first_blood')[]
+  rate_max_attempts: number
+  rate_window_secs: number
+  rate_lockout_secs: number
+}
+
+export interface EventBody {
+  name: string
+  kind: 'tournament' | 'jeopardy'
+  mode: 'solo' | 'team'
+  description?: string
+  registration_opens?: number | null
+  registration_closes?: number | null
+  starts_at?: number | null
+  ends_at?: number | null
+  scoreboard_public?: boolean
+  team_min?: number
+  team_max?: number
+  allow_invites?: boolean
+  roster_locked?: boolean
+}
+
+export interface Participant {
+  id: number
+  user_id: number | null
+  team_id: number | null
+  name: string
+  members: number
+  registered_at: number
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface SubmissionLine {
+  id: number
+  challenge_id: number
+  challenge_title: string
+  participant_kind: string
+  participant_id: number
+  user_id: number
+  username: string | null
+  ip: string
+  value: string
+  verdict: Verdict
+  at: number
+}
+
+export interface AdminInstance {
+  id: number
+  challenge_id: number
+  participant: { kind: string; id: number }
+  user_id: number
+  state: InstanceStateName
+  host_port: number | null
+  started_at: number
+  expires_at: number
+  stopped_at: number | null
+}
+
+// ---------- monitoring and operations ----------
+
+export interface LogRow {
+  id: number
+  at: number
+  method: string
+  route: string
+  path: string
+  status: number
+  ip: string
+  user_id: number | null
+  username: string | null
+  ms: number
+}
+
+export interface LogPage {
+  total: number
+  page: number
+  per_page: number
+  requests: LogRow[]
+}
+
+export interface Count {
+  key: string
+  count: number
+}
+
+export interface MonitorSummary {
+  since: number
+  total: number
+  server_errors: number
+  throttled: number
+  forbidden: number
+  top_ips: Count[]
+  top_routes: Count[]
+  slowest_routes: Count[]
+}
+
+export interface RateRule {
+  id: number
+  endpoint: string
+  max_requests: number
+  window_secs: number
+  scope: 'ip' | 'user'
+  strikes_to_ban: number | null
+  ban_secs: number
+  enabled: boolean
+  created_at: number
+}
+
+export type RateRuleBody = Omit<RateRule, 'id' | 'created_at'>
+
+export interface Ban {
+  id: number
+  kind: 'ip' | 'user'
+  subject: string
+  reason: string
+  auto: boolean
+  created_by: number | null
+  created_at: number
+  expires_at: number | null
+  lifted_at: number | null
+  lifted_by: number | null
+  active: boolean
+}
+
+export interface AuditEntry {
+  id: number
+  at: number
+  actor_user_id: number | null
+  actor_name: string | null
+  actor_role: string
+  action: string
+  target_kind: string
+  target_id: string
+  detail: string
+}
+
+export interface AuditPage {
+  total: number
+  page: number
+  per_page: number
+  entries: AuditEntry[]
+}
+
+export interface RunInfo {
+  at: number
+  detail: string
+  error: string | null
+}
+
+export interface Health {
+  status: 'ok' | 'degraded'
+  time: number
+  version: string
+  uptime_secs: number
+  database: { ok: boolean; ping_ms: number; size_bytes: number }
+  traffic: { window_secs: number; requests: number; server_errors: number; throttled: number; avg_ms: number }
+  instances: { enabled: boolean; runtime_ok: boolean | null; live: number; expired_pending: number; orphans: number }
+  backups: { configured: boolean }
+  vpn?: { enabled: boolean; gateway_ok?: boolean; labs?: number; clients?: number; error?: string | null }
+  jobs: { reaper: RunInfo | null; backup: RunInfo | null; maintenance: RunInfo | null }
+  events: {
+    id: number
+    slug: string
+    name: string
+    kind: string
+    state: string
+    effective_state: string
+    participants: number
+    live_instances: number
+    submissions_last_10m: number
+  }[]
+  recent_errors: { at: number; method: string; route: string; status: number; ms: number }[]
+}
+
+export interface BackupFile {
+  name: string
+  size: number
+}
+
+export interface BackupListing {
+  configured: boolean
+  every_secs: number | null
+  keep: number | null
+  backups: BackupFile[]
+}
+
+export interface CleanupReport {
+  instances_ended: number
+  log_rows: number
+  expired_sessions: number
+}
+
+// ---------- VPN ----------
+
+export interface VpnStatus {
+  enabled: boolean
+  host?: string
+  port?: number
+  has_profile?: boolean
+  tunnel_ip?: string | null
+  issued_at?: number | null
+  expires_at?: number | null
+}
+
+export interface AdminVpn {
+  enabled: boolean
+  host?: string
+  port?: number
+  gateway?: { running: boolean; networks: string[]; error: string | null }
+  tunnel?: { net: string; capacity: number; used: number }
+  lab_pool?: { net: string; capacity: number; used: number }
+  clients?: number
+  labs?: {
+    id: number
+    event_id: number
+    participant: { kind: string; id: number }
+    network: string
+    subnet: string
+    live_instances: number
+    last_used_at: number
+  }[]
+}
+
+export interface VpnSyncReport {
+  labs: number
+  clients: number
+  allows: number
+  disconnected: number
+}
