@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Search } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { api, session, useIsAdmin } from '../api/client'
+import { api, session, useCanMonitor, useIsAdmin, useWho } from '../api/client'
 import { useTournaments } from '../api/hooks'
+import { useEvents } from '../api/platformHooks'
 import { filterCommands, type Command } from '../lib/palette'
 
 function Key({ children }: { children: string }) {
@@ -15,29 +16,49 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [active, setActive] = useState(0)
   const navigate = useNavigate()
   const admin = useIsAdmin()
+  const who = useWho()
+  const monitor = useCanMonitor()
   const { data } = useTournaments()
+  const events = useEvents().data
 
   const commands = useMemo<Command[]>(() => {
     const go = (path: string) => () => navigate(path)
+    const signOut = () => {
+      void api.logout().catch(() => undefined)
+      session.clear()
+      navigate('/')
+    }
     const list: Command[] = [
+      { id: 'events', label: 'Events', group: 'Pages', run: go('/events') },
       { id: 'home', label: 'All tournaments', group: 'Pages', run: go('/') },
       { id: 'ladder', label: 'Ladder', group: 'Pages', run: go('/ladder') },
     ]
-    for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, group: 'Tournaments', run: go(`/t/${t.slug}`) })
+    if (who) {
+      list.push({ id: 'team', label: 'My team', group: 'Pages', run: go('/team') })
+      list.push({ id: 'profile', label: 'Profile', group: 'Pages', run: go('/profile') })
+    }
     if (admin) {
+      list.push({ id: 'manage', label: 'Manage events', group: 'Pages', run: go('/admin/events') })
+      list.push({ id: 'users', label: 'Users', group: 'Pages', run: go('/admin/users') })
+      list.push({ id: 'ops', label: 'Operations', group: 'Pages', run: go('/admin/ops') })
       list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/settings') })
       list.push({ id: 'tokens', label: 'API tokens', group: 'Pages', run: go('/tokens') })
-      list.push({ id: 'out', label: 'Sign out', group: 'Account', run: () => {
-          void api.logout().catch(() => undefined)
-          session.clear()
-          navigate('/')
-        } })
-    } else {
-      list.push({ id: 'in', label: 'Organizer sign in', group: 'Account', run: go('/login') })
     }
-    const order = ['Pages', 'Tournaments', 'Account']
+    if (monitor) list.push({ id: 'monitor', label: 'Monitor', group: 'Pages', run: go('/monitor') })
+    // Tournament events are listed with the tournaments below; the rest are Jeopardy events.
+    for (const e of events ?? []) {
+      if (e.kind === 'jeopardy') list.push({ id: `e-${e.id}`, label: e.name, hint: e.effective_state.replace('_', ' '), group: 'Events', run: go(`/e/${e.slug}`) })
+    }
+    for (const t of data ?? []) list.push({ id: `t-${t.id}`, label: t.name, hint: t.status, group: 'Tournaments', run: go(`/t/${t.slug}`) })
+    if (admin || who) {
+      list.push({ id: 'out', label: 'Sign out', group: 'Account', run: signOut })
+    } else {
+      list.push({ id: 'in', label: 'Sign in', group: 'Account', run: go('/signin') })
+      list.push({ id: 'org', label: 'Organizer sign in', group: 'Account', run: go('/login') })
+    }
+    const order = ['Pages', 'Events', 'Tournaments', 'Account']
     return list.sort((a, b) => order.indexOf(a.group ?? '') - order.indexOf(b.group ?? ''))
-  }, [data, admin, navigate])
+  }, [data, events, admin, who, monitor, navigate])
 
   const results = useMemo(() => filterCommands(commands, query), [commands, query])
 
@@ -97,7 +118,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           setActive(0)
         }}
         onKeyDown={onKeyDown}
-        placeholder="Go to a tournament or page"
+        placeholder="Search events, tournaments and pages"
         className="h-12 w-full bg-transparent text-base placeholder:text-muted focus:outline-none focus-visible:outline-none"
       />
       </div>

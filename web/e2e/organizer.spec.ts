@@ -440,7 +440,7 @@ test('nav bar: live badge, search bar, light and dark switch that is remembered'
   await expect(page).toHaveURL(/status=live/)
   await expect(page.getByRole('button', { name: 'Live', exact: false }).first()).toHaveAttribute('aria-pressed', 'true')
 
-  await expect(page.getByRole('button', { name: 'Open command palette' })).toContainText('Search tournaments')
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toContainText('Search Kymo')
 
   await page.getByRole('button', { name: 'Switch to dark mode' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark')

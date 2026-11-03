@@ -1,5 +1,5 @@
-import { ChevronLeft, Search } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { Menu, Search, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useTournaments } from '../api/hooks'
 import { session, useIsAdmin, useIsReferee, useWho } from '../api/client'
@@ -64,6 +64,66 @@ function LiveBadge() {
   )
 }
 
+const NAV: { to: string; label: string; match: (path: string) => boolean }[] = [
+  { to: '/', label: 'Tournaments', match: (p) => p === '/' || p.startsWith('/t/') },
+  { to: '/events', label: 'Events', match: (p) => p.startsWith('/events') || p.startsWith('/e/') },
+  { to: '/ladder', label: 'Ladder', match: (p) => p === '/ladder' },
+]
+
+/** The primary links on a phone, where the header has no room for them. */
+function MobileNav({ signedOut }: { signedOut: boolean }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const { pathname } = useLocation()
+  useEffect(() => setOpen(false), [pathname])
+  useEffect(() => {
+    if (!open) return
+    const close = (e: Event) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', key)
+    }
+  }, [open])
+  return (
+    <div ref={root} className="sm:hidden">
+      <button
+        type="button"
+        aria-label={open ? 'Close menu' : 'Open menu'}
+        aria-expanded={open}
+        aria-controls="mobile-nav"
+        onClick={() => setOpen((v) => !v)}
+        className="-ml-2 flex size-10 items-center justify-center rounded-control text-muted transition-colors hover:bg-line/50 hover:text-ink"
+      >
+        {open ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+      </button>
+      {open && (
+        <nav id="mobile-nav" aria-label="Menu" className="menu-pop absolute inset-x-0 top-14 z-30 flex flex-col gap-1 border-b border-line bg-surface p-3 shadow-[var(--shadow-lift)]">
+          {NAV.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              aria-current={item.match(pathname) ? 'page' : undefined}
+              className={`rounded-control px-3 py-3 text-base font-medium ${item.match(pathname) ? 'bg-line/60 text-ink' : 'text-muted hover:bg-line/40 hover:text-ink'}`}
+            >
+              {item.label}
+            </Link>
+          ))}
+          {signedOut && (
+            <Link to="/signin" className="mt-1 rounded-control bg-accent px-3 py-3 text-center text-base font-medium text-bg">
+              Sign in
+            </Link>
+          )}
+        </nav>
+      )}
+    </div>
+  )
+}
+
 function Header({ onSearch }: { onSearch: () => void }) {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
@@ -85,16 +145,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
   return (
     <header className={`no-print sticky top-0 z-20 border-b backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200 supports-[backdrop-filter]:bg-surface/70 ${scrolled ? 'border-line bg-surface/90 shadow-[var(--shadow-lift)]' : 'border-transparent bg-surface/80'}`}>
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-        {pathname !== '/' && (
-          <button
-            type="button"
-            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}
-            aria-label="Go back"
-            className="-ml-2 flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:bg-line/50 hover:text-ink md:hidden"
-          >
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
-        )}
+        <MobileNav signedOut={!admin && !who && !referee} />
         <Brand siteName={siteName} logo={look?.logo ?? null} />
         <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''}`}>
           <Link
@@ -131,7 +182,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
             className="flex h-9 items-center gap-2 rounded-control border border-line bg-field/60 px-2.5 text-sm text-muted transition-colors hover:border-field-line hover:text-ink lg:w-60"
           >
             <Search size={15} aria-hidden="true" />
-            <span className="hidden flex-1 text-left lg:inline">Search tournaments</span>
+            <span className="hidden flex-1 text-left lg:inline">Search Kymo</span>
             <kbd className="hidden rounded border border-line px-1.5 py-0.5 font-mono text-[11px] sm:inline">{shortcut}</kbd>
           </button>
           <ThemeToggle />
@@ -149,9 +200,11 @@ function Header({ onSearch }: { onSearch: () => void }) {
               Referee, sign out
             </button>
           ) : (
-            <Link to="/signin" className="whitespace-nowrap rounded-control bg-accent px-3 py-1.5 text-sm font-medium text-bg transition-opacity hover:opacity-90">
-              Sign in
-            </Link>
+            !pathname.startsWith('/signin') && (
+              <Link to="/signin" className="whitespace-nowrap rounded-control bg-accent px-3 py-1.5 text-sm font-medium text-bg transition-opacity hover:opacity-90">
+                Sign in
+              </Link>
+            )
           )}
         </div>
       </div>

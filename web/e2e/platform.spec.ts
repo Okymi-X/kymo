@@ -146,7 +146,7 @@ test('closed sign-ups are explained up front and the server says so in plain wor
     await visitor.goto('/signin?mode=register')
     // Told before typing anything, and the form falls back to signing in instead of a dead end.
     await expect(visitor.getByText(/Creating accounts is switched off on this server/)).toBeVisible()
-    await expect(visitor.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+    await expect(visitor.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
     await expect(visitor.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled()
 
     // A direct attempt is refused with a sentence about sign-ups, not about tokens.
@@ -180,4 +180,47 @@ test('the sign-up form explains what is missing as you type', async ({ browser }
   await page.getByLabel('Show the password').check()
   await expect(page.getByLabel(/^Password/)).toHaveAttribute('type', 'text')
   await context.close()
+})
+
+test('on a phone the main links live in a menu and the page does not scroll sideways', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const page = await context.newPage()
+  await page.goto('/')
+  await expect(page.getByRole('navigation', { name: 'Primary' })).toBeHidden()
+  await page.getByRole('button', { name: 'Open menu' }).click()
+  await expect(page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Tournaments' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Ladder' })).toBeVisible()
+  await page.getByRole('navigation', { name: 'Menu' }).getByRole('link', { name: 'Events' }).click()
+  await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Menu' })).toBeHidden() // it closes after choosing
+  expect(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')).toBe(true)
+  await context.close()
+})
+
+test('an unknown address says so in general terms and offers a way on', async ({ page }) => {
+  await page.goto('/this/does/not/exist')
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await expect(page.getByText(/tournament may have been/)).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Go to the home page' })).toBeVisible()
+  await page.goto('/e/no-such-event')
+  await expect(page.getByRole('link', { name: 'Browse events' })).toBeVisible()
+})
+
+test('the search finds events as well as tournaments', async ({ page }) => {
+  // Own event, so the test does not depend on another one having run.
+  const login = await page.request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const token = ((await login.json()) as { token: string }).token
+  const headers = { authorization: `Bearer ${token}` }
+  const made = await page.request.post('/api/v1/admin/events', { headers, data: { name: 'Findable Spring CTF', kind: 'jeopardy', mode: 'solo' } })
+  const event = (await made.json()) as { id: number }
+  await page.request.post(`/api/v1/admin/events/${event.id}/state`, { headers, data: { state: 'registration_open' } })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Open command palette' })).toContainText('Search Kymo')
+  await page.keyboard.press('Control+k')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await palette.getByRole('combobox').fill('findable')
+  await expect(palette.getByRole('option', { name: /Findable Spring CTF/ })).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'Findable Spring CTF' })).toBeVisible()
 })

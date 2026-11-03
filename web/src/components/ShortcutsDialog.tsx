@@ -4,7 +4,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: 'Anywhere',
     items: [
-      ['Ctrl K', 'Search tournaments and teams'],
+      ['Ctrl K', 'Search events, tournaments and pages'],
       ['?', 'Show this list'],
     ],
   },

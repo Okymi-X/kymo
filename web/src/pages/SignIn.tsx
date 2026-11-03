@@ -49,7 +49,7 @@ export function SignIn() {
   }
   return (
     <form onSubmit={submit} className="mx-auto flex max-w-sm flex-col gap-5">
-      <PageTitle>{registering ? 'Create account' : 'Sign in'}</PageTitle>
+      <PageTitle>{registering ? 'Join Kymo' : 'Welcome back'}</PageTitle>
       <Segmented<Mode>
         label="Account"
         value={mode}
