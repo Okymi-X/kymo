@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use kymo_core::{Permission, Role, scoreboard_visible};
-use kymo_jeopardy::{Challenge, Solve, rank, team_breakdown};
+use kymo_jeopardy::{Challenge, Solve, Step, progression, rank, team_breakdown};
 use serde::{Deserialize, Serialize};
 
 use super::challenges::solve_points;
@@ -64,13 +64,14 @@ async fn jeopardy_by_slug(state: &AppState, slug: &str) -> Result<EventRow, ApiE
     Ok(event)
 }
 
-pub async fn scoreboard(
-    MaybeCaller(caller): MaybeCaller,
-    State(state): State<AppState>,
-    Path(slug): Path<String>,
-    Query(query): Query<BoardQuery>,
-) -> Result<Json<ScoreboardOut>, ApiError> {
-    let event = jeopardy_by_slug(&state, &slug).await?;
+/// The event behind a scoreboard URL, if this caller may see its scoreboard: the same rule for
+/// the table and the chart.
+async fn visible_event(
+    state: &AppState,
+    caller: Option<crate::auth::Caller>,
+    slug: &str,
+) -> Result<EventRow, ApiError> {
+    let event = jeopardy_by_slug(state, slug).await?;
     let role = caller.map_or(Role::Visitor, |c| c.role);
     if event.state == "draft" && !role.can(Permission::ManageChallenges) {
         return Err(ApiError::NotFound);
@@ -86,6 +87,16 @@ pub async fn scoreboard(
             return Err(ApiError::Denied("the scoreboard is not public yet".into()));
         }
     }
+    Ok(event)
+}
+
+pub async fn scoreboard(
+    MaybeCaller(caller): MaybeCaller,
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<BoardQuery>,
+) -> Result<Json<ScoreboardOut>, ApiError> {
+    let event = visible_event(&state, caller, &slug).await?;
     let board = Board::load(&state.pool, &event).await?;
     let settings = jeopardy_store::settings(&state.pool, event.id).await?;
     let ranked = rank(
@@ -319,4 +330,100 @@ pub async fn team_progress(
         })
         .collect();
     Ok(Json(TeamProgressOut { team, members }))
+}
+
+#[derive(Deserialize)]
+pub struct TimelineQuery {
+    top: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct SeriesOut {
+    participant_id: i64,
+    name: String,
+    avatar_seed: String,
+    rank: u32,
+    points: i64,
+    steps: Vec<Step>,
+}
+
+#[derive(Serialize)]
+pub struct TimelineOut {
+    event_id: i64,
+    mode: String,
+    /// The left edge of the chart, unix seconds.
+    from: i64,
+    /// The right edge: now, or the end of the event once it is over.
+    to: i64,
+    series: Vec<SeriesOut>,
+}
+
+const DEFAULT_TOP: usize = 10;
+const MAX_TOP: usize = 20;
+
+/// How the best participants' totals grew over time, for the chart. Same visibility rule and
+/// the same valuing as the table, so each line ends on the total shown there.
+pub async fn timeline(
+    MaybeCaller(caller): MaybeCaller,
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<TimelineQuery>,
+) -> Result<Json<TimelineOut>, ApiError> {
+    let event = visible_event(&state, caller, &slug).await?;
+    let board = Board::load(&state.pool, &event).await?;
+    let settings = jeopardy_store::settings(&state.pool, event.id).await?;
+    let ranked = rank(
+        &settings.board_config(),
+        &board.participants,
+        &board.challenges,
+        &board.solves,
+    );
+    let mut steps = progression(&board.participants, &board.challenges, &board.solves);
+    let top = query.top.unwrap_or(DEFAULT_TOP).clamp(1, MAX_TOP);
+    let series: Vec<SeriesOut> = ranked
+        .into_iter()
+        .filter_map(|row| {
+            let list = steps.remove(&row.participant)?;
+            let name = board
+                .names
+                .get(&row.participant)
+                .cloned()
+                .unwrap_or_default();
+            Some(SeriesOut {
+                participant_id: i64::try_from(row.participant).unwrap_or_default(),
+                avatar_seed: name.clone(),
+                name,
+                rank: row.rank,
+                points: row.points,
+                steps: list,
+            })
+        })
+        .take(top)
+        .collect();
+    let now = state.now();
+    let first = series
+        .iter()
+        .filter_map(|s| s.steps.first().map(|st| st.at))
+        .min();
+    let last = series
+        .iter()
+        .filter_map(|s| s.steps.last().map(|st| st.at))
+        .max();
+    let to = match event.ends_at {
+        Some(end) if end < now => end,
+        _ => now,
+    }
+    .max(last.unwrap_or(0));
+    let from = event
+        .starts_at
+        .filter(|s| *s <= to)
+        .unwrap_or(first.unwrap_or(to));
+    let from = first.map_or(from, |f| from.min(f));
+    Ok(Json(TimelineOut {
+        event_id: event.id,
+        mode: event.mode,
+        from,
+        to,
+        series,
+    }))
 }

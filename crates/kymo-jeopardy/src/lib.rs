@@ -10,7 +10,7 @@ pub mod scoring;
 
 pub use board::{
     BoardConfig, Challenge, DuplicatePolicy, MemberBreakdown, MemberSolve, Participant, Row, Solve,
-    TieBreak, first_blood, rank, solve_counts, team_breakdown,
+    Step, TieBreak, first_blood, progression, rank, solve_counts, team_breakdown,
 };
 pub use error::{FlagError, ScoringError};
 pub use flag::{FlagFormat, FlagSpec, Verdict, check, ct_eq};

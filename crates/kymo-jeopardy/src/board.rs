@@ -211,6 +211,45 @@ pub fn rank(
     out
 }
 
+/// One step of a score history: the total a participant has after the solve at `at`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Step {
+    pub at: i64,
+    pub total: i64,
+}
+
+/// How every participant's total grew over time, from the same counted solves and values as
+/// [`rank`], so the last step of a participant equals their ranked points. Participants
+/// without a solve have no steps. Solves valued 0 are kept: they still move the line's time.
+pub fn progression(
+    participants: &[Participant],
+    challenges: &[Challenge],
+    solves: &[Solve],
+) -> BTreeMap<u64, Vec<Step>> {
+    let ps: BTreeSet<u64> = participants.iter().map(|p| p.id).collect();
+    let cs = challenge_map(challenges);
+    let kept = counted(&ps, &cs, solves, true);
+    let mut totals: BTreeMap<u64, u32> = BTreeMap::new();
+    for s in &kept {
+        *totals.entry(s.challenge).or_insert(0) += 1;
+    }
+    let mut running: BTreeMap<u64, i64> = BTreeMap::new();
+    let mut out: BTreeMap<u64, Vec<Step>> = BTreeMap::new();
+    for s in &kept {
+        let Some(ch) = cs.get(&s.challenge) else {
+            continue;
+        };
+        let value = current_value(&ch.scoring, totals.get(&s.challenge).copied().unwrap_or(0));
+        let total = running.entry(s.participant).or_insert(0);
+        *total = total.saturating_add(score_for_solve(value, &[s.hints_cost]));
+        out.entry(s.participant).or_default().push(Step {
+            at: s.at,
+            total: *total,
+        });
+    }
+    out
+}
+
 /// `Less` means `a` ranks higher than `b`.
 fn compare(config: &BoardConfig, a: &Acc, b: &Acc) -> Ordering {
     let mut ord = b.points.cmp(&a.points);
@@ -313,6 +352,54 @@ mod tests {
             hints_cost: 0,
         }
     }
+    #[test]
+    fn progression_ends_on_the_ranked_points_and_revalues_dynamic_challenges() {
+        let dynamic = Challenge {
+            id: 12,
+            scoring: Scoring::Dynamic {
+                initial: 100,
+                minimum: 10,
+                decay: 2,
+                curve: Curve::Linear,
+            },
+        };
+        let challenges = [stat(10, 100), stat(11, 50), dynamic];
+        let solves = [
+            solve(1, 10, 5),
+            solve(2, 10, 6),
+            solve(2, 11, 7),
+            solve(1, 12, 8),
+            solve(2, 12, 9),
+            Solve {
+                participant: 3,
+                challenge: 11,
+                at: 10,
+                hints_cost: 20,
+            },
+        ];
+        let people = ps(&[1, 2, 3, 4]);
+        let steps = progression(&people, &challenges, &solves);
+        let rows = rank(&BoardConfig::default(), &people, &challenges, &solves);
+        for row in &rows {
+            let last = steps.get(&row.participant).and_then(|s| s.last());
+            assert_eq!(
+                last.map_or(0, |s| s.total),
+                row.points,
+                "participant {}",
+                row.participant
+            );
+        }
+        // Totals only grow and follow time.
+        for list in steps.values() {
+            assert!(
+                list.windows(2)
+                    .all(|w| w[0].at <= w[1].at && w[0].total <= w[1].total)
+            );
+        }
+        assert!(steps.get(&4).is_none(), "no solves, no steps");
+        assert_eq!(steps[&3][0].total, 30, "hint cost is taken off the solve");
+    }
+
     fn ranks(rows: &[Row]) -> Vec<(u32, u64)> {
         rows.iter().map(|r| (r.rank, r.participant)).collect()
     }

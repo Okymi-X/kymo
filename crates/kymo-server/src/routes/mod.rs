@@ -138,6 +138,10 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/monitor/bans/{id}", delete(monitor::lift_ban))
         .route("/admin/monitor/audit", get(monitor::audit))
         .route("/events/{slug}/scoreboard", get(scoreboard::scoreboard))
+        .route(
+            "/events/{slug}/scoreboard/timeline",
+            get(scoreboard::timeline),
+        )
         .route("/events/{slug}/progress", get(scoreboard::progress))
         .route("/events/{slug}/stream", get(challenges::stream))
         .route("/teams/{id}/progress", get(scoreboard::team_progress))

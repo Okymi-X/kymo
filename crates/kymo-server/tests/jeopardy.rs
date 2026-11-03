@@ -1463,3 +1463,62 @@ async fn correct_flags_are_masked_for_staff_and_revealed_one_at_a_time_with_an_a
     .await;
     assert_eq!(audit["total"], 1, "{audit}");
 }
+
+#[tokio::test]
+async fn the_score_timeline_ends_on_the_board_totals_and_follows_the_same_visibility() {
+    let c = Ctx::new("solo", json!({})).await;
+    let one = c.challenge(json!({ "title": "One" })).await;
+    let two = c
+        .challenge(json!({ "title": "Two", "flag": { "kind": "static", "value": "KYMO{two}" } }))
+        .await;
+    let (alice, _) = player(&c.w.app, "alice").await;
+    let (bob, _) = player(&c.w.app, "bob").await;
+    let (idle, _) = player(&c.w.app, "idle").await;
+    for t in [&alice, &bob, &idle] {
+        c.register(t).await;
+    }
+    c.set_state("live").await;
+    c.submit(&alice, one, FLAG).await;
+    c.submit(&bob, one, FLAG).await;
+    c.submit(&alice, two, "KYMO{two}").await;
+
+    let uri = format!("/api/v1/events/{}/scoreboard/timeline", c.slug);
+    // Not public yet: the chart is as hidden as the table.
+    assert_eq!(
+        call(&c.w.app, "GET", &uri, None, None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, own) = call(&c.w.app, "GET", &uri, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK, "registered players see it: {own}");
+    c.admin(
+        "POST",
+        &format!("/admin/events/{}/scoreboard", c.event_id),
+        Some(json!({ "public": true })),
+    )
+    .await;
+
+    let (status, chart) = call(&c.w.app, "GET", &uri, None, None).await;
+    assert_eq!(status, StatusCode::OK, "{chart}");
+    let (_, board) = c.board(None).await;
+    let series = chart["series"].as_array().unwrap();
+    assert_eq!(series.len(), 2, "a player with no solve has no line");
+    for line in series {
+        let row = board["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["participant_id"] == line["participant_id"])
+            .unwrap();
+        let steps = line["steps"].as_array().unwrap();
+        assert_eq!(steps.last().unwrap()["total"], row["points"], "{line}");
+        assert_eq!(line["rank"], row["rank"]);
+    }
+    assert_eq!(series[0]["name"], "alice", "best first");
+    assert!(chart["from"].as_i64().unwrap() <= chart["to"].as_i64().unwrap());
+
+    // The number of lines can be limited, and the limit is bounded.
+    let (_, one_line) = call(&c.w.app, "GET", &format!("{uri}?top=1"), None, None).await;
+    assert_eq!(one_line["series"].as_array().unwrap().len(), 1);
+    let (status, _) = call(&c.w.app, "GET", &format!("{uri}?top=9999"), None, None).await;
+    assert_eq!(status, StatusCode::OK);
+}
