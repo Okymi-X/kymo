@@ -77,7 +77,7 @@ pub async fn upsert_client(
     now: i64,
     expires_at: i64,
 ) -> Result<Option<String>, ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let previous: Option<String> =
         sqlx::query_scalar("SELECT serial FROM vpn_client WHERE user_id = ?")
             .bind(user_id)
@@ -114,7 +114,7 @@ pub async fn upsert_client(
 
 /// Revokes a player's current certificate and forgets the identity.
 pub async fn remove_client(pool: &SqlitePool, user_id: i64, now: i64) -> Result<bool, ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let serial: Option<String> =
         sqlx::query_scalar("SELECT serial FROM vpn_client WHERE user_id = ?")
             .bind(user_id)

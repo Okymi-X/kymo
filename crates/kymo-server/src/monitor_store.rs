@@ -27,7 +27,7 @@ pub struct OwnedLog {
 
 /// Writes many rows in one transaction, so a burst of requests costs one commit.
 pub async fn log_batch(pool: &SqlitePool, rows: &[OwnedLog]) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     for e in rows {
         sqlx::query(
             "INSERT INTO request_log (at, method, route, path, status, ip, user_id, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

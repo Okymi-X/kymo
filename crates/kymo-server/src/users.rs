@@ -300,7 +300,7 @@ pub async fn moderate(
     role: Option<Role>,
     banned: Option<bool>,
 ) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let done = sqlx::query(
         "UPDATE user SET role = COALESCE(?, role), banned = COALESCE(?, banned) WHERE id = ?",
     )

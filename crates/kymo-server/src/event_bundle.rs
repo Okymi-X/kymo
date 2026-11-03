@@ -332,7 +332,7 @@ pub async fn import(
     if slug.is_empty() {
         return Err(bad("the event name needs at least one letter or digit"));
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let event_id = event_store::insert(&mut tx, &fields, &slug, now).await?;
     tx.commit().await?;
     match fill(pool, event_id, bundle, prepared, options, now).await {

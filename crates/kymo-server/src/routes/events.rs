@@ -126,7 +126,7 @@ pub async fn create(
         roster_locked: body.roster_locked.unwrap_or(true),
     };
     fields.validate()?;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::begin_write(&state.pool).await?;
     let id = event_store::insert(&mut tx, &fields, &slug, state.now()).await?;
     tx.commit().await?;
     let row = event_store::by_id(&state.pool, id).await?;

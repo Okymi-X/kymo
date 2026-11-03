@@ -131,7 +131,7 @@ pub async fn run(
         verdict: verdict_str(verdict),
         at: now,
     };
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::begin_write(&state.pool).await?;
     jeopardy_store::insert_submission(&mut tx, &record).await?;
     let mut hints_cost = 0;
     if verdict == Verdict::Correct {

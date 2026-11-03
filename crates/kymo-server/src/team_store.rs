@@ -89,7 +89,7 @@ pub async fn create(
     owner: i64,
     now: i64,
 ) -> Result<TeamRow, ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     let id = sqlx::query(
         "INSERT INTO player_team (name, owner_user_id, invite_code, created_at) VALUES (?, ?, ?, ?)",
     )
@@ -132,7 +132,7 @@ pub async fn add_member(
 /// Removes a member. The last member deletes the team; when the owner leaves a team that
 /// still has people, the longest standing member becomes the owner.
 pub async fn remove_member(pool: &SqlitePool, team_id: i64, user_id: i64) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::begin_write(pool).await?;
     sqlx::query("DELETE FROM player_team_member WHERE team_id = ? AND user_id = ?")
         .bind(team_id)
         .bind(user_id)

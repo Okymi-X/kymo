@@ -93,6 +93,16 @@ pub async fn connect(url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// Starts a transaction that will write. `BEGIN IMMEDIATE` takes the write lock at once, so when
+/// another connection is writing (the request log writer, a background job) this waits for it
+/// like `busy_timeout` promises. A plain `BEGIN` that reads first and writes later is refused
+/// with "database is locked" the moment the lock is taken, without waiting.
+pub async fn begin_write(
+    pool: &SqlitePool,
+) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+    pool.begin_with("BEGIN IMMEDIATE").await
+}
+
 fn format_to_text(format: Format) -> &'static str {
     match format {
         Format::SingleElimination => "single_elimination",
@@ -198,7 +208,7 @@ pub struct NewTournament<'a> {
 
 /// Creates the tournament and its platform event in one transaction.
 pub async fn create(pool: &SqlitePool, new: NewTournament<'_>) -> Result<i64, ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_write(pool).await?;
     let event_id = event_store::insert(
         &mut tx,
         &event_store::tournament_fields(new.name),
@@ -259,7 +269,7 @@ pub async fn rename(
 }
 
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_write(pool).await?;
     let event_id: Option<Option<i64>> =
         sqlx::query_scalar("SELECT event_id FROM tournament WHERE id = ?")
             .bind(id)
@@ -289,7 +299,7 @@ pub struct NewTeam {
 
 /// Replaces the whole roster; list order defines the seeds.
 pub async fn replace_teams(pool: &SqlitePool, id: i64, teams: &[NewTeam]) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_write(pool).await?;
     sqlx::query("DELETE FROM team WHERE tournament_id = ?")
         .bind(id)
         .execute(&mut *tx)
