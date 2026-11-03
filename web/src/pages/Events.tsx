@@ -33,7 +33,13 @@ function EventCard({ event }: { event: EventInfo }) {
         <h2 className="text-lg font-semibold tracking-tight">{event.name}</h2>
         <StatePill state={event.effective_state} />
       </div>
-      {event.description && <p className="line-clamp-2 text-sm text-muted">{event.description}</p>}
+      {event.description && (
+        <div className="flex flex-col gap-1">
+          <p className="line-clamp-3 text-sm text-muted">{event.description}</p>
+          {/* The whole card opens the event page, where the full text is. Say so when it was cut. */}
+          {event.description.length > 140 && <span className="text-xs font-medium text-accent group-hover:underline">Read more</span>}
+        </div>
+      )}
       <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted">
         <Pill>
           <span className="inline-flex items-center gap-1">

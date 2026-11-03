@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock } from 'lucide-react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 import { useIsAdmin, useWho } from '../api/client'
 import { platform } from '../api/platform'
 import { useEvent, useMyTeam } from '../api/platformHooks'
+import { registrationStatus } from '../lib/platform'
 import type { EventInfo } from '../api/platformTypes'
 import { ChallengeBoard } from '../components/platform/ChallengeBoard'
 import { Empty, Loading, Panel, Pill, StatePill } from '../components/platform/bits'
@@ -52,18 +53,32 @@ function Registration({ event }: { event: EventInfo }) {
   const join = useMutation({ mutationFn: () => platform.register_for(event.slug), onSuccess: done })
   const leave = useMutation({ mutationFn: () => platform.unregister(event.slug), onSuccess: done })
   const next = `/e/${event.slug}`
+  const status = registrationStatus(event, Math.floor(Date.now() / 1000))
+  // Only a visitor needs to know whether they could create an account.
+  const signUps = useQuery({ queryKey: ['sign-ups-open'], queryFn: platform.signUpsOpen, enabled: !who }).data?.open
 
   if (!who) {
     return (
       <Panel className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted">Sign in or create an account to take part.</p>
+        <div className="flex flex-col gap-1">
+          <p className="font-medium">{status.open ? 'Sign in to register for this event.' : 'Registration is not open for this event.'}</p>
+          <p className="text-sm text-muted">
+            {!status.open
+              ? status.reason
+              : signUps === false
+                ? 'New accounts are made by the organizers. If you do not have one yet, ask an organizer.'
+                : 'No account yet? Create one first, then come back to register.'}
+          </p>
+        </div>
         <span className="flex gap-2">
-          <Link to={`/signin?next=${encodeURIComponent(next)}`} className="inline-flex h-10 items-center rounded-control border border-line px-3.5 font-medium hover:bg-line/40">
+          <Link to={`/signin?next=${encodeURIComponent(next)}`} className="inline-flex h-10 items-center rounded-control bg-accent px-3.5 font-medium text-bg hover:opacity-90">
             Sign in
           </Link>
-          <Link to={`/signin?mode=register&next=${encodeURIComponent(next)}`} className="inline-flex h-10 items-center rounded-control bg-accent px-3.5 font-medium text-bg hover:opacity-90">
-            Create account
-          </Link>
+          {status.open && signUps !== false && (
+            <Link to={`/signin?mode=register&next=${encodeURIComponent(next)}`} className="inline-flex h-10 items-center rounded-control border border-line px-3.5 font-medium hover:bg-line/40">
+              Create account
+            </Link>
+          )}
         </span>
       </Panel>
     )
@@ -79,6 +94,14 @@ function Registration({ event }: { event: EventInfo }) {
           Withdraw
         </Button>
         <ErrorText error={leave.error} />
+      </Panel>
+    )
+  }
+  if (!status.open) {
+    return (
+      <Panel>
+        <p className="font-medium">Registration is not open for this event.</p>
+        <p className="text-sm text-muted">{status.reason}</p>
       </Panel>
     )
   }
@@ -109,6 +132,7 @@ function Registration({ event }: { event: EventInfo }) {
 export function EventPage() {
   const { slug = '' } = useParams()
   const q = useEvent(slug)
+  const who = useWho()
   const [params, setParams] = useSearchParams()
   usePageTitle(q.data?.name)
   if (q.isPending) return <Loading />
@@ -148,8 +172,12 @@ export function EventPage() {
             ) : (
               <ChallengeBoard slug={event.slug} vpn={event.network_mode === 'vpn'} />
             )
+          ) : !who ? (
+            <Empty>Sign in and register to see the challenges.</Empty>
+          ) : registrationStatus(event, Math.floor(Date.now() / 1000)).open ? (
+            <Empty>Register for this event to see the challenges.</Empty>
           ) : (
-            <Empty>Register to see the challenges.</Empty>
+            <Empty>The challenges are only shown to registered players, and registration is closed.</Empty>
           ))}
         {view === 'scoreboard' && <Scoreboard slug={event.slug} />}
         {view === 'progress' && <MyProgress event={event} />}

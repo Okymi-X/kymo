@@ -224,3 +224,53 @@ test('the search finds events as well as tournaments', async ({ page }) => {
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: 'Findable Spring CTF' })).toBeVisible()
 })
+
+test('the event page says what is actually true about signing in, creating an account and registering', async ({ page }) => {
+  const login = await page.request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const create = async (name: string, states: string[]) => {
+    const made = await page.request.post('/api/v1/admin/events', { headers, data: { name, kind: 'jeopardy', mode: 'solo' } })
+    const event = (await made.json()) as { id: number; slug: string }
+    for (const state of states) await page.request.post(`/api/v1/admin/events/${event.id}/state`, { headers, data: { state } })
+    return event.slug
+  }
+  const open = await create('Wording Open', ['registration_open'])
+  const started = await create('Wording Started', ['registration_open', 'live'])
+
+  try {
+    // Registration open and sign-ups open: sign in to register, or make an account first.
+    await page.goto(`/e/${open}`)
+    await expect(page.getByText('Sign in to register for this event.')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Create account' })).toBeVisible()
+    await expect(page.getByText('Sign in and register to see the challenges.')).toBeVisible()
+
+    // Sign-ups closed: no Create account button, and it says who to ask.
+    await page.request.put('/api/v1/admin/registration', { headers, data: { open: false } })
+    await page.goto(`/e/${open}`)
+    await expect(page.getByText('Sign in to register for this event.')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Create account' })).toHaveCount(0)
+    await expect(page.getByText(/ask an organizer/)).toBeVisible()
+
+    // Registration itself closed (the event is live and has no late registration window).
+    await page.goto(`/e/${started}`)
+    await expect(page.getByText('Registration is not open for this event.')).toBeVisible()
+    await expect(page.getByText(/event has already started/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Create account' })).toHaveCount(0)
+  } finally {
+    await page.request.put('/api/v1/admin/registration', { headers, data: { open: true } })
+  }
+})
+
+test('a long event description says there is more', async ({ page }) => {
+  const login = await page.request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const long = 'A long description that keeps going. '.repeat(8)
+  const made = await page.request.post('/api/v1/admin/events', { headers, data: { name: 'Read More Cup', kind: 'jeopardy', mode: 'solo', description: long } })
+  const event = (await made.json()) as { id: number }
+  await page.request.post(`/api/v1/admin/events/${event.id}/state`, { headers, data: { state: 'registration_open' } })
+  await page.goto('/events')
+  const card = page.getByRole('link', { name: /Read More Cup/ })
+  await expect(card.getByText('Read more', { exact: true })).toBeVisible()
+  await card.click()
+  await expect(page.getByText(long.trim())).toBeVisible()
+})

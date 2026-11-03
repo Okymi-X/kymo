@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, PlayerChallenge } from '../api/platformTypes'
-import { countdown, flagHint, fileSize, fromLocalInput, groupByCategory, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
+import { countdown, flagHint, registrationStatus, fileSize, fromLocalInput, groupByCategory, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
 
 const challenge = (id: number, category_id: number, points: number, title = `c${id}`): PlayerChallenge => ({
   id,
@@ -88,5 +88,31 @@ describe('labels', () => {
   it('shows the flag shape only when there is one', () => {
     expect(flagHint('KYMO{', '}')).toBe('KYMO{...}')
     expect(flagHint('', '')).toBe('')
+  })
+})
+
+describe('registrationStatus', () => {
+  const NOW = 1_800_000_000
+  const event = (over: Partial<Parameters<typeof registrationStatus>[0]>) => ({ effective_state: 'registration_open' as const, registration_opens: null, registration_closes: null, ...over })
+  it('is open while registration is open and inside its window', () => {
+    expect(registrationStatus(event({}), NOW)).toEqual({ open: true })
+    expect(registrationStatus(event({ registration_opens: NOW, registration_closes: NOW + 1 }), NOW)).toEqual({ open: true })
+  })
+  it('explains a window that has not opened or has closed', () => {
+    const early = registrationStatus(event({ registration_opens: NOW + 3600 }), NOW)
+    expect(early.open).toBe(false)
+    expect(early.open === false && early.reason).toMatch(/^Registration opens /)
+    expect(registrationStatus(event({ registration_closes: NOW }), NOW)).toEqual({ open: false, reason: 'Registration has closed.' })
+  })
+  it('lets a live event take late registrations only until its close time', () => {
+    expect(registrationStatus(event({ effective_state: 'live', registration_closes: NOW + 60 }), NOW)).toEqual({ open: true })
+    const closed = registrationStatus(event({ effective_state: 'live' }), NOW)
+    expect(closed.open === false && closed.reason).toMatch(/already started/)
+    expect(registrationStatus(event({ effective_state: 'live', registration_closes: NOW }), NOW).open).toBe(false)
+  })
+  it('is closed for a draft, a paused, an ended and an archived event', () => {
+    for (const state of ['draft', 'paused', 'ended', 'archived'] as const) {
+      expect(registrationStatus(event({ effective_state: state }), NOW).open).toBe(false)
+    }
   })
 })

@@ -1,8 +1,9 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, useIsAdmin } from '../api/client'
 import { useTournaments } from '../api/hooks'
+import { useEvents } from '../api/platformHooks'
 import { useAppearance } from '../components/ThemeLoader'
 import type { Format, Status } from '../api/types'
 import { CardSkeleton, TournamentCard } from '../components/TournamentCard'
@@ -184,6 +185,8 @@ function DemoButton() {
 export function Home() {
   const admin = useIsAdmin()
   const { data, isPending, error } = useTournaments()
+  // Jeopardy events a visitor can join: without this the home page can look like an empty product.
+  const liveEvents = (useEvents().data ?? []).filter((e) => e.kind === 'jeopardy' && e.effective_state !== 'ended' && e.effective_state !== 'archived').length
   const [params, setParams] = useSearchParams()
   const requested = params.get('status')
   const filter: Filter = FILTERS.find((f) => f.value === requested)?.value ?? 'all'
@@ -222,6 +225,16 @@ export function Home() {
         <div className="rounded-card border border-dashed border-field-line p-10 text-center">
           <p className="text-lg font-medium">No tournaments yet</p>
           <p className="mt-1 text-muted">{admin ? 'Create the first one above, or load sample tournaments to explore every format.' : 'Check back when the organizer starts one.'}</p>
+          {liveEvents > 0 && (
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <p className="text-muted">
+                There {liveEvents === 1 ? 'is' : 'are'} {liveEvents} {liveEvents === 1 ? 'event' : 'events'} you can join right now.
+              </p>
+              <Link to="/events" className="inline-flex h-10 items-center rounded-control bg-accent px-4 font-medium text-bg hover:opacity-90">
+                Browse events
+              </Link>
+            </div>
+          )}
           {admin && <DemoButton />}
         </div>
       )}

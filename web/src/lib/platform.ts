@@ -1,4 +1,4 @@
-import type { Category, EventState, PlayerChallenge, Scoring, Verdict } from '../api/platformTypes'
+import type { Category, EventInfo, EventState, PlayerChallenge, Scoring, Verdict } from '../api/platformTypes'
 
 export const stateLabel: Record<EventState, string> = {
   draft: 'Draft',
@@ -96,4 +96,34 @@ export function shortDuration(secs: number): string {
 
 export function bytesLabel(n: number): string {
   return fileSize(n)
+}
+
+export type Registration = { open: true } | { open: false; reason: string }
+
+/**
+ * Whether people can register for an event right now, and if not, why in plain words. Mirrors
+ * the server's rule (the server still decides): a live event only takes late registrations
+ * when it has a registration close time that has not passed.
+ */
+export function registrationStatus(
+  event: Pick<EventInfo, 'effective_state' | 'registration_opens' | 'registration_closes'>,
+  nowSeconds: number,
+): Registration {
+  const { effective_state: state, registration_opens: opens, registration_closes: closes } = event
+  const when = (t: number) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+  switch (state) {
+    case 'draft':
+      return { open: false, reason: 'Registration has not opened yet.' }
+    case 'registration_open':
+      if (opens !== null && nowSeconds < opens) return { open: false, reason: `Registration opens ${when(opens)}.` }
+      if (closes !== null && nowSeconds >= closes) return { open: false, reason: 'Registration has closed.' }
+      return { open: true }
+    case 'live':
+      if (closes !== null && nowSeconds < closes) return { open: true }
+      return { open: false, reason: 'Registration is closed: the event has already started.' }
+    case 'paused':
+      return { open: false, reason: 'The event is paused, so registration is closed.' }
+    default:
+      return { open: false, reason: 'This event has ended.' }
+  }
 }
