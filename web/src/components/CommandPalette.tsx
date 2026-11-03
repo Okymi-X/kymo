@@ -145,7 +145,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           </Fragment>
         ))}
       </ul>
-      <p className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-muted">
+      <p className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-xs text-muted">
         <span className="flex items-center gap-1.5"><Key>Up</Key><Key>Down</Key> move</span>
         <span className="flex items-center gap-1.5"><Key>Enter</Key> open</span>
         <span className="flex items-center gap-1.5"><Key>Esc</Key> close</span>

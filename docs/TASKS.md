@@ -93,6 +93,8 @@
 - [x] Retest fixes: Users page text points to Create account, roster refusals name the event and why (plus notes on the event page), a failed board refresh no longer closes an open challenge (test waits for the real 20 second refresh), a tournament's event follows its status (migration 0021), VPN lab owners are named, solved instance policy written down
 - [ ] Deployment: set KYMO_VPN_HOST to a reachable address and run a real two machine OpenVPN test (the one open release blocker)
 
+- [x] Compact phone (320px): dialog header actions drop under the title on a phone, palette help row wraps, page header fits; browser test checks pages and dialog geometry at 320px
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

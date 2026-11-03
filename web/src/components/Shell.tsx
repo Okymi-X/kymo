@@ -20,7 +20,7 @@ function Brand({ siteName, logo }: { siteName: string; logo: string | null }) {
       {logo ? (
         <img src={logo} alt={siteName} className="h-9 w-auto max-w-48 object-contain" />
       ) : siteName === DEFAULT_APPEARANCE.site_name ? (
-        <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-10 w-auto" />
+        <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-8 w-auto sm:h-10" />
       ) : (
         <span className="text-base font-semibold tracking-tight">{siteName}</span>
       )}
@@ -139,7 +139,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
   const info = useHeaderInfo()
   return (
     <header className={`no-print sticky top-0 z-20 border-b backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200 supports-[backdrop-filter]:bg-surface/70 ${scrolled ? 'border-line bg-surface/90 shadow-[var(--shadow-lift)]' : 'border-transparent bg-surface/80'}`}>
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-3 sm:px-4">
         <MobileNav />
         <Brand siteName={siteName} logo={look?.logo ?? null} />
         <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''}`}>

@@ -389,3 +389,74 @@ test('the contact form appears exactly once on the Users page, before and after 
   await expect(field).toHaveCount(1)
   await expect(page.getByText(/Use Create account below/)).toHaveCount(0) // sign-ups are open again here
 })
+
+test('on the smallest phone nothing scrolls sideways and dialogs keep their title, actions and footer on screen', async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const made = await request.post('/api/v1/admin/events', { headers, data: { name: 'Tiny Phone Cup', kind: 'jeopardy', mode: 'solo' } })
+  const event = (await made.json()) as { id: number }
+  const category = (await (await request.post(`/api/v1/admin/events/${event.id}/categories`, { headers, data: { name: 'Web' } })).json()) as { id: number }
+  const challenge = await request.post(`/api/v1/admin/events/${event.id}/challenges`, {
+    headers,
+    data: { category_id: category.id, title: 'Welcome', description: 'hi', scoring: { kind: 'static', points: 100 }, flag: { kind: 'static', value: 'KYMO{tiny}' }, flag_prefix: 'KYMO{', flag_suffix: '}' },
+  })
+  const challengeId = ((await challenge.json()) as { id: number }).id
+  await request.post(`/api/v1/admin/challenges/${challengeId}/publish`, { headers })
+
+  const context = await browser.newContext({ viewport: { width: 320, height: 568 } })
+  const page = await context.newPage()
+  const fits = async () => expect(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')).toBe(true)
+
+  // The public pages, signed out.
+  for (const path of ['/', '/events', '/ladder', '/signin']) {
+    await page.goto(path)
+    await expect(page.getByRole('main')).toBeVisible()
+    await fits()
+  }
+
+  // Every part of a dialog stays inside it, and the title keeps a readable width.
+  const geometry = async () =>
+    (await page.evaluate(`(() => {
+      const d = document.querySelector('dialog[open], [role="dialog"]')
+      const box = d.getBoundingClientRect()
+      const problems = []
+      if (box.left < 0 || box.right > innerWidth + 1 || box.top < 0 || box.bottom > innerHeight + 1) problems.push('dialog outside the viewport')
+      if (d.scrollWidth > d.clientWidth + 1) problems.push('dialog scrolls sideways')
+      for (const part of d.querySelectorAll('header, footer, [data-modal-body], p.border-t')) {
+        if (part.scrollWidth > part.clientWidth + 1) problems.push(part.tagName.toLowerCase() + ' scrolls sideways')
+        for (const child of part.querySelectorAll('*')) {
+          const r = child.getBoundingClientRect()
+          if (r.width > 0 && (r.right > box.right + 1 || r.left < box.left - 1)) { problems.push('<' + child.tagName.toLowerCase() + '> crosses the dialog edge: ' + (child.textContent || '').slice(0, 20)); break }
+        }
+      }
+      const title = d.querySelector('h2')
+      return JSON.stringify({ problems, titleWidth: title ? Math.round(title.getBoundingClientRect().width) : null })
+    })()`)) as string
+  const check = async () => {
+    const r = JSON.parse(await geometry()) as { problems: string[]; titleWidth: number | null }
+    expect(r.problems).toEqual([])
+    if (r.titleWidth !== null) expect(r.titleWidth).toBeGreaterThanOrEqual(110)
+  }
+
+  await organizer(page)
+  await fits()
+  await page.goto(`/admin/events/${event.id}?view=challenges`)
+  await page.getByRole('button', { name: /Welcome/ }).click()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Edit challenge' })).toBeVisible()
+  await check()
+  await page.keyboard.press('Escape')
+
+  await page.goto('/admin/users')
+  await page.getByRole('button', { name: 'Create account' }).first().click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await check()
+  await page.keyboard.press('Escape')
+
+  await page.goto('/')
+  await page.keyboard.press('Control+k')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+  await check()
+  await context.close()
+})

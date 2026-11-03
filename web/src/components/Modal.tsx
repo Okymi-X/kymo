@@ -113,19 +113,20 @@ interface HeaderProps {
 export function ModalHeader({ title, subtitle, actions }: HeaderProps) {
   const { requestClose, titleId } = useContext(ModalContext)
   return (
-    <header className="flex items-start gap-3 border-b border-line px-6 py-4">
-      <div className="min-w-0 flex-1">
+    <header className="flex flex-wrap items-start gap-x-3 gap-y-2 border-b border-line px-6 py-4">
+      <div className="min-w-0 flex-1 basis-32">
         <h2 id={titleId} className="text-lg font-semibold leading-tight tracking-tight">
           {title}
         </h2>
         {subtitle && <div className="mt-1 text-sm text-muted">{subtitle}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {/* Beside the title on a wide screen; on a phone they drop under it, so the title keeps its width. */}
+      {actions && <div className="order-3 flex w-full flex-wrap items-center gap-2 sm:order-2 sm:w-auto sm:shrink-0 sm:flex-nowrap">{actions}</div>}
       <button
         type="button"
         aria-label="Close"
         onClick={requestClose}
-        className="-mr-2 -mt-1 flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:bg-line/60 hover:text-ink"
+        className="order-2 -mr-2 -mt-1 flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:bg-line/60 hover:text-ink sm:order-3"
       >
         <X size={18} aria-hidden="true" />
       </button>
