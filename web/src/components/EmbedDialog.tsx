@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Tournament } from '../api/types'
 import { defaultEmbedView, type EmbedView } from '../pages/EmbedPage'
 import { Field, Select, Button } from './ui'
-import { Modal } from './Modal'
+import { Modal, ModalBody, ModalFooter, ModalHeader } from './Modal'
 
 type Theme = 'auto' | 'light' | 'dark'
 
@@ -51,11 +51,8 @@ export function EmbedDialog({ tournament, onClose }: { tournament: Tournament; o
 
   return (
     <Modal label="Embed this tournament" onClose={onClose} width="36rem">
-      <div className="flex flex-col gap-5 p-6">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Embed on a website or stream</h2>
-          <p className="mt-1 text-sm text-muted">The view updates live. Use a transparent background for a stream overlay.</p>
-        </div>
+      <ModalHeader title="Embed on a website or stream" subtitle="The view updates live. Use a transparent background for a stream overlay." />
+      <ModalBody>
         <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Show">
             <Select value={view} onChange={(e) => setView(e.target.value as EmbedView)}>
@@ -85,21 +82,22 @@ export function EmbedDialog({ tournament, onClose }: { tournament: Tournament; o
         <Field label="Code to paste">
           <textarea readOnly value={snippet} rows={4} onFocus={(e) => e.currentTarget.select()} className="rounded-control border border-field-line bg-field p-3 font-mono text-xs" />
         </Field>
-        <div className="flex items-center justify-between gap-2">
-          <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline">
+      </ModalBody>
+      <ModalFooter
+        note={
+          <a href={url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
             Open the preview
           </a>
-          <div className="flex gap-2">
-            <Button onClick={copy}>
-              {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-              {copied ? 'Copied' : 'Copy code'}
-            </Button>
-            <Button variant="primary" onClick={onClose}>
-              Done
-            </Button>
-          </div>
-        </div>
-      </div>
+        }
+      >
+        <Button onClick={copy}>
+          {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+          {copied ? 'Copied' : 'Copy code'}
+        </Button>
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      </ModalFooter>
     </Modal>
   )
 }

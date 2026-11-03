@@ -97,6 +97,11 @@ p {
   text-wrap: pretty;
 }
 
+/* A dialog scrolls inside itself; the page behind it stays put. */
+html.modal-open {
+  overflow: hidden;
+}
+
 dialog {
   box-shadow: var(--shadow-lift);
   opacity: 0;

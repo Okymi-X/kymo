@@ -1,4 +1,4 @@
-import { Modal } from './Modal'
+import { Modal, ModalBody, ModalHeader } from './Modal'
 
 const GROUPS: { title: string; items: [string, string][] }[] = [
   {
@@ -30,8 +30,8 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal label="Keyboard shortcuts" onClose={onClose} width="30rem">
-      <div className="flex flex-col gap-5 p-6">
-        <h2 className="text-lg font-semibold tracking-tight">Keyboard shortcuts</h2>
+      <ModalHeader title="Keyboard shortcuts" />
+      <ModalBody>
         {GROUPS.map((g) => (
           <section key={g.title} aria-label={g.title} className="flex flex-col gap-2">
             <h3 className="text-xs font-medium uppercase tracking-wider text-muted">{g.title}</h3>
@@ -47,7 +47,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
             </dl>
           </section>
         ))}
-      </div>
+      </ModalBody>
     </Modal>
   )
 }

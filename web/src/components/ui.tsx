@@ -55,12 +55,22 @@ export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSe
   return <select {...props} className={`${control} ${className}`} />
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, hint, error, children }: { label: string; hint?: ReactNode; error?: ReactNode; children: ReactNode }) {
+  // The hint and the error sit outside the label, so they do not become part of the field's name.
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-ink/70">{label}</span>
-      {children}
-    </label>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <label className="flex min-w-0 flex-col gap-1.5">
+        <span className="text-xs font-medium text-ink/70">{label}</span>
+        {children}
+      </label>
+      {error ? (
+        <span role="alert" className="text-xs text-danger">
+          {error}
+        </span>
+      ) : hint ? (
+        <span className="text-xs text-muted">{hint}</span>
+      ) : null}
+    </div>
   )
 }
 

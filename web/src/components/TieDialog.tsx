@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Tournament } from '../api/types'
 import type { TeamRow } from '../lib/stats'
-import { Modal } from './Modal'
+import { Modal, ModalBody, ModalFooter, ModalHeader } from './Modal'
 import { Button, ErrorText } from './ui'
 
 interface Props {
@@ -39,11 +39,11 @@ export function TieDialog({ tournament, sets, onClose }: Props) {
     )
   return (
     <Modal label="Decide ties" onClose={onClose} width="30rem">
-      <div className="flex flex-col gap-5 p-6">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Decide ties</h2>
-          <p className="mt-1 text-sm text-muted">These teams are level on points, difference and goals. Put the better team first. In a group, this also decides who qualifies.</p>
-        </div>
+      <ModalHeader
+        title="Decide ties"
+        subtitle="These teams are level on points, difference and goals. Put the better team first. In a group, this also decides who qualifies."
+      />
+      <ModalBody>
         {orders.map((list, set) => (
           <ol key={set} aria-label={`Tied teams ${set + 1}`} className="flex flex-col divide-y divide-line overflow-hidden rounded-card border border-line">
             {list.map((team, i) => (
@@ -61,15 +61,15 @@ export function TieDialog({ tournament, sets, onClose }: Props) {
           </ol>
         ))}
         <ErrorText error={save.error} />
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
-            Save order
-          </Button>
-        </div>
-      </div>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
+          Save order
+        </Button>
+      </ModalFooter>
     </Modal>
   )
 }

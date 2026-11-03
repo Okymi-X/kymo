@@ -24,7 +24,7 @@ import { Tabs, type TabItem } from '../components/Tabs'
 import { TeamDialog } from '../components/TeamDialog'
 import { TeamsGrid } from '../components/TeamsGrid'
 import { ExportButton } from '../components/ExportButton'
-import { Modal } from '../components/Modal'
+import { Modal, ModalBody, ModalFooter, ModalHeader, modalForm } from '../components/Modal'
 import { Button, ErrorText, Field, Input, PageTitle, StatusPill, Textarea } from '../components/ui'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
@@ -169,65 +169,68 @@ function AdminActions({ t }: { t: Tournament }) {
       </Button>
       <ErrorText error={reset.error ?? remove.error ?? duplicate.error} />
       {asking === 'color' && (
-        <Modal label="Tournament color" onClose={() => setAsking(null)}>
+        <Modal label="Tournament color" onClose={() => setAsking(null)} backdropCloses={false}>
           <form
-            className="flex flex-col gap-4 p-6"
+            className={modalForm}
             onSubmit={(e) => {
               e.preventDefault()
               if (isHex(color)) recolor.mutate(color)
             }}
           >
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">Tournament color</h2>
-              <p className="mt-1 text-sm text-muted">Tints buttons and highlights on this tournament, its stage screen and its embed.</p>
-            </div>
-            <div className="flex items-end gap-3">
-              <input type="color" aria-label="Pick a color" value={isHex(color) ? color : '#0a6fe0'} onChange={(e) => setColor(e.target.value)} className="h-10 w-14 cursor-pointer rounded-control border border-field-line bg-field p-1" />
-              <Field label="Hex color">
-                <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={7} className="w-32 font-mono" />
-              </Field>
-            </div>
-            <ErrorText error={recolor.error} />
-            <div className="flex items-center justify-between gap-2">
-              <Button type="button" variant="ghost" onClick={() => recolor.mutate(null)} disabled={recolor.isPending || t.accent === null}>
-                Use site color
-              </Button>
-              <div className="flex gap-2">
-                <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={recolor.isPending || !isHex(color)}>
-                  Save color
-                </Button>
+            <ModalHeader title="Tournament color" subtitle="Tints buttons and highlights on this tournament, its stage screen and its embed." />
+            <ModalBody>
+              <div className="flex items-end gap-3">
+                <input type="color" aria-label="Pick a color" value={isHex(color) ? color : '#0a6fe0'} onChange={(e) => setColor(e.target.value)} className="h-10 w-14 cursor-pointer rounded-control border border-field-line bg-field p-1" />
+                <Field label="Hex color">
+                  <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={7} className="w-32 font-mono" />
+                </Field>
               </div>
-            </div>
+              <ErrorText error={recolor.error} />
+            </ModalBody>
+            <ModalFooter
+              note={
+                <Button type="button" variant="ghost" onClick={() => recolor.mutate(null)} disabled={recolor.isPending || t.accent === null}>
+                  Use site color
+                </Button>
+              }
+            >
+              <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={recolor.isPending || !isHex(color)}>
+                Save color
+              </Button>
+            </ModalFooter>
           </form>
         </Modal>
       )}
       {asking === 'rename' && (
-        <Modal label="Rename tournament" onClose={() => setAsking(null)}>
+        <Modal label="Rename tournament" onClose={() => setAsking(null)} backdropCloses={false} dirty={name.trim() !== t.name || description !== (t.description ?? '')}>
           <form
-            className="flex flex-col gap-4 p-6"
+            className={modalForm}
             onSubmit={(e) => {
               e.preventDefault()
               if (name.trim()) rename.mutate()
             }}
           >
-            <Field label="Tournament name">
-              <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
-            </Field>
-            <Field label="Description, shown under the title">
-              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} rows={4} placeholder="Rules, venue, check in time" />
-            </Field>
-            <ErrorText error={rename.error} />
-            <div className="flex justify-end gap-2">
+            <ModalHeader title="Rename tournament" />
+            <ModalBody>
+              <Field label="Tournament name">
+                <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
+              </Field>
+              <Field label="Description, shown under the title">
+                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} rows={4} placeholder="Rules, venue, check in time" />
+              </Field>
+              <ErrorText error={rename.error} />
+            </ModalBody>
+            <ModalFooter>
               <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
                 Cancel
               </Button>
               <Button type="submit" variant="primary" disabled={rename.isPending || !name.trim()}>
                 Save name
               </Button>
-            </div>
+            </ModalFooter>
           </form>
         </Modal>
       )}

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Match, Side, Tournament } from '../api/types'
 import { fromLocalInput, toLocalInput } from '../lib/schedule'
+import { Modal, ModalBody, ModalFooter, ModalHeader, modalForm } from './Modal'
 import { Button, ErrorText, Field, Input } from './ui'
 
 interface Props {
@@ -13,7 +14,6 @@ interface Props {
 }
 
 export function ScoreDialog({ tournament, match, names, onClose }: Props) {
-  const ref = useRef<HTMLDialogElement>(null)
   const [a, setA] = useState(String(match.score?.[0] ?? ''))
   const [b, setB] = useState(String(match.score?.[1] ?? ''))
   const client = useQueryClient()
@@ -24,10 +24,6 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   )
   const [when, setWhen] = useState(toLocalInput(match.scheduled_at))
   const [venue, setVenue] = useState(match.venue ?? '')
-
-  useEffect(() => {
-    ref.current?.showModal()
-  }, [])
 
   const done = (t: Tournament) => {
     client.setQueryData(['tournament', t.slug], t)
@@ -81,14 +77,10 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   }
 
   return (
-    <dialog
-      ref={ref}
-      onClose={onClose}
-      onClick={(e) => e.target === ref.current && onClose()}
-      className="m-auto w-[min(92vw,28rem)] overflow-x-hidden rounded-card border border-line bg-surface p-0 text-ink"
-    >
-      <form onSubmit={submit} className="flex flex-col gap-5 p-6">
-        <h2 className="text-lg font-semibold tracking-tight">Match result</h2>
+    <Modal label="Match result" onClose={onClose} width="28rem" backdropCloses={false}>
+      <form onSubmit={submit} className={modalForm}>
+        <ModalHeader title="Match result" subtitle={`${names[0]} versus ${names[1]}`} />
+        <ModalBody>
         {bestOf > 1 ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted">
@@ -189,24 +181,24 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
           </div>
         </div>
         <ErrorText error={live.error ?? save.error ?? saveGames.error ?? clear.error ?? forfeit.error ?? schedule.error} />
-        <div className="flex items-center justify-between gap-2">
-          {match.score || match.forfeit ? (
-            <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>
-              Clear result
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={(bestOf > 1 ? !seriesValid : !valid) || save.isPending || saveGames.isPending}>
-              Save
-            </Button>
-          </div>
-        </div>
+        </ModalBody>
+        <ModalFooter
+          note={
+            match.score || match.forfeit ? (
+              <Button variant="danger" onClick={() => clear.mutate()} disabled={clear.isPending}>
+                Clear result
+              </Button>
+            ) : null
+          }
+        >
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={(bestOf > 1 ? !seriesValid : !valid) || save.isPending || saveGames.isPending}>
+            Save
+          </Button>
+        </ModalFooter>
       </form>
-    </dialog>
+    </Modal>
   )
 }

@@ -5,7 +5,7 @@ import type { Slot, Tournament } from '../api/types'
 import { roundNamer } from '../lib/labels'
 import { computeTeamRows, teamHistory } from '../lib/stats'
 import { Avatar } from './Avatar'
-import { Modal } from './Modal'
+import { Modal, ModalBody, ModalFooter, ModalHeader } from './Modal'
 import { StatusBadge } from './StatusBadge'
 import { Button } from './ui'
 
@@ -41,16 +41,20 @@ export function TeamDialog({ tournament, teamId, teamName, onClose, followed = f
   const league = tournament.format !== 'single_elimination' && tournament.format !== 'double_elimination'
   return (
     <Modal label={`${row.team.name} details`} onClose={onClose} width="32rem">
-      <div className="flex flex-col gap-5 p-6">
-        <div className="flex items-center gap-4">
-          <Avatar name={row.team.name} size={56} />
-          <div className="min-w-0">
-            <h2 className="truncate text-xl font-semibold tracking-tight">{row.team.name}</h2>
-            <div className="mt-1 flex items-center gap-2 text-sm text-muted">
-              Seed {row.team.seed} <StatusBadge status={row.status} />
-            </div>
-          </div>
-        </div>
+      <ModalHeader
+        title={
+          <span className="flex items-center gap-3">
+            <Avatar name={row.team.name} size={36} />
+            <span className="truncate">{row.team.name}</span>
+          </span>
+        }
+        subtitle={
+          <span className="flex items-center gap-2">
+            Seed {row.team.seed} <StatusBadge status={row.status} />
+          </span>
+        }
+      />
+      <ModalBody>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Qualifier" value={row.team.score} />
           <Stat label="Record" value={league ? `${row.wins}-${row.draws}-${row.losses}` : `${row.wins}-${row.losses}`} />
@@ -77,20 +81,15 @@ export function TeamDialog({ tournament, teamId, teamName, onClose, followed = f
           )}
         </div>
         {admin && tournament.bracket && <CaptainLink tournamentId={tournament.id} teamId={teamId} />}
-        <div className="flex items-center justify-between gap-2">
-          {onToggleFollow ? (
-            <Button onClick={onToggleFollow} aria-pressed={followed}>
-              <Star size={16} aria-hidden="true" className={followed ? 'fill-current text-accent' : ''} />
-              {followed ? 'Following' : 'Follow this team'}
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button variant="primary" onClick={onClose}>
-            Close
+      </ModalBody>
+      {onToggleFollow && (
+        <ModalFooter>
+          <Button onClick={onToggleFollow} aria-pressed={followed}>
+            <Star size={16} aria-hidden="true" className={followed ? 'fill-current text-accent' : ''} />
+            {followed ? 'Following' : 'Follow this team'}
           </Button>
-        </div>
-      </div>
+        </ModalFooter>
+      )}
     </Modal>
   )
 }
