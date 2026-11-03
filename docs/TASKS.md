@@ -84,6 +84,8 @@
 
 - [x] Bracket image download (PNG, SVG), Playing now marker with LIVE badge, activity line and chat message
 
+- [x] UX audit fixes: phone menu replacing the history back arrow, "Search Kymo" palette with events and role pages, generic 404, sign in page wording, truthful registration messages (lib/platform.ts registrationStatus), Read more cue, Browse events on the empty home page, phone friendly Users/Monitor/Operations, scroll cue on wide tables, route level code splitting (entry 775 KB to 271 KB), request log written by a background batch writer
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

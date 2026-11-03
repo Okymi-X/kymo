@@ -93,3 +93,8 @@ Challenge dialog (player): header with category, solves and points; body with th
 Instance panel states: nothing running, starting (spinner, polls every 1.5 s, no address), running (address with copy, countdown, restart and stop), failed with a reason (could not start, never answered, stopped unexpectedly), expired. A private-network challenge warns and offers the download when the player has no VPN profile. The event page lists the player's instances with the challenge each belongs to.
 Sign in and sign up: the form says up front when sign-ups are closed and falls back to signing in; username and password are checked as you type with the exact reason; the password can be shown. Controls that change a setting (sign-ups, public scoreboard, network mode) change on click and settle on what the server says.
 Errors: a request that fails reads as a sentence. The server's own message is kept when it already says what is wrong; a bare 500 becomes "Something went wrong on the server"; an unreachable server says so; an ended session says to sign in again. A 503 keeps its message because the server writes those for people.
+
+## Phone layout and wayfinding (audit)
+- Under the sm breakpoint the header shows a menu button (Tournaments, Events, Ladder, Sign in when signed out) in place of the primary links. There is no history based back arrow: sub pages link to their parent.
+- Search is labelled Search Kymo and covers events, tournaments and the pages the role can use.
+- Wide tables fade at the edge and say to swipe; Users is a card list on a phone. Registration copy comes from `registrationStatus` and never offers Create account while sign-ups are closed.
