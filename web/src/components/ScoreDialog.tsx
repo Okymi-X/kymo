@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Match, Side, Tournament } from '../api/types'
@@ -11,6 +12,22 @@ interface Props {
   match: Match
   names: [string, string]
   onClose: () => void
+}
+
+/** A secondary part of the dialog that stays folded until needed, so the score is the first thing seen. */
+function Section({ title, hint, open = false, children }: { title: string; hint?: string; open?: boolean; children: ReactNode }) {
+  return (
+    <details open={open} className="group border-t border-line pt-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-control py-1 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <span>{title}</span>
+        <span className="flex items-center gap-2 text-xs font-normal text-muted">
+          {hint}
+          <ChevronDown size={14} aria-hidden="true" className="transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">{children}</div>
+    </details>
+  )
 }
 
 export function ScoreDialog({ tournament, match, names, onClose }: Props) {
@@ -78,7 +95,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
   }
 
   return (
-    <Modal label="Match result" onClose={onClose} width="28rem" backdropCloses={false}>
+    <Modal label="Match result" onClose={onClose} width="30rem" backdropCloses={false}>
       <form onSubmit={submit} className={modalForm}>
         <ModalHeader title="Match result" subtitle={`${names[0]} versus ${names[1]}`} />
         <ModalBody>
@@ -133,7 +150,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
                 value={value}
                 onChange={(e) => set(e.target.value)}
                 autoFocus={i === 0}
-                className="w-20 shrink-0 text-center font-mono"
+                className="w-24 shrink-0 text-center font-mono text-lg"
               />
             </div>
           ))}
@@ -142,15 +159,14 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
           </>
         )}
         {match.score === null && !match.forfeit && (
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
-            <p className="text-sm text-muted">{match.started_at === null ? 'Tell spectators this match has started.' : 'Marked as being played now.'}</p>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line pt-4">
+            <p className="min-w-0 flex-1 basis-48 text-sm text-muted">{match.started_at === null ? 'Tell spectators this match has started.' : 'Spectators see this match as being played now.'}</p>
             <Button onClick={() => live.mutate(match.started_at === null)} disabled={live.isPending}>
               {match.started_at === null ? 'Mark as playing' : 'Not playing'}
             </Button>
           </div>
         )}
-        <div className="flex flex-col gap-2 border-t border-line pt-4">
-          <p className="text-xs font-medium text-muted">No game played</p>
+        <Section title="No game played" hint="One side advances without a score">
           <div className="flex flex-col gap-2">
             <Button onClick={() => forfeit.mutate('A')} disabled={forfeit.isPending} className="justify-start">
               <span className="truncate">{names[0]} advances</span>
@@ -159,9 +175,8 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
               <span className="truncate">{names[1]} advances</span>
             </Button>
           </div>
-        </div>
-        <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <p className="text-xs font-medium text-muted">Schedule</p>
+        </Section>
+        <Section title="Schedule" hint={match.scheduled_at !== null || match.venue ? 'Set' : 'Time and place'} open={match.scheduled_at !== null || !!match.venue}>
           <div className="flex flex-col gap-3">
             <Field label="Starts">
               <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full min-w-0" />
@@ -180,7 +195,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
               </Button>
             )}
           </div>
-        </div>
+        </Section>
         <ErrorText error={live.error ?? save.error ?? saveGames.error ?? clear.error ?? forfeit.error ?? schedule.error} />
         </ModalBody>
         <ModalFooter

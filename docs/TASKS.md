@@ -95,6 +95,9 @@
 
 - [x] Compact phone (320px): dialog header actions drop under the title on a phone, palette help row wraps, page header fits; browser test checks pages and dialog geometry at 320px
 
+- [x] Match result dialog: score first, live row that does not wrap, forfeit and schedule folded into sections (schedule opens when set), buttons never wrap their label
+- [x] Test deployment at https://thiebou.okymi.org (Caddy in a container on 80/443 with the old csoc-report certificate volume, Kymo as a systemd service on 127.0.0.1:8080, no instances or VPN)
+
 ## Todo
 - [ ] RUN `crates/kymo-vpn/tests/gateway.rs` against a daemon and fix what it finds. Its only real run failed at "the tunnel did not come up" before its logging existed, and later runs were blocked by the permission classifier in this session. Command in README (Private VPN, Verify a setup yourself). Likely cause: the test's client containers need `--disable-dco` (added, not yet run)
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)

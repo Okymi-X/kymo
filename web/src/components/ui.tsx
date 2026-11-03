@@ -29,7 +29,7 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`inline-flex h-10 items-center justify-center gap-2 rounded-control border px-3.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
+      className={`inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-control border px-3.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
     />
   )
 }

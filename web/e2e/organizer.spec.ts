@@ -77,6 +77,7 @@ test('organizer awards a match by forfeit and can undo it', async ({ page }) => 
   await page.getByRole('button', { name: 'Start tournament' }).click()
 
   await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
+  await page.getByText('No game played', { exact: true }).click()
   await page.getByRole('button', { name: 'Delta advances' }).click()
   await expect(page.getByRole('dialog')).toBeHidden()
   await expect(page.getByText('FF')).toBeVisible()
@@ -404,6 +405,7 @@ test('a match can be scheduled, shows on the lists and the follow chip, and is e
   await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
   const soon = new Date(Date.now() + 30 * 60_000)
   const pad = (n: number) => String(n).padStart(2, '0')
+  await page.getByText('Schedule', { exact: true }).click()
   await page.getByLabel('Starts').fill(`${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}`)
   await page.getByLabel('Place').fill('Room 7')
   await page.getByRole('button', { name: 'Save schedule' }).click()
@@ -777,6 +779,7 @@ test('a match that is overdue shows in Late matches and can be awarded to the te
   await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
   const past = new Date(Date.now() - 25 * 60_000)
   const pad = (n: number) => String(n).padStart(2, '0')
+  await page.getByText('Schedule', { exact: true }).click()
   await page.getByLabel('Starts').fill(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}T${pad(past.getHours())}:${pad(past.getMinutes())}`)
   await page.getByRole('button', { name: 'Save schedule' }).click()
   await page.getByRole('tab', { name: 'Matches' }).click()
