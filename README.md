@@ -241,7 +241,7 @@ In the platform open **Lab hosts**, **Add a lab host** and paste those four valu
 
 Then, on the lab host:
 
-1. **Open the ports.** TCP 7400 (the API) to the platform only, and the instance ports to players: Docker publishes each instance on a high port, by default 32768 to 60999 (`cat /proc/sys/net/ipv4/ip_local_port_range`).
+1. **Open the ports.** TCP 7400 (the API) to the platform only, and UDP 1194 (the VPN gateway) to players. That is all: with the VPN no instance is published on any port. Only if you installed with `--no-vpn` do instance ports (Docker's high range, `cat /proc/sys/net/ipv4/ip_local_port_range`) have to be opened to players, and then anyone who reaches the machine can reach them.
 2. **Put the challenge images there** (`docker pull`, or `docker build -t localhost/kymo-lab/flag-server:1 lab/flag-server`) and describe each in a **manifest**, then restart the service. `kymo-lab check` verifies the settings, Docker access and manifests.
 
 ### Manifests
@@ -290,7 +290,7 @@ Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab pre
 
 ### Virtual machines
 
-A lab host can also run whole machines, such as the OVA exports of VulnHub boxes, with QEMU (KVM-accelerated when the host has it). A challenge's instance then gives each player or team a private, pristine copy of the machine, and players connect to its services (a web server and SSH, say) on the lab host's address.
+A lab host can also run whole machines, such as the OVA exports of VulnHub boxes, with QEMU (KVM-accelerated when the host has it). A challenge's instance then gives each player or team a private, pristine copy of the machine, and on the VPN players are given **just its address**: every port is open on it, and they scan it to find what runs there, like a HackTheBox machine. You never list its ports.
 
 Set it up on the lab host:
 
@@ -303,7 +303,6 @@ Set it up on the lab host:
   "artifact": "gaara",
   "runtime": "vm",
   "file": "Gaara.ova",
-  "ports": [ { "name": "web", "port": 80 }, { "name": "ssh", "port": 22 } ],
   "memory_mb": 1024,
   "cpu_millis": 2000,
   "boot_timeout_secs": 240,
@@ -312,24 +311,24 @@ Set it up on the lab host:
 ```
 
 4. Restart the service. The image is unpacked once, in the background (`kymo-lab prepare` does it on the spot; about ten seconds for a 1 GB OVA); until then a start is "try again shortly" and costs the player nothing. `kymo-lab check` shows what is ready.
-5. In the challenge, set the instance image to the **artifact name** (`gaara`). The manifest decides the rest. Open the machine port range (`KYMO_LAB_VM_PORTS`, default 40000 to 40999) to players.
+5. In the challenge, set the instance image to the **artifact name** (`gaara`). The manifest decides the rest (the port in the challenge's instance settings is ignored for a machine). On the VPN nothing else is needed. The machine port range (`KYMO_LAB_VM_PORTS`) only matters for a lab host without a gateway.
 
 | Manifest field | Meaning |
 | --- | --- |
 | `file` | The image, a plain file name in the images directory |
-| `ports` | Up to 8 services, primary first. The first is the instance's address, the others are shown by name |
+| `ports` | **Not needed for a machine.** Leave it out and the machine has no listed ports: it is given as an address with everything open, and counts as ready once it answers on the network. List up to 8 services only when `display` is `service`, or for a lab host without a gateway, where they are what gets published (primary first) |
 | `memory_mb`, `cpu_millis` | Memory and CPU cores (1000 per core), clamped to the lab host's caps (`KYMO_LAB_MAX_MEMORY_MB`, `KYMO_LAB_MAX_CPUS`) |
 | `boot_timeout_secs` | How long the platform waits for the machine to answer (10 to 1800, default 180) |
 | `disk` | `sata` (default, works with nearly everything), `ide` or `virtio` (fastest, needs guest drivers) |
 | `nic` | `e1000` (default), `virtio` or `rtl8139` |
 | `firmware` | `bios` (default, what VirtualBox exports use) or `uefi` |
-| `display` | `machine` (players get just the address, every port open on it: the default for a virtual machine) or `service` (address and port: the default for a container). On a lab network `ports` only names what to wait for before the machine counts as ready (the first port) |
+| `display` | `machine` (players get just the address, every port open on it, no ports in the manifest: the default for a virtual machine) or `service` (address and port, like a HackTheBox challenge: the default for a container, which keeps its `port`) |
 
 How it behaves:
 
 - **Every instance is disposable.** The image is converted once into a base that is never written to, and each instance runs from its own copy-on-write overlay that is deleted when it ends. A player can wreck the machine; the next start is pristine, and starting costs almost nothing.
-- **A machine is shown as ready only when its guest accepts connections.** QEMU accepts the host side of a forwarded port while the guest is still booting, so the lab host asks QEMU itself whether the guest took a connection, and the platform waits for that (up to `boot_timeout_secs`). Players see "starting" until then.
-- **Isolation.** Networking is QEMU's user mode with `restrict=on`: the guest cannot reach the lab host, its network or the internet, and only the listed ports lead in. Machines run as the unprivileged service user.
+- **A machine is shown as ready only when its guest is really on the network.** On the VPN the gateway checks the machine's address (it answers ARP once its address is up, whatever it blocks above that), or, when the manifest lists a port, that the port accepts a connection; the platform waits for that (up to `boot_timeout_secs`). Players see "starting" until then. Without a gateway, the lab host asks QEMU whether the guest took a connection on a forwarded port.
+- **Isolation.** On a lab network the machine sits on the player's own private network, which has no route to the internet and which no other player can reach. Without a gateway it runs in QEMU's user mode with `restrict=on`: only the listed ports lead in and the guest reaches nothing. Machines run as the unprivileged service user.
 - **VirtualBox exports just work.** The network card is placed where VirtualBox puts it, so a guest that configures `enp0s3` (the usual VulnHub case) finds it and gets its address.
 - **See what the guest is doing.** In the Lab hosts page, *What is running*, a machine has a **Console** button with a screenshot of its screen. A login prompt means it booted; anything else tells you where it is stuck.
 - **Time limits and restarts.** The lab host enforces the machine's time limit itself. Machines survive a restart of the `kymo-lab` service and are found again.

@@ -273,7 +273,13 @@ impl Gateway for DockerGateway {
         // The address and port are typed, so nothing here can be steered by input. `nc` exits
         // 0 once the connection is made and closed (stdin is empty), non zero when refused or
         // when nothing answers within two seconds.
-        let script = format!("nc -w 2 {ip} {port} </dev/null");
+        // Port 0 asks whether the machine is on the network at all, for a machine that lists no
+        // ports: it answers ARP once its address is up, whatever it blocks above that.
+        let script = if port == 0 {
+            format!("ping -c 1 -W 1 {ip} >/dev/null 2>&1; ip neigh show {ip} | grep -q lladdr")
+        } else {
+            format!("nc -w 2 {ip} {port} </dev/null")
+        };
         let (code, _) = self
             .exec_code(vec!["sh".into(), "-c".into(), script])
             .await?;

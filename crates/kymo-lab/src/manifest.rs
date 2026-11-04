@@ -125,7 +125,7 @@ impl Manifest {
         // something the lab host would refuse to start.
         InstanceSpec {
             image: self.artifact.clone(),
-            port: self.primary_port(),
+            port: self.primary_port().max(1),
             cpu_millis: self.cpu_millis.unwrap_or(1),
             memory_mb: self.memory_mb.unwrap_or(1),
             pids: self.pids.unwrap_or(1),
@@ -176,7 +176,10 @@ impl Manifest {
 
     /// Every published service, primary first.
     pub fn declared_ports(&self) -> Vec<PortDecl> {
-        if self.ports.is_empty() {
+        if self.ports.is_empty() && self.port == 0 {
+            // A machine on a lab network needs none: it has an address of its own.
+            Vec::new()
+        } else if self.ports.is_empty() {
             vec![PortDecl {
                 name: "main".into(),
                 port: self.port,
@@ -206,8 +209,10 @@ impl Manifest {
                 DISK_EXTENSIONS.join(", ")
             ));
         }
-        if self.ports.is_empty() && self.port == 0 {
-            return Err("a virtual machine needs ports: the services players connect to".into());
+        // A machine shown as an address (the default) lists no ports: every port is open on its
+        // own address. Shown as a service it must say which port to connect to.
+        if self.ports.is_empty() && self.port == 0 && !self.machine_style() {
+            return Err("a virtual machine shown as a service needs ports: the services players connect to (or leave display out, or set it to machine)".into());
         }
         if self.ports.len() > MAX_PORTS {
             return Err(format!("at most {MAX_PORTS} ports"));
@@ -284,7 +289,8 @@ impl Manifest {
         }
         let spec = InstanceSpec {
             image: self.artifact.clone(),
-            port: self.primary_port(),
+            // A machine with no ports has no service port; the spec still needs a valid one.
+            port: self.primary_port().max(1),
             cpu_millis: clamp_u32(asked.cpu_millis, self.cpu_millis, caps.max_cpu_millis),
             memory_mb: clamp_u32(asked.memory_mb, self.memory_mb, caps.max_memory_mb),
             pids: clamp_u32(asked.pids, self.pids, caps.max_pids),

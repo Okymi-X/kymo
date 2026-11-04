@@ -573,6 +573,11 @@ fn vm_manifest(json: &str) -> Result<(), String> {
 fn a_virtual_machine_manifest_is_checked() {
     let ok = r#"{"artifact":"box","runtime":"vm","file":"Box One.ova","ports":[{"name":"web","port":80},{"name":"ssh","port":22}],"memory_mb":1024}"#;
     assert_eq!(vm_manifest(ok), Ok(()));
+    // A machine shown as an address needs no ports at all.
+    assert_eq!(
+        vm_manifest(r#"{"artifact":"box","runtime":"vm","file":"a.ova"}"#),
+        Ok(())
+    );
     for (bad, why) in [
         (
             r#"{"artifact":"box","runtime":"vm","ports":[{"port":80}]}"#,
@@ -591,8 +596,8 @@ fn a_virtual_machine_manifest_is_checked() {
             "ending in",
         ),
         (
-            r#"{"artifact":"box","runtime":"vm","file":"a.ova"}"#,
-            "ports",
+            r#"{"artifact":"box","runtime":"vm","file":"a.ova","display":"service"}"#,
+            "shown as a service needs ports",
         ),
         (
             r#"{"artifact":"box","runtime":"vm","file":"a.ova","ports":[{"port":80},{"port":80,"name":"again"}]}"#,

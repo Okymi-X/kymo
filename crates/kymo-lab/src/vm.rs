@@ -648,6 +648,11 @@ impl VmRuntime {
         if !valid_handle(&v.name) {
             return Err(failed("the name is not valid"));
         }
+        if v.tap.is_none() && v.ports.is_empty() {
+            return Err(failed(
+                "this machine lists no ports, so it can only run on a lab network (the VPN): there is nothing to publish",
+            ));
+        }
         let accel = self.accel().map_err(unavailable)?;
         // The image must be ready; if it is not, begin and tell the platform to come back.
         let artifact_ready = self.prepared(&v.artifact).0;
@@ -781,12 +786,13 @@ impl VmRuntime {
             serde_json::to_vec_pretty(&meta).map_err(|e| failed(e.to_string()))?,
         )
         .map_err(|e| failed(e.to_string()))?;
+        // A machine on a lab network may list no ports: it is reached at its own address.
         let mut started = Started::new(
             v.name.clone(),
-            ports[0].host,
+            ports.first().map_or(0, |p| p.host),
             tap.map(|(t, _)| t.ip.to_string()),
         );
-        started.extra_ports = ports[1..].to_vec();
+        started.extra_ports = ports.iter().skip(1).cloned().collect();
         started.ready_secs = Some(v.boot_secs);
         Ok(started)
     }

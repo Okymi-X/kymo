@@ -84,7 +84,7 @@ function CheckView({ check }: { check: LabCheck }) {
             <li
               key={a.artifact}
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-xs ${a.ready === false ? 'border-danger/40' : 'border-line'}`}
-              title={`${(a.ports ?? [{ name: 'main', port: a.port }]).map((p) => `${p.name} ${p.port}`).join(', ')}, up to ${Math.round(a.max_ttl_secs / 60)} minutes${a.note ? `. ${a.note}` : ''}`}
+              title={`${a.port === 0 && (a.ports ?? []).length === 0 ? 'a machine with every port open' : (a.ports ?? [{ name: 'main', port: a.port }]).map((p) => `${p.name} ${p.port}`).join(', ')}, up to ${Math.round(a.max_ttl_secs / 60)} minutes${a.note ? `. ${a.note}` : ''}`}
             >
               {a.artifact}
               {a.runtime === 'vm' && <span className="rounded bg-line/60 px-1 font-sans text-[10px] uppercase tracking-wide text-muted">vm</span>}
