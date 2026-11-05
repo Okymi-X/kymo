@@ -115,5 +115,5 @@
 - [ ] Measure how many labs one gateway handles (each lab is one interface on the gateway container)
 - [ ] Per instance random flag (so a leaked flag is not valid for others) and a readiness check before an instance is reported running
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
-- [ ] Sample data seed command based on the schema
+- [x] Sample data seed command (`seed-demo`): tournaments and Jeopardy events with challenges, hints, players and solves, idempotent
 - [ ] README with quickstart

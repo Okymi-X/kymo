@@ -181,6 +181,15 @@ function Overview({ event }: { event: EventInfo }) {
         <ErrorText error={board.error} />
       </Panel>
 
+      {event.kind === 'tournament' && (
+        <Panel className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">A tournament has matches, not challenges</h2>
+          <p className="text-sm text-muted">
+            Teams play each other through the bracket, so there are no challenges, flags, hints or instances to set up here. Challenges belong to a <strong>Jeopardy</strong> event: create one from <Link to="/admin/events" className="font-medium text-accent hover:underline">Events</Link> and choose Jeopardy as its type. Both kinds can run side by side.
+          </p>
+        </Panel>
+      )}
+
       {event.kind === 'jeopardy' && <InstanceHost event={event} />}
 
       {event.kind === 'jeopardy' && <NetworkMode event={event} />}
@@ -641,6 +650,7 @@ function Body() {
       <div className="flex flex-wrap items-center gap-3">
         <PageTitle>{event.name}</PageTitle>
         <StatePill state={event.effective_state} />
+        <Pill>{jeopardy ? 'Jeopardy' : 'Tournament'}</Pill>
         <Pill>{event.mode === 'team' ? 'Teams' : 'Solo'}</Pill>
       </div>
       <div className="flex gap-4 text-sm">

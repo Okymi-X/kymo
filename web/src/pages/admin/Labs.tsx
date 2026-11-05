@@ -288,6 +288,9 @@ export function Labs() {
   return (
     <div className="flex flex-col gap-6">
       <PageTitle>Lab hosts</PageTitle>
+      <p className="max-w-3xl text-sm text-muted">
+        Lab hosts are shared by the whole platform: add each machine once here. Every Jeopardy event then chooses where its instances run (Event, Overview, Where instances run): this server or any lab host, and different events can use different ones.
+      </p>
       <Gate need="admin">
         <Body />
       </Gate>

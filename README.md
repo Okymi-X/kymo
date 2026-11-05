@@ -105,11 +105,15 @@ cd kymo
 (cd web && pnpm install && pnpm build)
 
 export KYMO_ADMIN_PASSWORD='at least 12 characters'
-cargo run -p kymo-server seed-demo   # optional: eight sample tournaments
+cargo run -p kymo-server seed-demo   # optional: sample data for every kind of event
 KYMO_ADDR=127.0.0.1:8787 cargo run -p kymo-server
 ```
 
 Open http://127.0.0.1:8787 and sign in as organizer with that password.
+
+`seed-demo` adds sample data for **both kinds of event** and is safe to run again (it only adds what is missing): eight tournaments in different formats and states, and three Jeopardy events: *Spring Jeopardy CTF* (live, five categories, fifteen challenges with static and dynamic scoring and hints, fourteen players with solves spread over six hours, so the scoreboard and the score-over-time chart have something to show), *Winter Jeopardy* (finished) and *Summer Jeopardy* (upcoming, registration open). The sample players (`demo-ada`, `demo-linus`, ...) have no usable password, so nobody can sign in as them; sign in as the organizer to look around.
+
+**Event types.** A *tournament* has matches and a bracket, so it has no challenges. A *Jeopardy* event has challenges, flags, hints, scoring and, if you want, instances. Choose the type when you create the event; both run side by side.
 
 ## Configuration
 
@@ -196,7 +200,7 @@ players ──► platform (web, accounts, scores)  ──── HTTPS + token �
 
 - **Same host** (the default): the event uses this machine's own runtime and address.
 - **Separate host**: add the lab host in the admin pages (Lab hosts) and pick it in the event's *Where instances run*. Players are told the lab host's address.
-- **Both**: any number of lab hosts, and each event picks one. An event on a lab host can be moved only while none of its instances run.
+- **Lab hosts are global**: you add each lab host once (Lab hosts page) and it is available to every event. Each Jeopardy event then picks where its instances run (this server or any lab host), so different events can use different hosts. Any number of lab hosts. An event on a lab host can be moved only while none of its instances run.
 - **Solo and team events** behave the same; only the owner of an instance changes.
 - **Private VPN on a lab host**: see [Players reach a lab host through its VPN](#players-reach-a-lab-host-through-its-vpn). With it nothing vulnerable is published on the internet.
 

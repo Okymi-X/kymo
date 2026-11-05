@@ -50,7 +50,7 @@ async fn run() -> Result<(), String> {
         let added = kymo_server::demo::seed(&pool)
             .await
             .map_err(|_| "could not add demo data".to_owned())?;
-        tracing::info!("added {added} demo tournaments");
+        tracing::info!("added {added} demo events (tournaments and Jeopardy)");
         return Ok(());
     }
     let mut state = AppState::new(pool, &password).map_err(|e| format!("password hashing: {e}"))?;

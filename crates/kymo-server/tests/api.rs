@@ -1065,7 +1065,8 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
 
     let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(first["added"], 9);
+    // Nine tournaments and the three Jeopardy events.
+    assert_eq!(first["added"], 12);
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
