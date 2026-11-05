@@ -5,19 +5,42 @@ import { Link, useNavigate } from 'react-router'
 import { platform } from '../../api/platform'
 import { Gate, Loading, Panel, Pill, StatePill, Toggle } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../../components/ui'
+import { labLabel } from '../../lib/platform'
 import { usePageTitle } from '../../lib/usePageTitle'
 
 function CreateEvent() {
   const [name, setName] = useState('')
   const [kind, setKind] = useState<'jeopardy' | 'tournament'>('jeopardy')
   const [mode, setMode] = useState<'solo' | 'team'>('team')
+  // Where the instances run: chosen here so the event is set up in one go. Empty is this server.
+  const [lab, setLab] = useState('')
+  const [placeError, setPlaceError] = useState<{ id: number; message: string } | null>(null)
   const client = useQueryClient()
   const navigate = useNavigate()
+  const labs = useQuery({ queryKey: ['labs'], queryFn: platform.labs })
+  const choices = (labs.data?.labs ?? []).filter((l) => l.enabled)
   const create = useMutation({
-    mutationFn: () => platform.createEvent({ name: name.trim(), kind, mode }),
-    onSuccess: (e) => {
+    mutationFn: async () => {
+      const event = await platform.createEvent({ name: name.trim(), kind, mode })
+      const target = kind === 'jeopardy' && lab !== '' ? choices.find((l) => l.id === Number(lab)) : undefined
+      if (!target) return { event, failed: null as string | null }
+      try {
+        // A lab host with a gateway is used through it: players are not given open ports.
+        await platform.setEventLab(event.id, target.id, target.vpn ? 'vpn' : undefined)
+        return { event, failed: null }
+      } catch (e) {
+        return { event, failed: e instanceof Error ? e.message : 'could not use that lab host' }
+      }
+    },
+    onSuccess: ({ event, failed }) => {
       void client.invalidateQueries({ queryKey: ['admin-events'] })
-      navigate(`/admin/events/${e.id}`)
+      void client.invalidateQueries({ queryKey: ['labs'] })
+      if (failed) {
+        // The event exists; say what went wrong instead of hiding it behind a page change.
+        setPlaceError({ id: event.id, message: failed })
+        return
+      }
+      navigate(`/admin/events/${event.id}`)
     },
   })
   const submit = (e: FormEvent) => {
@@ -41,10 +64,31 @@ function CreateEvent() {
           <option value="solo">Solo</option>
         </Select>
       </Field>
+      {kind === 'jeopardy' && (
+        <Field label="Instances run on">
+          <Select value={lab} onChange={(e) => setLab(e.target.value)} className="w-72">
+            <option value="">This server</option>
+            {choices.map((l) => (
+              <option key={l.id} value={l.id}>
+                {labLabel(l)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
         Create event
       </Button>
       <ErrorText error={create.error} />
+      {placeError && (
+        <p role="alert" className="basis-full text-sm text-danger">
+          The event was created, but it could not be placed on that lab host: {placeError.message}.{' '}
+          <Link to={`/admin/events/${placeError.id}`} className="font-medium underline">
+            Open it to choose another place
+          </Link>
+          .
+        </p>
+      )}
     </form>
   )
 }

@@ -537,7 +537,8 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   // The event can be moved to it, and the choice survives a reload.
   await page.goto(`/admin/events/${event.id}`)
   const where = page.getByLabel('Where instances run')
-  await where.selectOption({ label: 'Unplugged Lab 2' })
+  // The choice says how busy the host is, so the admin can decide by what it has to spare.
+  await where.selectOption({ label: 'Unplugged Lab 2 · 0 events, 0 running' })
   await expect(page.getByRole('combobox', { name: 'Where instances run' })).toHaveValue(/\d+/)
   await page.reload()
   await expect(page.getByLabel('Where instances run')).toHaveValue(/\d+/)
@@ -574,4 +575,28 @@ test('the audit log is searchable, filterable by what was recorded, and paged', 
   await expect(page.getByRole('table', { name: 'Audit log' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'From' })).toBeVisible()
   await expect(page.getByLabel('Per page')).toHaveValue('25')
+})
+
+test('the lab host is chosen when the event is created, with what each host is already doing', async ({ page, request }) => {
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const lab = (await (await request.post('/api/v1/admin/labs', {
+    headers,
+    data: { name: 'Pick me', api_url: 'http://127.0.0.1:9', token: 'a-long-token-for-the-test-1234', public_host: '127.0.0.1' },
+  })).json()) as { lab: { id: number } }
+  await organizer(page)
+  await page.goto('/admin/events')
+  await page.getByLabel('New event').fill('Placed at creation')
+  await page.getByLabel('Players').selectOption({ label: 'Solo' })
+  // The choice shows how busy each host is, so the admin can decide by what it has to spare.
+  await expect(page.getByRole('option', { name: /Pick me · 0 events, 0 running/ })).toBeAttached()
+  await page.getByLabel('Instances run on').selectOption({ label: 'Pick me · 0 events, 0 running' })
+  await page.getByRole('button', { name: 'Create event' }).click()
+  await expect(page.getByRole('heading', { name: 'Placed at creation' })).toBeVisible()
+  await expect(page.getByLabel('Where instances run')).toHaveValue(String(lab.lab.id))
+  // A tournament has no instances, so the choice is not offered for it.
+  await page.goto('/admin/events')
+  await page.getByLabel('Type').selectOption({ label: 'Tournament' })
+  await expect(page.getByLabel('Instances run on')).toHaveCount(0)
+  await request.delete(`/api/v1/admin/labs/${lab.lab.id}`, { headers }).catch(() => undefined)
 })

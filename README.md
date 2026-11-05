@@ -201,6 +201,7 @@ players ──► platform (web, accounts, scores)  ──── HTTPS + token �
 - **Same host** (the default): the event uses this machine's own runtime and address.
 - **Separate host**: add the lab host in the admin pages (Lab hosts) and pick it in the event's *Where instances run*. Players are told the lab host's address.
 - **Lab hosts are global**: you add each lab host once (Lab hosts page) and it is available to every event. Each Jeopardy event then picks where its instances run (this server or any lab host), so different events can use different hosts. Any number of lab hosts. An event on a lab host can be moved only while none of its instances run.
+- **Choosing the host is the organizer's call.** Pick it when you create a Jeopardy event (*Instances run on*) or later on the event's Overview. Each choice shows how busy that host is (events using it, instances running), so you can put several events on one host that has resources to spare, or give a big event a host of its own. A host never takes more than its `KYMO_LAB_MAX_INSTANCES` at once (further starts get "the lab host is full") and clamps every instance to its memory and CPU caps, so events sharing a host cannot starve it.
 - **Solo and team events** behave the same; only the owner of an instance changes.
 - **Private VPN on a lab host**: see [Players reach a lab host through its VPN](#players-reach-a-lab-host-through-its-vpn). With it nothing vulnerable is published on the internet.
 

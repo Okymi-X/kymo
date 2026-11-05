@@ -133,3 +133,11 @@ export const NO_DEADLINE_AFTER = 4_000_000_000
 export function isNoDeadline(t: number): boolean {
   return t >= NO_DEADLINE_AFTER
 }
+
+/** A lab host as an option in a list: its gateway, switched-off state and how busy it is, so the admin can pick by what it has to spare. */
+export function labLabel(l: { name: string; enabled: boolean; vpn: { only: boolean } | null; events: number; live_instances: number }): string {
+  const gateway = l.vpn ? (l.vpn.only ? ' (VPN only)' : ' (VPN)') : ''
+  const off = l.enabled ? '' : ' (switched off)'
+  const load = `${l.events} event${l.events === 1 ? '' : 's'}, ${l.live_instances} running`
+  return `${l.name}${gateway}${off} · ${load}`
+}

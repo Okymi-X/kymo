@@ -10,7 +10,7 @@ import { DataTable, Empty, Gate, Loading, Panel, Pill, StatePill, TD, Toggle } f
 import { Pager } from '../../components/Pager'
 import { Tabs, type TabItem } from '../../components/Tabs'
 import { Button, ErrorText, Field, Input, PageTitle, Select, Textarea } from '../../components/ui'
-import { fromLocalInput, nextStates, scoringLabel, stateLabel, toLocalInput, verdictText } from '../../lib/platform'
+import { fromLocalInput, nextStates, scoringLabel, stateLabel, toLocalInput, verdictText, labLabel } from '../../lib/platform'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
 import { ChallengeEditor } from './ChallengeEditor'
@@ -252,9 +252,7 @@ function InstanceHost({ event }: { event: EventInfo }) {
         <option value="">This server</option>
         {list.map((l) => (
           <option key={l.id} value={l.id} disabled={!l.enabled && event.lab_host_id !== l.id}>
-            {l.name}
-            {l.vpn ? (l.vpn.only ? ' (VPN only)' : ' (VPN)') : ''}
-            {l.enabled ? '' : ' (switched off)'}
+            {labLabel(l)}
           </option>
         ))}
       </Select>
