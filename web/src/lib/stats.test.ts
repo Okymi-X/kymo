@@ -35,6 +35,7 @@ const tournament = (matches: Match[], over: Partial<Tournament> = {}): Tournamen
   best_of: 1,
   challenges: { assignment: 'none', solo: 1, team: 3, seed: 0, time_limit: null },
   paused: false,
+  schedule: { starts_at: null, ends_at: null, ended_at: null, effective_state: 'live' },
   description: '',
   accent: null,
   event_id: null,

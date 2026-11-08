@@ -4,6 +4,7 @@ import type { Tournament } from '../api/types'
 import { formatLabel } from '../lib/labels'
 import { Avatar } from './Avatar'
 import { StatusPill } from './ui'
+import { EventCountdown } from './platform/EventCountdown'
 
 const STACK = 4
 
@@ -61,6 +62,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
         </div>
         <StatusPill status={t.status} paused={t.paused} />
       </div>
+      <EventCountdown event={t.schedule} compact />
       <div className="mt-auto flex flex-col gap-3">
         {t.progress.total > 0 && <Progress played={t.progress.played} total={t.progress.total} />}
         <div className="flex items-center justify-between">

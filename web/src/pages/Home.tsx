@@ -179,6 +179,17 @@ function DemoButton() {
         {load.isPending ? 'Loading samples' : 'Load sample tournaments'}
       </Button>
       <ErrorText error={load.error} />
+      {load.data && (
+        <div role="status" className="mt-2 w-full max-w-lg rounded-card border border-line bg-surface p-4 text-left text-sm">
+          <p>
+            Added {load.data.added} {load.data.added === 1 ? 'event' : 'events'}. Every sample account uses this password, made just now:
+          </p>
+          <p className="my-2 select-all rounded-control border border-line bg-bg px-3 py-2 font-mono text-base">{load.data.password}</p>
+          <p className="text-muted">
+            Sign in as <code className="font-mono">demo-admin</code>, <code className="font-mono">demo-referee</code>, <code className="font-mono">demo-monitor</code> or a player such as <code className="font-mono">demo-ada</code>. Loading the samples again makes a new password.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

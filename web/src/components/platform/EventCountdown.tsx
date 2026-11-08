@@ -9,7 +9,8 @@ const tones = {
   ended: 'border-line bg-bg text-muted',
 }
 
-export function EventCountdown({ event, compact = false }: { event: EventInfo; compact?: boolean }) {
+/** Counts to the start or the end of an event or tournament; anything with this schedule works. */
+export function EventCountdown({ event, compact = false }: { event: Pick<EventInfo, 'effective_state' | 'starts_at' | 'ends_at' | 'ended_at'>; compact?: boolean }) {
   const now = useNow()
   const nowSeconds = Math.floor(now / 1000)
   const target = eventCountdownTarget(event, nowSeconds)

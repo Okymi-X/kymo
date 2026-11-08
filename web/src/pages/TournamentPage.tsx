@@ -17,6 +17,7 @@ import { MatchList } from '../components/MatchList'
 import { ScheduleBoard } from '../components/ScheduleBoard'
 import { ScoreDialog } from '../components/ScoreDialog'
 import { PlayTab } from '../components/platform/MatchPlay'
+import { EventCountdown } from '../components/platform/EventCountdown'
 import { StandingsTable } from '../components/StandingsTable'
 import { Tabs, type TabItem } from '../components/Tabs'
 import { TeamDialog } from '../components/TeamDialog'
@@ -209,6 +210,9 @@ export function TournamentPage() {
             </Link>
           )}
         </div>
+      </div>
+      <div className="flex justify-end">
+        <EventCountdown event={t.schedule} />
       </div>
       <Champion t={t} teamName={teamName} />
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}

@@ -78,6 +78,8 @@ export interface Tournament {
   challenges: ChallengeSettings
   /** True while the organizer has paused the event, so no page shows it as live. */
   paused: boolean
+  /** When the tournament's event starts and ends, for the countdown. */
+  schedule: { starts_at: number | null; ends_at: number | null; ended_at: number | null; effective_state: 'draft' | 'registration_open' | 'live' | 'paused' | 'ended' | 'archived' }
   /** Rules or notes from the organizer, shown under the title. */
   description: string
   /** Optional #rrggbb accent for this tournament's pages. */

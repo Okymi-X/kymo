@@ -5,6 +5,7 @@ pub mod challenge_store;
 pub mod clock;
 pub mod db;
 pub mod demo;
+pub mod demo_platform;
 pub mod duel;
 pub mod duel_store;
 pub mod error;

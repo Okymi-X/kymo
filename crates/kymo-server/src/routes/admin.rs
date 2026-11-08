@@ -793,8 +793,12 @@ pub async fn load_demo(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _guard = state.write_lock.lock().await;
-    let added = crate::demo::seed(&state.pool).await?;
-    Ok(Json(serde_json::json!({ "added": added })))
+    let report = crate::demo_platform::seed_all(&state).await?;
+    Ok(Json(serde_json::json!({
+        "added": report.added,
+        "password": report.password,
+        "accounts": report.accounts,
+    })))
 }
 
 const MAX_VENUE: usize = 40;

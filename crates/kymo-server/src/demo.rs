@@ -198,7 +198,7 @@ const PLANS: [Plan; 9] = [
     },
 ];
 
-fn slugify(name: &str) -> String {
+pub(crate) fn slugify(name: &str) -> String {
     name.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|part| !part.is_empty())
@@ -517,7 +517,7 @@ const CHALLENGES: [Challenge; 15] = [
 
 const CATEGORIES: [&str; 5] = ["Web", "Crypto", "Forensics", "Pwn", "Misc"];
 
-const PLAYERS: [&str; 16] = [
+pub(crate) const PLAYERS: [&str; 16] = [
     "ada", "linus", "grace", "dennis", "ken", "margaret", "alan", "barbara", "tim", "radia",
     "vint", "shafi", "bruce", "whit", "adi", "ron",
 ];

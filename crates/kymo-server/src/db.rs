@@ -36,6 +36,16 @@ pub struct Team {
     pub player_team_id: Option<i64>,
 }
 
+/// The tournament's schedule, from its event: the countdown counts to these.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Schedule {
+    pub starts_at: Option<i64>,
+    pub ends_at: Option<i64>,
+    pub ended_at: Option<i64>,
+    /// The event's state at this moment, by its schedule (a scheduled end counts).
+    pub effective_state: kymo_core::EventState,
+}
+
 /// How a tournament decides its matches with challenges (see ARCHITECTURE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ChallengeSettings {
@@ -64,6 +74,9 @@ struct Row {
     challenge_seed: i64,
     challenge_time_limit: Option<i64>,
     event_state: Option<String>,
+    event_starts_at: Option<i64>,
+    event_ends_at: Option<i64>,
+    event_ended_at: Option<i64>,
     description: String,
     accent: Option<String>,
     event_id: Option<i64>,
@@ -88,6 +101,8 @@ pub struct Tournament {
     pub challenges: ChallengeSettings,
     /// True while the organizer has paused the tournament's event, so no page shows it as live.
     pub paused: bool,
+    /// When the tournament's event starts and ends, for the countdown.
+    pub schedule: Schedule,
     /// Rules, venue or any note the organizer wants players to read.
     pub description: String,
     /// Optional #rrggbb accent that tints this tournament's pages.
@@ -171,6 +186,24 @@ fn hydrate(row: Row, teams: Vec<Team>) -> Result<Tournament, ApiError> {
         rounds: u8::try_from(row.rounds).unwrap_or(0),
         best_of: u8::try_from(row.best_of).unwrap_or(1),
         paused: row.event_state.as_deref() == Some("paused"),
+        schedule: {
+            let stored = row
+                .event_state
+                .as_deref()
+                .and_then(|s| s.parse::<kymo_core::EventState>().ok())
+                .unwrap_or(kymo_core::EventState::Draft);
+            let planned = kymo_core::EventSchedule {
+                starts: row.event_starts_at,
+                ends: row.event_ends_at,
+                ..Default::default()
+            };
+            Schedule {
+                starts_at: row.event_starts_at,
+                ends_at: row.event_ends_at,
+                ended_at: row.event_ended_at,
+                effective_state: kymo_core::effective_state(stored, &planned, crate::tokens::now()),
+            }
+        },
         challenges: ChallengeSettings {
             assignment: kymo_duel::Assignment::parse(&row.challenge_assignment).unwrap_or_default(),
             solo: u8::try_from(row.challenges_solo).unwrap_or(1),
@@ -198,7 +231,7 @@ async fn teams_of(pool: &SqlitePool, id: i64) -> Result<Vec<Team>, ApiError> {
 }
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Tournament>, ApiError> {
-    let rows: Vec<Row> = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state FROM tournament ORDER BY id DESC")
+    let rows: Vec<Row> = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state, (SELECT e.starts_at FROM event e WHERE e.id = tournament.event_id) AS event_starts_at, (SELECT e.ends_at FROM event e WHERE e.id = tournament.event_id) AS event_ends_at, (SELECT e.ended_at FROM event e WHERE e.id = tournament.event_id) AS event_ended_at FROM tournament ORDER BY id DESC")
         .fetch_all(pool)
         .await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -210,7 +243,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Tournament>, ApiError> {
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Tournament, ApiError> {
-    let row: Row = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state FROM tournament WHERE id = ?")
+    let row: Row = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state, (SELECT e.starts_at FROM event e WHERE e.id = tournament.event_id) AS event_starts_at, (SELECT e.ends_at FROM event e WHERE e.id = tournament.event_id) AS event_ends_at, (SELECT e.ended_at FROM event e WHERE e.id = tournament.event_id) AS event_ended_at FROM tournament WHERE id = ?")
         .bind(id)
         .fetch_one(pool)
         .await?;
@@ -219,7 +252,7 @@ pub async fn get(pool: &SqlitePool, id: i64) -> Result<Tournament, ApiError> {
 }
 
 pub async fn get_by_slug(pool: &SqlitePool, slug: &str) -> Result<Tournament, ApiError> {
-    let row: Row = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state FROM tournament WHERE slug = ?")
+    let row: Row = sqlx::query_as("SELECT *, (SELECT e.state FROM event e WHERE e.id = tournament.event_id) AS event_state, (SELECT e.starts_at FROM event e WHERE e.id = tournament.event_id) AS event_starts_at, (SELECT e.ends_at FROM event e WHERE e.id = tournament.event_id) AS event_ends_at, (SELECT e.ended_at FROM event e WHERE e.id = tournament.event_id) AS event_ended_at FROM tournament WHERE slug = ?")
         .bind(slug)
         .fetch_one(pool)
         .await?;
