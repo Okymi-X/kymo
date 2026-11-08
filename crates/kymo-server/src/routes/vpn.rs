@@ -253,11 +253,6 @@ pub async fn set_network(
         return Err(ApiError::BadRequest("mode is published or vpn".into()));
     }
     let event = event_store::by_id(&state.pool, id).await?;
-    if event.kind != "jeopardy" {
-        return Err(ApiError::Conflict(
-            "only Jeopardy events have challenge instances".into(),
-        ));
-    }
     vpn::check_mode(&state, event.lab_host_id, &body.mode).await?;
     if event.network_mode != body.mode {
         let _guard = state.write_lock.lock().await;

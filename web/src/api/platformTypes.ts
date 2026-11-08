@@ -143,6 +143,9 @@ export interface PlayerChallenge {
   max_attempts: number | null
   attempts_remaining: number | null
   requires_instance: boolean
+  /** `flag` (also instance backed) or `dfir`, answered question by question. */
+  kind: 'flag' | 'dfir'
+  items: { id: number; question: string; points: number; solved: boolean; attempts_remaining: number | null }[]
   hints: PlayerHint[]
   attachments: PlayerAttachment[]
 }
@@ -731,6 +734,7 @@ export interface DuelChallenge {
   description: string
   /** The accepted shape of a flag; none for DFIR questions. */
   flag_format: { prefix: string; suffix: string } | null
+  attachments: { id: number; name: string; size: number }[]
   kind: 'flag' | 'instance' | 'dfir'
   points: number
   /** Points each side has earned on this challenge. */

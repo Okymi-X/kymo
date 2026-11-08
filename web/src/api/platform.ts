@@ -117,6 +117,7 @@ export const platform = {
 
   // playing
   challenges: (slug: string) => request<ChallengeList>('GET', `${ev(slug)}/challenges`),
+  submitItem: (slug: string, id: number, item: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/items/${item}/submit`, { flag }),
   submit: (slug: string, id: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/submit`, { flag }),
   unlockHint: (slug: string, id: number, hint: number) => request<HintUnlock>('POST', `${ch(slug, id)}/hints/${hint}/unlock`),
   download: (slug: string, id: number, attachment: number, name: string) =>

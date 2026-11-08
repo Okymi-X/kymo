@@ -45,7 +45,9 @@ export function ChallengeBoard({ slug, vpn = false, labHost = null }: { slug: st
                   <span className="mt-auto flex items-center justify-between text-sm text-muted">
                     <span className="font-mono tabular-nums text-ink">{c.points} pts</span>
                     <span>
-                      {c.solved_by} {c.solved_by === 1 ? 'solve' : 'solves'}
+                      {c.kind === 'dfir'
+                        ? `${c.items.filter((i) => i.solved).length} of ${c.items.length} answered`
+                        : `${c.solved_by} ${c.solved_by === 1 ? 'solve' : 'solves'}`}
                     </span>
                   </span>
                 </button>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Lock } from 'lucide-react'
+import { Check, Download, Lock } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router'
 import { platform } from '../api/platform'
@@ -8,7 +8,8 @@ import { BackLink } from '../components/BackLink'
 import { Modal, ModalBody, ModalHeader } from '../components/Modal'
 import { Empty, Gate, Loading, Pill, useNow } from '../components/platform/bits'
 import { Button, ErrorText, Input, PageTitle } from '../components/ui'
-import { flagHint } from '../lib/platform'
+import { InstancePanel } from '../components/platform/InstancePanel'
+import { fileSize, flagHint } from '../lib/platform'
 import { usePageTitle } from '../lib/usePageTitle'
 
 const STATUS: Record<MatchView['status'], string> = {
@@ -66,7 +67,8 @@ function AnswerBox({ slug, matchId, challenge, itemId, label, placeholder, locke
   )
 }
 
-function ChallengeDialog({ slug, view, challenge, onClose }: { slug: string; view: MatchView; challenge: DuelChallenge; onClose: () => void }) {
+function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slug: string; view: MatchView; challenge: DuelChallenge; vpn: boolean; labHost: number | null; onClose: () => void }) {
+  const download = useMutation({ mutationFn: (a: { id: number; name: string }) => platform.download(slug, challenge.id, a.id, a.name) })
   const open = view.status === 'open'
   const me = view.you ?? 0
   const placeholder = challenge.flag_format ? flagHint(challenge.flag_format.prefix, challenge.flag_format.suffix) : 'Enter the flag'
@@ -74,11 +76,29 @@ function ChallengeDialog({ slug, view, challenge, onClose }: { slug: string; vie
     <Modal label={challenge.title} onClose={onClose} width="40rem">
       <ModalHeader
         title={challenge.title}
-        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'DFIR questions' : 'Flag'}${open ? '' : ' · closed'}`}
+        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'Multi-question' : challenge.kind === 'instance' ? 'Instance' : 'Single flag'}${open ? '' : ' · closed'}`}
         actions={<Pill tone="text-ink">{challenge.earned[me]} / {challenge.points} pts</Pill>}
       />
       <ModalBody>
         {challenge.description && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{challenge.description}</p>}
+        {challenge.attachments.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold">Files</h3>
+            <ul className="flex flex-col gap-1.5">
+              {challenge.attachments.map((a) => (
+                <li key={a.id}>
+                  <Button className="w-full justify-start" onClick={() => download.mutate({ id: a.id, name: a.name })}>
+                    <Download size={15} aria-hidden="true" />
+                    <span className="truncate">{a.name}</span>
+                    <span className="ml-auto text-xs text-muted">{fileSize(a.size)}</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <ErrorText error={download.error} />
+          </div>
+        )}
+        {challenge.kind === 'instance' && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={labHost} />}
         {challenge.kind === 'dfir' && (
           <ol className="flex flex-col gap-4">
             {challenge.items.map((item, i) => (
@@ -124,6 +144,7 @@ function ChallengeDialog({ slug, view, challenge, onClose }: { slug: string; vie
 export function MatchBoard({ slug, matchId: id, embedded = false }: { slug: string; matchId: number; embedded?: boolean }) {
   const q = useQuery({ queryKey: ['play', slug, id], queryFn: () => platform.playMatch(slug, id), refetchInterval: 4000 })
   const now = useNow()
+  const event = useQuery({ queryKey: ['event-info', slug], queryFn: () => platform.event(slug) })
   const [openId, setOpenId] = useState<number | null>(null)
   const view = q.data
   usePageTitle(view ? `${view.sides[0].name} versus ${view.sides[1].name}` : 'Match')
@@ -200,7 +221,7 @@ export function MatchBoard({ slug, matchId: id, embedded = false }: { slug: stri
           </section>
         ))
       )}
-      {selected && <ChallengeDialog slug={slug} view={view} challenge={selected} onClose={() => setOpenId(null)} />}
+      {selected && <ChallengeDialog slug={slug} view={view} challenge={selected} vpn={event.data?.network_mode === 'vpn'} labHost={event.data?.lab_host_id ?? null} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

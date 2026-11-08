@@ -312,11 +312,6 @@ pub async fn set_event_lab(
     Json(body): Json<EventLabBody>,
 ) -> Result<Json<Value>, ApiError> {
     let event = event_store::by_id(&state.pool, id).await?;
-    if event.kind != "jeopardy" {
-        return Err(ApiError::Conflict(
-            "only Jeopardy events have challenge instances".into(),
-        ));
-    }
     if let Some(lab) = body.lab_host_id {
         let row = labs::usable(&state, lab).await.map_err(|e| match e {
             ApiError::NotFound => ApiError::BadRequest("that lab host does not exist".into()),

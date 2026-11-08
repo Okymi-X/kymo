@@ -563,7 +563,7 @@ async fn the_flag_never_reaches_players() {
     assert_eq!(status, StatusCode::OK, "{list}");
     let text = list_body.to_string();
     assert!(!text.contains(FLAG), "flag leaked: {text}");
-    assert!(!text.contains("\"flag\""), "flag field leaked: {text}");
+    assert!(!text.contains("\"flag\":"), "flag field leaked: {text}");
     assert!(!text.contains("HINTTEXT"), "locked hint content leaked");
     assert!(
         challenge_in(&list_body, draft).is_none(),

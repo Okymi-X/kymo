@@ -18,7 +18,7 @@ import { RosterEditor } from '../../components/RosterEditor'
 import { TournamentAdmin } from '../../components/TournamentAdmin'
 import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
-import { TournamentChallengeDialog, TournamentChallengeSettings } from './TournamentChallenges'
+import { TournamentChallengeSettings } from './TournamentChallenges'
 
 type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
 
@@ -215,9 +215,9 @@ function Overview({ event }: { event: EventInfo }) {
 
       {event.kind === 'tournament' && <TournamentChallengeSettings event={event} />}
 
-      {event.kind === 'jeopardy' && <InstanceHost event={event} />}
+      <InstanceHost event={event} />
 
-      {event.kind === 'jeopardy' && <NetworkMode event={event} />}
+      <NetworkMode event={event} />
 
       {event.kind === 'jeopardy' && <JeopardySettingsForm eventId={event.id} />}
 
@@ -481,10 +481,11 @@ function Challenges({ event }: { event: EventInfo }) {
                   {c.title}
                 </button>
                 {c.requires_instance && <span className="ml-2 text-xs text-muted">instance</span>}
+                {c.kind === 'dfir' && <span className="ml-2 text-xs text-muted">multi-question</span>}
               </td>
               <td className={TD}>{categories.find((k) => k.id === c.category_id)?.name ?? ''}</td>
               <td className={`${TD} font-mono text-xs`}>{scoringLabel(c.scoring)}</td>
-              <td className={`${TD} font-mono tabular-nums`}>{event.kind === 'tournament' ? (c.kind === 'dfir' ? 'DFIR' : 'Flag') : c.solves}</td>
+              <td className={`${TD} font-mono tabular-nums`}>{event.kind === 'tournament' ? (c.kind === 'dfir' ? 'Multi-question' : c.requires_instance ? 'Instance' : 'Single flag') : c.solves}</td>
               <td className={TD}>
                 <Pill tone={c.state === 'published' ? 'text-win' : 'text-muted'}>{c.state}</Pill>
               </td>
@@ -493,11 +494,7 @@ function Challenges({ event }: { event: EventInfo }) {
         </DataTable>
       )}
       {editing !== null && (editing === 'new' || current) && (
-        event.kind === 'tournament' ? (
-          <TournamentChallengeDialog key={String(editing)} eventId={event.id} categories={categories} challenge={current} onClose={() => setEditing(null)} />
-        ) : (
-          <ChallengeEditor key={String(editing)} eventId={event.id} categories={categories} challenge={current} onClose={() => setEditing(null)} />
-        )
+        <ChallengeEditor key={String(editing)} eventId={event.id} eventKind={event.kind} categories={categories} challenge={current} onClose={() => setEditing(null)} />
       )}
     </div>
   )
@@ -784,7 +781,8 @@ function Body() {
     ...(jeopardy ? [] : [{ id: 'tournament' as const, label: 'Tournament' }]),
     { id: 'challenges', label: 'Challenges' },
     { id: 'participants', label: 'Participants' },
-    ...(jeopardy ? [{ id: 'submissions' as const, label: 'Submissions' }, { id: 'instances' as const, label: 'Instances' }] : []),
+    ...(jeopardy ? [{ id: 'submissions' as const, label: 'Submissions' }] : []),
+    { id: 'instances', label: 'Instances' },
   ]
   const requested = params.get('view') as View | null
   const view: View = tabs.some((t) => t.id === requested) ? (requested as View) : 'overview'
