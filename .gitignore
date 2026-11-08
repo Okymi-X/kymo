@@ -6,3 +6,6 @@ web/dist/
 .env
 .kymo-password
 /kymo-vpn/
+compose.dev.yaml
+Dockerfile.dev
+.pnpm-store/

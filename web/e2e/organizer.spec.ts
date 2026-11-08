@@ -184,7 +184,7 @@ test('site name previews in the header before saving', async ({ page }) => {
 
 test('sign out ends the session on the server', async ({ page, request }) => {
   await signIn(page)
-  const token = await page.evaluate(() => sessionStorage.getItem('kymo.token'))
+  const token = await page.evaluate(() => localStorage.getItem('kymo.token'))
   const before = await request.get('/api/v1/admin/tokens', { headers: { authorization: `Bearer ${token}` } })
   expect(before.status()).toBe(200)
   await page.getByRole('button', { name: 'Organizer menu' }).click()
