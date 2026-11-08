@@ -211,7 +211,7 @@ export function TournamentPage() {
           )}
         </div>
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-end empty:hidden">
         <EventCountdown event={t.schedule} />
       </div>
       <Champion t={t} teamName={teamName} />

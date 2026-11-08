@@ -618,6 +618,7 @@ async fn duel_tournament(
     assignment: kymo_duel::Assignment,
     count: u8,
     limit: Option<i64>,
+    ends_in: i64,
     picks: &[usize],
     solo: &[i64],
     teams: &[(i64, Vec<i64>)],
@@ -645,6 +646,9 @@ async fn duel_tournament(
     let row = event_store::by_id(pool, event).await?;
     let mut fields = EventFields::from(&row);
     fields.mode = mode;
+    // A schedule, so the tournament shows a countdown to its end.
+    fields.starts_at = Some(at);
+    fields.ends_at = Some(now() + ends_in);
     event_store::update(pool, event, &fields).await?;
     event_store::set_state(pool, event, EventState::RegistrationOpen, at).await?;
     dstore::save_settings(
@@ -1139,6 +1143,7 @@ pub async fn seed_all(state: &AppState) -> Result<Report, ApiError> {
             kymo_duel::Assignment::PerMatch,
             2,
             None,
+            2 * HOUR,
             &[0, 3, 4, 6, 8],
             &ids[..8],
             &[],
@@ -1169,6 +1174,7 @@ pub async fn seed_all(state: &AppState) -> Result<Report, ApiError> {
             kymo_duel::Assignment::PerRound,
             3,
             Some(HOUR),
+            90 * 60,
             &[0, 3, 4, 5, 6, 8],
             &[],
             &teams,
@@ -1200,6 +1206,7 @@ pub async fn seed_all(state: &AppState) -> Result<Report, ApiError> {
             kymo_duel::Assignment::Manual,
             2,
             None,
+            20 * HOUR,
             &[0, 4, 6, 8],
             &ids[..4],
             &[],

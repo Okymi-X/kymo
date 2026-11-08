@@ -233,6 +233,11 @@ async fn the_platform_seed_fills_every_feature_and_hands_out_one_password() {
     // Tournaments decided by challenges: a decided match, a tied one broken by time, one in play.
     let (_, duel) = send(&app, "GET", "/tournaments/duel-cup", None, None).await;
     assert_eq!(duel["challenges"]["assignment"], "per_match");
+    assert!(
+        duel["schedule"]["ends_at"].is_i64(),
+        "the tournament counts down to its end"
+    );
+    assert_eq!(duel["schedule"]["effective_state"], "live");
     let matches = duel["bracket"]["matches"].as_array().unwrap();
     assert!(
         !matches[0]["score"].is_null() && !matches[1]["score"].is_null(),
