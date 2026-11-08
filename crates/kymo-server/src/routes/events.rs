@@ -215,7 +215,7 @@ pub async fn set_state(
     row.stored_state()?
         .can_move_to(next)
         .map_err(|e| ApiError::Conflict(e.to_string()))?;
-    event_store::set_state(&state.pool, id, next).await?;
+    event_store::set_state(&state.pool, id, next, state.now()).await?;
     crate::monitor_store::audit(
         &state.pool,
         state.now(),

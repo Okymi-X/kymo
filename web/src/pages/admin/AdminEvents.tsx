@@ -4,6 +4,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { platform } from '../../api/platform'
 import { Gate, Loading, Panel, Pill, StatePill, Toggle } from '../../components/platform/bits'
+// import { EventCountdown } from '../../components/platform/EventCountdown'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../../components/ui'
 import { labLabel } from '../../lib/platform'
 import { usePageTitle } from '../../lib/usePageTitle'
@@ -153,6 +154,7 @@ function Body() {
                 <Pill>{e.mode === 'team' ? 'Teams' : 'Solo'}</Pill>
                 <span className="font-mono text-xs text-muted">/{e.slug}</span>
               </span>
+              {/* <EventCountdown event={e} /> */}
             </Link>
           </li>
         ))}

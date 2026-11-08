@@ -393,7 +393,7 @@ pub async fn start(
             best_of: t.best_of,
         },
     )?;
-    db::save_bracket(&state.pool, id, Some(&bracket), Status::Live).await?;
+    db::save_bracket(&state.pool, id, Some(&bracket), Status::Live, state.now()).await?;
     events::record_tournament(
         &state.pool,
         id,
@@ -412,7 +412,7 @@ pub async fn reset(
 ) -> Result<Json<Tournament>, ApiError> {
     let _guard = state.write_lock.lock().await;
     let t = db::get(&state.pool, id).await?;
-    db::save_bracket(&state.pool, id, None, Status::Draft).await?;
+    db::save_bracket(&state.pool, id, None, Status::Draft, state.now()).await?;
     events::record_tournament(&state.pool, id, "reset", serde_json::json!({})).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
@@ -439,7 +439,7 @@ async fn edit_bracket(
     } else {
         Status::Live
     };
-    db::save_bracket(&state.pool, id, Some(&bracket), status).await?;
+    db::save_bracket(&state.pool, id, Some(&bracket), status, state.now()).await?;
     // Once the match has a decision, captain reports for it are moot.
     sqlx::query("DELETE FROM report WHERE tournament_id = ? AND match_id = ?")
         .bind(id)
@@ -530,7 +530,7 @@ pub async fn set_live(
         .bracket
         .ok_or_else(|| ApiError::Conflict("tournament has not started".into()))?;
     bracket.set_live(match_id, None)?;
-    db::save_bracket(&state.pool, id, Some(&bracket), t.status).await?;
+    db::save_bracket(&state.pool, id, Some(&bracket), t.status, state.now()).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
 }
@@ -573,7 +573,7 @@ pub async fn set_tiebreak(
     } else {
         Status::Live
     };
-    db::save_bracket(&state.pool, id, Some(&bracket), status).await?;
+    db::save_bracket(&state.pool, id, Some(&bracket), status, state.now()).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
 }

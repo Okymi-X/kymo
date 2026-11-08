@@ -34,7 +34,7 @@ export function Events() {
       ) : shown.length === 0 ? (
         <Empty>No events yet.</Empty>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           {shown.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}

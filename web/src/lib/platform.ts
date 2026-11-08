@@ -134,6 +134,52 @@ export function isNoDeadline(t: number): boolean {
   return t >= NO_DEADLINE_AFTER
 }
 
+export type EventCountdownTarget = { kind: 'starts' | 'ends'; at: number } | { kind: 'ended'; at: number | null }
+
+export function eventCountdownTarget(
+  event: Pick<EventInfo, 'effective_state' | 'starts_at' | 'ends_at' | 'ended_at'>,
+  nowSeconds: number,
+): EventCountdownTarget | null {
+  if (event.effective_state === 'ended' || event.effective_state === 'archived') {
+    return { kind: 'ended', at: event.ended_at }
+  }
+  const starts = event.starts_at !== null && !isNoDeadline(event.starts_at) ? event.starts_at : null
+  const ends = event.ends_at !== null && !isNoDeadline(event.ends_at) ? event.ends_at : null
+  const active = event.effective_state === 'live' || event.effective_state === 'paused' || (starts !== null && nowSeconds >= starts)
+  if (active) {
+    if (ends === null) return null
+    return ends > nowSeconds ? { kind: 'ends', at: ends } : { kind: 'ended', at: ends }
+  }
+  return starts !== null && starts > nowSeconds ? { kind: 'starts', at: starts } : null
+}
+
+/** Compact event countdown with seconds at every duration. */
+export function eventCountdown(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.ceil(totalSeconds))
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor((seconds % 86_400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainingSeconds = seconds % 60
+  const parts = [`${minutes}m`, `${remainingSeconds}s`]
+  if (hours > 0 || days > 0) parts.unshift(`${hours}h`)
+  if (days > 0) parts.unshift(`${days}d`)
+  return parts.join(' ')
+}
+
+export function eventEndedAgo(endedAt: number, nowSeconds: number): string {
+  const elapsed = Math.max(0, nowSeconds - endedAt)
+  if (elapsed < 86_400) {
+    const hours = Math.floor(elapsed / 3600)
+    const minutes = Math.floor((elapsed % 3600) / 60)
+    return `${hours}h ${minutes}m ago`
+  }
+  const days = Math.floor(elapsed / 86_400)
+  if (days < 30) return `${days}d ago`
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`
+  const years = Math.floor(days / 365)
+  return `${years} ${years === 1 ? 'year' : 'years'} ago`
+}
+
 /** A lab host as an option in a list: its gateway, switched-off state and how busy it is, so the admin can pick by what it has to spare. */
 export function labLabel(l: { name: string; enabled: boolean; vpn: { only: boolean } | null; events: number; live_instances: number }): string {
   const gateway = l.vpn ? (l.vpn.only ? ' (VPN only)' : ' (VPN)') : ''

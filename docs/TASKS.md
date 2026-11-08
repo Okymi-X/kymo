@@ -38,6 +38,10 @@
 - [x] Workspace scaffold, engine crate: single and double elimination, byes, edit, undo (11 tests, clippy clean)
 
 ## Done (latest)
+- [x] Event countdowns show days/hours/minutes/seconds, stay compact, turn yellow under five minutes and red under two; after ending they show elapsed time at coarse human intervals
+- [x] Ended event elapsed labels abbreviate hours, minutes, days and months while spelling out years
+- [x] Right-align the countdown on event cards and event detail pages
+- [x] Use a smaller, lighter countdown on event cards while retaining the larger event page version
 - [x] Docker development override layers on production Compose; it keeps the same bind address, database path and volume, while cargo-watch rebuilds the embedded UI and restarts the server
 - [x] Auth sessions are shared across tabs for organizer, player, monitor and referee sign-ins; cross-tab storage changes update the UI, and legacy per-tab sessions migrate on load
 - [x] P8 experience pass: instances wait for the service to answer, show no address before that or after the container dies, fail with a reason, rotate addresses and are listed per event; one dialog framework with sticky header and footer, scroll lock, a discard guard and a redesigned challenge editor with live validation; the sign-up form explains closed sign-ups up front and validates as you type; plain language errors everywhere and no more generic token message; controls that respond at once; a race that signed a freshly signed in referee out is fixed. Evidence: Rust 310 tests, web unit 97, browser 42, clippy and tsc clean, and screenshots of the editor and the instance states taken against real containers
@@ -114,4 +118,5 @@
 - [ ] Per instance random flag (so a leaked flag is not valid for others) and a readiness check before an instance is reported running
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [x] Sample data seed command (`seed-demo`): tournaments and Jeopardy events with challenges, hints, players and solves, idempotent
+- [x] Public event cards use two columns on desktop and have more padding and larger titles
 - [ ] README with quickstart

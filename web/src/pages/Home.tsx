@@ -237,7 +237,7 @@ export function Home() {
               All events
             </Link>
           </div>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-4 sm:grid-cols-2">
             {joinable.slice(0, 6).map((e) => (
               <li key={e.id} className="min-w-0">
                 <EventCard event={e} />
