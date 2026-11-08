@@ -33,7 +33,7 @@ function CreateForm() {
     mutationFn: () => api.create(name, format, { thirdPlace: format === 'single_elimination' && thirdPlace, groups, advance, rounds: format === 'swiss' ? rounds : 0, bestOf }),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
-      navigate(`/t/${t.slug}`)
+      navigate(t.event_id !== null ? `/admin/events/${t.event_id}?view=tournament` : `/t/${t.slug}`)
     },
   })
   const [importError, setImportError] = useState<string | null>(null)
@@ -41,7 +41,7 @@ function CreateForm() {
     mutationFn: (setup: unknown) => api.importSetup(setup),
     onSuccess: (t) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
-      navigate(`/t/${t.slug}`)
+      navigate(t.event_id !== null ? `/admin/events/${t.event_id}?view=tournament` : `/t/${t.slug}`)
     },
     onMutate: () => setImportError(null),
   })

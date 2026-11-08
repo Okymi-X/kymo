@@ -822,3 +822,15 @@ fn a_match_can_be_marked_live_and_a_result_clears_the_mark() {
     b.set_live(1, None).unwrap();
     assert_eq!(b.matches[1].started_at, None);
 }
+
+#[test]
+fn a_tied_knockout_score_needs_a_tiebreak_winner() {
+    let mut b = generate(&[1, 2, 3, 4], Format::SingleElimination).unwrap();
+    assert_eq!(b.set_result(0, 5, 5), Err(EngineError::Tie));
+    b.set_result_tiebreak(0, 5, 5, Side::B).unwrap();
+    assert_eq!(b.matches[0].score, Some([5, 5]));
+    assert_eq!(b.matches[0].winner, Some(Side::B));
+    // A decided score ignores the tie-break.
+    b.set_result_tiebreak(1, 7, 3, Side::B).unwrap();
+    assert_eq!(b.matches[1].winner, Some(Side::A));
+}

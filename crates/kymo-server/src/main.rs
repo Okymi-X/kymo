@@ -59,6 +59,7 @@ async fn run() -> Result<(), String> {
     }
     state = state.with_trusted_proxy(env::var("KYMO_TRUST_PROXY").as_deref() == Ok("1"));
     spawn_maintenance(state.clone());
+    spawn_match_sweep(state.clone());
     // `docker` runs challenge containers on this machine (and still lets events use lab hosts);
     // `labs` runs none here and leaves everything to the lab hosts added in the admin pages.
     match env::var("KYMO_INSTANCES").as_deref() {
@@ -147,6 +148,19 @@ fn spawn_reaper(state: AppState) {
             tick.tick().await;
             if let Err(e) = instances::reap(&state).await {
                 tracing::warn!("instance reaper failed: {e:?}");
+            }
+        }
+    });
+}
+
+/// Finishes challenge matches whose time limit has passed, every 15 seconds.
+fn spawn_match_sweep(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(15));
+        loop {
+            tick.tick().await;
+            if let Err(e) = kymo_server::duel::sweep(&state).await {
+                tracing::warn!("match sweep failed: {e:?}");
             }
         }
     });

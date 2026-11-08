@@ -1,21 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Plus, X } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { platform } from '../../api/platform'
-import type { AdminChallenge, EventInfo, JeopardySettings, SubmissionLine } from '../../api/platformTypes'
+import type { AdminChallenge, Candidate, EventInfo, JeopardySettings, Participant, RegistrationPolicy, SubmissionLine } from '../../api/platformTypes'
 import { BackLink } from '../../components/BackLink'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, StatePill, TD, Toggle } from '../../components/platform/bits'
 import { Pager } from '../../components/Pager'
 import { Tabs, type TabItem } from '../../components/Tabs'
-import { Button, ErrorText, Field, Input, PageTitle, Select, Textarea } from '../../components/ui'
-import { fromLocalInput, nextStates, scoringLabel, stateLabel, toLocalInput, verdictText, labLabel } from '../../lib/platform'
+import { Button, ErrorText, Field, Input, PageTitle, Select, StatusPill, Textarea } from '../../components/ui'
+import { fromLocalInput, moveLabel, nextStates, scoringLabel, stateLabel, toLocalInput, verdictText, labLabel } from '../../lib/platform'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
+import { useTournament } from '../../api/hooks'
+import { RosterEditor } from '../../components/RosterEditor'
+import { TournamentAdmin } from '../../components/TournamentAdmin'
+import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
+import { TournamentChallengeDialog, TournamentChallengeSettings } from './TournamentChallenges'
 
-type View = 'overview' | 'challenges' | 'participants' | 'submissions' | 'instances'
+type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
 
 const TIE_BREAKS: { id: JeopardySettings['tie_breaks'][number]; label: string }[] = [
   { id: 'earliest_last_solve', label: 'Reached the score first' },
@@ -31,6 +36,7 @@ function Overview({ event }: { event: EventInfo }) {
     void client.invalidateQueries({ queryKey: ['admin-events'] })
   }
   const move = useMutation({ mutationFn: (state: string) => platform.setEventState(event.id, state), onSuccess: done })
+  const regSwitch = useMutation({ mutationFn: (closed: boolean) => platform.setRegistrationClosed(event.id, closed), onSuccess: done })
   const [removing, setRemoving] = useState(false)
   const remove = useMutation({
     mutationFn: () => platform.deleteEvent(event.id),
@@ -45,6 +51,7 @@ function Overview({ event }: { event: EventInfo }) {
     mode: event.mode,
     opens: toLocalInput(event.registration_opens),
     closes: toLocalInput(event.registration_closes),
+    policy: event.registration_policy,
     starts: toLocalInput(event.starts_at),
     ends: toLocalInput(event.ends_at),
     min: String(event.team_min),
@@ -59,7 +66,8 @@ function Overview({ event }: { event: EventInfo }) {
         description: f.description,
         mode: f.mode,
         registration_opens: fromLocalInput(f.opens),
-        registration_closes: fromLocalInput(f.closes),
+        registration_closes: f.policy === 'at_time' ? fromLocalInput(f.closes) : null,
+        registration_policy: f.policy,
         starts_at: fromLocalInput(f.starts),
         ends_at: fromLocalInput(f.ends),
         team_min: Math.trunc(Number(f.min)),
@@ -79,6 +87,7 @@ function Overview({ event }: { event: EventInfo }) {
     },
   })
   const exportBundle = useMutation({ mutationFn: () => platform.exportEvent(event.id, event.slug) })
+  const exportBoard = useMutation({ mutationFn: () => platform.exportScoreboard(event.id, event.slug) })
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save.mutate()
@@ -92,11 +101,20 @@ function Overview({ event }: { event: EventInfo }) {
           <h2 className="text-lg font-semibold tracking-tight">State</h2>
           <StatePill state={event.state} />
           {event.effective_state !== event.state && <span className="text-sm text-muted">now acting as {stateLabel[event.effective_state].toLowerCase()} by its schedule</span>}
+          {event.started_early && <Pill tone="text-accent">Started ahead of schedule</Pill>}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className={event.registration_open ? 'text-win' : 'text-muted'}>{event.registration_open ? 'Registration is open' : (event.registration_note ?? 'Registration is closed')}</span>
+          {event.state !== 'archived' && (
+            <Button onClick={() => regSwitch.mutate(!event.registration_closed)} disabled={regSwitch.isPending}>
+              {event.registration_closed ? 'Reopen registration' : 'Close registration now'}
+            </Button>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {options.map((s) => (
             <Button key={s} onClick={() => move.mutate(s)} disabled={move.isPending}>
-              Move to {stateLabel[s].toLowerCase()}
+              {moveLabel(event.state, s)}
             </Button>
           ))}
           {(event.state === 'draft' || event.state === 'archived') && (
@@ -107,6 +125,11 @@ function Overview({ event }: { event: EventInfo }) {
           {event.kind === 'jeopardy' && (
             <Button onClick={() => exportBundle.mutate()} disabled={exportBundle.isPending}>
               <Download size={15} aria-hidden="true" /> Export bundle
+            </Button>
+          )}
+          {event.kind === 'jeopardy' && (
+            <Button onClick={() => exportBoard.mutate()} disabled={exportBoard.isPending}>
+              <Download size={15} aria-hidden="true" /> Scoreboard CSV
             </Button>
           )}
         </div>
@@ -134,8 +157,12 @@ function Overview({ event }: { event: EventInfo }) {
             <Field label="Registration opens">
               <Input type="datetime-local" value={f.opens} onChange={(e) => setF({ ...f, opens: e.target.value })} />
             </Field>
-            <Field label="Registration closes">
-              <Input type="datetime-local" value={f.closes} onChange={(e) => setF({ ...f, closes: e.target.value })} />
+            <Field label="Registration closes" hint={f.policy === 'at_time' ? undefined : 'Set by the policy below.'}>
+              <Select value={f.policy} onChange={(e) => setF({ ...f, policy: e.target.value as RegistrationPolicy })}>
+                <option value="at_start">When the event starts</option>
+                <option value="at_time">At a chosen time</option>
+                <option value="manual">When I close it</option>
+              </Select>
             </Field>
             <Field label="Starts">
               <Input type="datetime-local" value={f.starts} onChange={(e) => setF({ ...f, starts: e.target.value })} />
@@ -144,6 +171,11 @@ function Overview({ event }: { event: EventInfo }) {
               <Input type="datetime-local" value={f.ends} onChange={(e) => setF({ ...f, ends: e.target.value })} />
             </Field>
           </div>
+          {f.policy === 'at_time' && (
+            <Field label="Closing time" hint="Registration stays open after the event starts, until this moment.">
+              <Input type="datetime-local" value={f.closes} onChange={(e) => setF({ ...f, closes: e.target.value })} className="max-w-xs" />
+            </Field>
+          )}
           {teams && (
             <div className="flex flex-wrap items-end gap-4">
               <Field label="Smallest team">
@@ -181,14 +213,7 @@ function Overview({ event }: { event: EventInfo }) {
         <ErrorText error={board.error} />
       </Panel>
 
-      {event.kind === 'tournament' && (
-        <Panel className="flex flex-col gap-2">
-          <h2 className="text-lg font-semibold tracking-tight">A tournament has matches, not challenges</h2>
-          <p className="text-sm text-muted">
-            Teams play each other through the bracket, so there are no challenges, flags, hints or instances to set up here. Challenges belong to a <strong>Jeopardy</strong> event: create one from <Link to="/admin/events" className="font-medium text-accent hover:underline">Events</Link> and choose Jeopardy as its type. Both kinds can run side by side.
-          </p>
-        </Panel>
-      )}
+      {event.kind === 'tournament' && <TournamentChallengeSettings event={event} />}
 
       {event.kind === 'jeopardy' && <InstanceHost event={event} />}
 
@@ -364,6 +389,16 @@ function JeopardySettingsForm({ eventId }: { eventId: number }) {
             <Input type="number" min={0} value={s.rate_lockout_secs} onChange={(e) => setS({ ...s, rate_lockout_secs: Math.trunc(Number(e.target.value)) })} className="font-mono" />
           </Field>
         </div>
+        <Field label="Freeze the public scoreboard at" hint="From this moment players and visitors see the board as it was, until the event ends. Play carries on and staff keep seeing the live board. Leave empty for no freeze.">
+          <span className="flex gap-2">
+            <Input type="datetime-local" value={toLocalInput(s.freeze_at)} onChange={(e) => setS({ ...s, freeze_at: fromLocalInput(e.target.value) })} className="max-w-xs" />
+            {s.freeze_at !== null && (
+              <Button variant="ghost" onClick={() => setS({ ...s, freeze_at: null })}>
+                Clear
+              </Button>
+            )}
+          </span>
+        </Field>
         <p className="text-sm text-muted">Wrong-format flags never count as an attempt. Dynamic challenges lose points for earlier solvers too, the board always recomputes.</p>
         <ErrorText error={save.error} />
         <div className="flex items-center gap-3">
@@ -438,7 +473,7 @@ function Challenges({ event }: { event: EventInfo }) {
       ) : challenges.length === 0 ? (
         <Empty>No challenges yet.</Empty>
       ) : (
-        <DataTable caption="Challenges" head={['Challenge', 'Category', 'Points', 'Solves', 'State']}>
+        <DataTable caption="Challenges" head={event.kind === 'tournament' ? ['Challenge', 'Category', 'Points', 'Type', 'State'] : ['Challenge', 'Category', 'Points', 'Solves', 'State']}>
           {challenges.map((c) => (
             <tr key={c.id} className="hover:bg-line/30">
               <td className={TD}>
@@ -449,7 +484,7 @@ function Challenges({ event }: { event: EventInfo }) {
               </td>
               <td className={TD}>{categories.find((k) => k.id === c.category_id)?.name ?? ''}</td>
               <td className={`${TD} font-mono text-xs`}>{scoringLabel(c.scoring)}</td>
-              <td className={`${TD} font-mono tabular-nums`}>{c.solves}</td>
+              <td className={`${TD} font-mono tabular-nums`}>{event.kind === 'tournament' ? (c.kind === 'dfir' ? 'DFIR' : 'Flag') : c.solves}</td>
               <td className={TD}>
                 <Pill tone={c.state === 'published' ? 'text-win' : 'text-muted'}>{c.state}</Pill>
               </td>
@@ -458,27 +493,136 @@ function Challenges({ event }: { event: EventInfo }) {
         </DataTable>
       )}
       {editing !== null && (editing === 'new' || current) && (
-        <ChallengeEditor key={String(editing)} eventId={event.id} categories={categories} challenge={current} onClose={() => setEditing(null)} />
+        event.kind === 'tournament' ? (
+          <TournamentChallengeDialog key={String(editing)} eventId={event.id} categories={categories} challenge={current} onClose={() => setEditing(null)} />
+        ) : (
+          <ChallengeEditor key={String(editing)} eventId={event.id} categories={categories} challenge={current} onClose={() => setEditing(null)} />
+        )
       )}
     </div>
   )
 }
 
+function TournamentTab({ event }: { event: EventInfo }) {
+  const q = useTournament(event.slug)
+  const t = q.data
+  const navigate = useNavigate()
+  const before = useRef(t?.status)
+  // Starting the tournament is the last setup step: go and look at the bracket.
+  useEffect(() => {
+    if (before.current === 'draft' && t && t.status !== 'draft') navigate(`/t/${t.slug}`)
+    before.current = t?.status
+  }, [t, navigate])
+  if (!t) return <Loading />
+  return (
+    <div className="flex flex-col gap-6">
+      <Panel className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">{t.name}</h2>
+          <Pill>{formatLabel[t.format]}</Pill>
+          <StatusPill status={t.status} paused={t.paused} />
+          <span className="text-sm text-muted">{t.teams.length} teams</span>
+        </div>
+        <TournamentAdmin t={t} />
+        <p className="text-sm text-muted">
+          Results are entered on the <a href={`/t/${t.slug}`} className="font-medium text-accent hover:underline">tournament page</a>, where players and referees see their matches too.
+        </p>
+      </Panel>
+      {t.status === 'draft' ? <RosterEditor key={`${t.id}-draft`} tournament={t} /> : <p className="text-sm text-muted">The roster is fixed once the tournament has started. Reset the bracket above to change it.</p>}
+    </div>
+  )
+}
+
 function Participants({ event }: { event: EventInfo }) {
-  const q = useQuery({ queryKey: ['participants', event.id], queryFn: () => platform.participants(event.id) })
+  const client = useQueryClient()
+  const key = ['participants', event.id]
+  const q = useQuery({ queryKey: key, queryFn: () => platform.participants(event.id) })
+  const [search, setSearch] = useState('')
+  const [removing, setRemoving] = useState<Participant | null>(null)
+  const over = event.state === 'ended' || event.state === 'archived'
+  const found = useQuery({
+    queryKey: ['candidates', event.id, search],
+    queryFn: () => platform.candidates(event.id, search),
+    enabled: !over && search.trim().length >= 1,
+  })
+  const refresh = (rows: Participant[]) => {
+    client.setQueryData(key, rows)
+    void client.invalidateQueries({ queryKey: ['candidates', event.id] })
+    void client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+  }
+  const add = useMutation({
+    mutationFn: (c: Candidate) => platform.addParticipant(event.id, event.mode === 'solo' ? { user_id: c.id } : { team_id: c.id }),
+    onSuccess: refresh,
+  })
+  const remove = useMutation({
+    mutationFn: (p: Participant) => platform.removeParticipant(event.id, p.id),
+    onSuccess: (rows) => {
+      setRemoving(null)
+      refresh(rows)
+    },
+  })
   if (q.isPending) return <Loading />
   const rows = q.data ?? []
-  if (rows.length === 0) return <Empty>Nobody has registered yet.</Empty>
+  const noun = event.mode === 'team' ? 'team' : 'player'
   return (
-    <DataTable caption="Participants" head={[event.mode === 'team' ? 'Team' : 'Player', 'Members', 'Registered']}>
-      {rows.map((p) => (
-        <tr key={p.id}>
-          <td className={`${TD} font-medium`}>{p.name}</td>
-          <td className={`${TD} font-mono tabular-nums`}>{p.members}</td>
-          <td className={`${TD} text-muted`}>{timeAgo(p.registered_at)}</td>
-        </tr>
-      ))}
-    </DataTable>
+    <div className="flex flex-col gap-4">
+      {over ? (
+        <p className="text-sm text-muted">This event is over, so its participants are history and no longer change.</p>
+      ) : (
+        <Panel className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold">Add a {noun}</h2>
+          <p className="text-sm text-muted">
+            Works whether registration is open or closed. {event.mode === 'team' ? 'The team keeps its own members; only its registration for this event is added, and it must meet the size rules.' : 'Only the registration is added.'}
+          </p>
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={event.mode === 'team' ? 'Search teams by name' : 'Search players by username'} aria-label={`Search ${noun}s`} />
+          {search.trim() !== '' && found.data && found.data.length === 0 && <p className="text-sm text-muted">Nobody matches, or they are already registered.</p>}
+          <ul className="flex flex-col gap-1.5">
+            {(found.data ?? []).map((c) => (
+              <li key={c.id} className="flex items-center gap-3 rounded-control border border-line px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                <span className="text-xs text-muted">{c.detail}</span>
+                <Button onClick={() => add.mutate(c)} disabled={add.isPending}>
+                  Add
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <ErrorText error={add.error} />
+        </Panel>
+      )}
+      {rows.length === 0 ? (
+        <Empty>Nobody has registered yet.</Empty>
+      ) : (
+        <DataTable caption="Participants" head={[event.mode === 'team' ? 'Team' : 'Player', 'Members', 'Registered', '']}>
+          {rows.map((p) => (
+            <tr key={p.id}>
+              <td className={`${TD} font-medium`}>{p.name}</td>
+              <td className={`${TD} font-mono tabular-nums`}>{p.members}</td>
+              <td className={`${TD} text-muted`}>{timeAgo(p.registered_at)}</td>
+              <td className={TD}>
+                {!over && (
+                  <Button variant="danger" onClick={() => setRemoving(p)} aria-label={`Remove ${p.name}`}>
+                    Remove
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      )}
+      {removing && (
+        <ConfirmDialog
+          title={`Remove ${removing.name}?`}
+          message={`${removing.name} leaves the standings and gets no new challenges, matches or instances, and any running instance is stopped. Their submissions, solves and past results stay on record, and the removal is written to the audit log.`}
+          confirmLabel="Remove"
+          danger
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(removing)}
+          onClose={() => setRemoving(null)}
+        />
+      )}
+      <ErrorText error={remove.error} />
+    </div>
   )
 }
 
@@ -637,7 +781,8 @@ function Body() {
   const jeopardy = event.kind === 'jeopardy'
   const tabs: TabItem<View>[] = [
     { id: 'overview', label: 'Overview' },
-    ...(jeopardy ? [{ id: 'challenges' as const, label: 'Challenges' }] : []),
+    ...(jeopardy ? [] : [{ id: 'tournament' as const, label: 'Tournament' }]),
+    { id: 'challenges', label: 'Challenges' },
     { id: 'participants', label: 'Participants' },
     ...(jeopardy ? [{ id: 'submissions' as const, label: 'Submissions' }, { id: 'instances' as const, label: 'Instances' }] : []),
   ]
@@ -658,6 +803,7 @@ function Body() {
       </div>
       <Tabs<View> items={tabs} value={view} label="Event admin" onChange={(v) => setParams({ view: v }, { replace: true })}>
         {view === 'overview' && <Overview event={event} />}
+        {view === 'tournament' && <TournamentTab event={event} />}
         {view === 'challenges' && <Challenges event={event} />}
         {view === 'participants' && <Participants event={event} />}
         {view === 'submissions' && <Submissions event={event} />}

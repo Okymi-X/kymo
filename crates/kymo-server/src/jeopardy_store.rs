@@ -17,6 +17,10 @@ use kymo_core::Mode;
 const MAX_STORED_VALUE: usize = 200;
 pub const MAX_PER_PAGE: i64 = 100;
 
+/// A DFIR question counts on the board as a challenge with this offset added to its id, worth
+/// the question's points. Real challenge ids never get this large.
+pub const ITEM_BASE: u64 = 1 << 40;
+
 /// Per event scoring and submission settings. Defaults apply until an admin saves them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JeopardySettings {
@@ -24,6 +28,10 @@ pub struct JeopardySettings {
     pub rate_max_attempts: u32,
     pub rate_window_secs: i64,
     pub rate_lockout_secs: i64,
+    /// From this moment the public scoreboard and chart stop moving, until the event ends.
+    /// Staff keep seeing the live board and play carries on. None means no freeze.
+    #[serde(default)]
+    pub freeze_at: Option<i64>,
 }
 
 impl Default for JeopardySettings {
@@ -33,6 +41,7 @@ impl Default for JeopardySettings {
             rate_max_attempts: 10,
             rate_window_secs: 60,
             rate_lockout_secs: 60,
+            freeze_at: None,
         }
     }
 }
@@ -56,6 +65,12 @@ impl JeopardySettings {
         }
         if !(0..=86_400).contains(&self.rate_lockout_secs) {
             return bad("rate_lockout_secs is 0 to 86400");
+        }
+        if self
+            .freeze_at
+            .is_some_and(|t| !(946_684_800..=4_102_444_800).contains(&t))
+        {
+            return bad("freeze_at is a unix time between 2000 and 2100");
         }
         Ok(())
     }
@@ -82,11 +97,12 @@ struct SettingsRow {
     rate_max_attempts: i64,
     rate_window_secs: i64,
     rate_lockout_secs: i64,
+    freeze_at: Option<i64>,
 }
 
 pub async fn settings(pool: &SqlitePool, event_id: i64) -> Result<JeopardySettings, ApiError> {
     let row: Option<SettingsRow> = sqlx::query_as(
-        "SELECT tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs FROM event_jeopardy WHERE event_id = ?",
+        "SELECT tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at FROM event_jeopardy WHERE event_id = ?",
     )
     .bind(event_id)
     .fetch_optional(pool)
@@ -99,6 +115,7 @@ pub async fn settings(pool: &SqlitePool, event_id: i64) -> Result<JeopardySettin
         rate_max_attempts: u32::try_from(row.rate_max_attempts).map_err(|_| ApiError::Internal)?,
         rate_window_secs: row.rate_window_secs,
         rate_lockout_secs: row.rate_lockout_secs,
+        freeze_at: row.freeze_at,
     })
 }
 
@@ -109,14 +126,15 @@ pub async fn save_settings(
 ) -> Result<(), ApiError> {
     let tie_breaks = serde_json::to_string(&settings.tie_breaks).map_err(|_| ApiError::Internal)?;
     sqlx::query(
-        "INSERT INTO event_jeopardy (event_id, tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs) VALUES (?1, ?2, ?3, ?4, ?5) \
-         ON CONFLICT(event_id) DO UPDATE SET tie_breaks = ?2, rate_max_attempts = ?3, rate_window_secs = ?4, rate_lockout_secs = ?5",
+        "INSERT INTO event_jeopardy (event_id, tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+         ON CONFLICT(event_id) DO UPDATE SET tie_breaks = ?2, rate_max_attempts = ?3, rate_window_secs = ?4, rate_lockout_secs = ?5, freeze_at = ?6",
     )
     .bind(event_id)
     .bind(tie_breaks)
     .bind(i64::from(settings.rate_max_attempts))
     .bind(settings.rate_window_secs)
     .bind(settings.rate_lockout_secs)
+    .bind(settings.freeze_at)
     .execute(pool)
     .await?;
     Ok(())
@@ -223,7 +241,7 @@ impl Board {
                 participants.push(Participant { id });
             }
         }
-        let challenges = challenge_store::challenges(pool, event.id)
+        let mut challenges: Vec<Challenge> = challenge_store::challenges(pool, event.id)
             .await?
             .into_iter()
             .map(|c| Challenge {
@@ -231,13 +249,35 @@ impl Board {
                 scoring: c.scoring,
             })
             .collect();
+        let questions: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT i.id, i.points FROM dfir_item i JOIN challenge c ON c.id = i.challenge_id WHERE c.event_id = ?",
+        )
+        .bind(event.id)
+        .fetch_all(pool)
+        .await?;
+        challenges.extend(questions.into_iter().map(|(id, points)| Challenge {
+            id: ITEM_BASE + id as u64,
+            scoring: kymo_jeopardy::Scoring::Static { points },
+        }));
         let rows: Vec<SolveRow> = sqlx::query_as(
             "SELECT challenge_id, participant_id, user_id, at, hints_cost FROM solve WHERE event_id = ? ORDER BY id",
         )
         .bind(event.id)
         .fetch_all(pool)
         .await?;
-        let solves = rows.iter().map(SolveRow::to_solve).collect();
+        let mut solves: Vec<Solve> = rows.iter().map(SolveRow::to_solve).collect();
+        let answered: Vec<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT item_id, participant_id, at FROM item_solve WHERE event_id = ? ORDER BY id",
+        )
+        .bind(event.id)
+        .fetch_all(pool)
+        .await?;
+        solves.extend(answered.into_iter().map(|(item, participant, at)| Solve {
+            participant: participant as u64,
+            challenge: ITEM_BASE + item as u64,
+            at,
+            hints_cost: 0,
+        }));
         Ok(Board {
             names,
             participants,
@@ -245,6 +285,12 @@ impl Board {
             rows,
             solves,
         })
+    }
+
+    /// Drops every solve after `cutoff`, so the board shows the state at that moment.
+    pub fn freeze_at(&mut self, cutoff: i64) {
+        self.rows.retain(|r| r.at <= cutoff);
+        self.solves.retain(|s| s.at <= cutoff);
     }
 
     /// Counted solves per challenge, the input of the current point value.
@@ -335,6 +381,8 @@ pub async fn hints_cost(
 pub struct NewSubmission<'a> {
     pub event_id: i64,
     pub challenge_id: i64,
+    /// The DFIR question answered, if this was one.
+    pub item_id: Option<i64>,
     pub scorer: Scorer,
     pub user_id: i64,
     pub ip: &'a str,
@@ -349,10 +397,11 @@ pub async fn insert_submission(
 ) -> Result<(), ApiError> {
     let value: String = s.value.chars().take(MAX_STORED_VALUE).collect();
     sqlx::query(
-        "INSERT INTO submission (event_id, challenge_id, participant_kind, participant_id, user_id, ip, value, verdict, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO submission (event_id, challenge_id, item_id, participant_kind, participant_id, user_id, ip, value, verdict, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(s.event_id)
     .bind(s.challenge_id)
+    .bind(s.item_id)
     .bind(s.scorer.kind())
     .bind(s.scorer.id())
     .bind(s.user_id)
@@ -500,4 +549,63 @@ pub async fn solve_totals(
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().collect())
+}
+
+/// Counted wrong or right answers to one DFIR question so far.
+pub async fn item_attempts_used(
+    pool: &SqlitePool,
+    item_id: i64,
+    scorer: Scorer,
+) -> Result<u32, ApiError> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM submission WHERE item_id = ? AND participant_kind = ? AND participant_id = ? AND verdict <> 'bad_format'",
+    )
+    .bind(item_id)
+    .bind(scorer.kind())
+    .bind(scorer.id())
+    .fetch_one(pool)
+    .await?;
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// The questions this participant has answered correctly, with when.
+pub async fn items_solved(
+    pool: &SqlitePool,
+    event_id: i64,
+    scorer: Scorer,
+) -> Result<std::collections::HashMap<i64, i64>, ApiError> {
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT item_id, at FROM item_solve WHERE event_id = ? AND participant_id = ?",
+    )
+    .bind(event_id)
+    .bind(scorer.id())
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+pub async fn insert_item_solve(
+    tx: &mut Transaction<'_, Sqlite>,
+    s: &NewSubmission<'_>,
+    points: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO item_solve (event_id, challenge_id, item_id, participant_id, user_id, points, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(s.event_id)
+    .bind(s.challenge_id)
+    .bind(s.item_id)
+    .bind(s.scorer.id())
+    .bind(s.user_id)
+    .bind(points)
+    .bind(s.at)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            ApiError::Conflict("already answered correctly".into())
+        }
+        _ => e.into(),
+    })?;
+    Ok(())
 }

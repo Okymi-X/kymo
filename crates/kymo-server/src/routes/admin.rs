@@ -244,6 +244,7 @@ pub async fn set_teams(
             "at most {max_teams} teams for this format"
         )));
     }
+    let existing = t.teams.clone();
     let teams = body
         .teams
         .iter()
@@ -253,9 +254,14 @@ pub async fn set_teams(
                     "qualifier scores must be at most {MAX_SCORE}"
                 )));
             }
+            let name = clean_name(&t.name, MAX_TEAM_NAME)?;
+            // A team that keeps its name keeps the account or player team behind it.
+            let kept = existing.iter().find(|e| e.name.eq_ignore_ascii_case(&name));
             Ok(NewTeam {
-                name: clean_name(&t.name, MAX_TEAM_NAME)?,
                 score: i64::from(t.score),
+                user_id: kept.and_then(|e| e.user_id),
+                player_team_id: kept.and_then(|e| e.player_team_id),
+                name,
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
@@ -377,6 +383,8 @@ pub async fn start(
         .map(|team| NewTeam {
             name: team.name.clone(),
             score: team.score,
+            user_id: team.user_id,
+            player_team_id: team.player_team_id,
         })
         .collect();
     db::replace_teams(&state.pool, id, &reseeded).await?;
@@ -413,6 +421,7 @@ pub async fn reset(
     let _guard = state.write_lock.lock().await;
     let t = db::get(&state.pool, id).await?;
     db::save_bracket(&state.pool, id, None, Status::Draft, state.now()).await?;
+    crate::duel_store::clear_tournament(&state.pool, id).await?;
     events::record_tournament(&state.pool, id, "reset", serde_json::json!({})).await?;
     state.notify(&t.slug);
     Ok(Json(db::get(&state.pool, id).await?))
@@ -420,7 +429,7 @@ pub async fn reset(
 
 /// Applies one change to a match under the write lock and records it in the activity log.
 /// A change to a match that already had a result is logged as a correction.
-async fn edit_bracket(
+pub(crate) async fn edit_bracket(
     state: &AppState,
     id: i64,
     match_id: usize,

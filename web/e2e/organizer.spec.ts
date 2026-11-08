@@ -561,6 +561,7 @@ test('an organizer can rename a tournament, and unknown pages show a 404', async
   await page.getByLabel(/^Description/).fill('Bring a laptop.')
   await page.getByRole('button', { name: 'Save name' }).click()
   await expect(page.getByRole('heading', { name: 'Fresh Name' })).toBeVisible()
+  await page.getByRole('link', { name: 'tournament page' }).click()
   await expect(page.getByText('Bring a laptop.')).toBeVisible()
 
   await page.goto('/nowhere/at/all')
@@ -640,11 +641,14 @@ test('a tournament can get its own color and drop it again', async ({ page }) =>
   await page.getByRole('button', { name: 'Color', exact: true }).click()
   await page.getByLabel('Hex color').fill('#aa2200')
   await page.getByRole('button', { name: 'Save color' }).click()
+  await page.getByRole('link', { name: 'tournament page' }).click()
   await expect(page.locator('[data-tournament-accent]').first()).toHaveCSS('--tournament-accent', '#aa2200')
   await page.reload()
   await expect(page.locator('[data-tournament-accent]').first()).toBeVisible()
+  await page.getByRole('link', { name: 'Manage tournament' }).click()
   await page.getByRole('button', { name: 'Color', exact: true }).click()
   await page.getByRole('button', { name: 'Use site color' }).click()
+  await page.getByRole('link', { name: 'tournament page' }).click()
   await expect(page.locator('[data-tournament-accent]')).toHaveCount(0)
 })
 

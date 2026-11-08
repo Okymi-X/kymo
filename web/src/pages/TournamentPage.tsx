@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, useCanScore, useIsAdmin } from '../api/client'
+import { useParams, useSearchParams } from 'react-router'
+import { useCanScore, useIsAdmin, useWho } from '../api/client'
 import { useLiveUpdates, useTournament } from '../api/hooks'
 import type { Match, Slot, Tournament } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { BracketView } from '../components/BracketView'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 import { GroupsView } from '../components/GroupsView'
 import { BackLink } from '../components/BackLink'
 import { EmbedDialog } from '../components/EmbedDialog'
@@ -17,22 +15,20 @@ import { PendingReports } from '../components/PendingReports'
 import { LateMatches } from '../components/LateMatches'
 import { MatchList } from '../components/MatchList'
 import { ScheduleBoard } from '../components/ScheduleBoard'
-import { RosterEditor } from '../components/RosterEditor'
 import { ScoreDialog } from '../components/ScoreDialog'
+import { PlayTab } from '../components/platform/MatchPlay'
 import { StandingsTable } from '../components/StandingsTable'
 import { Tabs, type TabItem } from '../components/Tabs'
 import { TeamDialog } from '../components/TeamDialog'
 import { TeamsGrid } from '../components/TeamsGrid'
-import { ExportButton } from '../components/ExportButton'
-import { Modal, ModalBody, ModalFooter, ModalHeader, modalForm } from '../components/Modal'
-import { Button, ErrorText, Field, Input, PageTitle, StatusPill, Textarea } from '../components/ui'
+import { ErrorText, PageTitle, StatusPill } from '../components/ui'
 import { formatLabel, isLeagueFormat, roundNamer } from '../lib/labels'
 import { useFollowedTeam } from '../lib/follow'
 import { usePageTitle } from '../lib/usePageTitle'
-import { accentProps, isHex } from '../lib/theme'
+import { accentProps } from '../lib/theme'
 import { relativeStart } from '../lib/schedule'
 import { computeTeamRows, teamHistory } from '../lib/stats'
-import { CalendarPlus, Code, Monitor, Printer, X } from 'lucide-react'
+import { CalendarPlus, Code, Monitor, Printer, Settings, X } from 'lucide-react'
 import { Link } from 'react-router'
 
 function useTeamName(t: Tournament | undefined) {
@@ -53,8 +49,6 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
     </p>
   )
 }
-
-type Pending = 'reset' | 'delete' | 'rename' | 'color' | null
 
 function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; teamId: number; teamName: (s: Slot) => string; onOpen: () => void; onStop: () => void }) {
   const row = computeTeamRows(t).find((r) => r.team.id === teamId)
@@ -86,181 +80,7 @@ function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; te
   )
 }
 
-function AdminActions({ t }: { t: Tournament }) {
-  const client = useQueryClient()
-  const navigate = useNavigate()
-  const [asking, setAsking] = useState<Pending>(null)
-  const reset = useMutation({
-    mutationFn: () => api.reset(t.id),
-    onSuccess: (next) => {
-      client.setQueryData(['tournament', next.slug], next)
-      setAsking(null)
-    },
-  })
-  const [name, setName] = useState(t.name)
-  const [description, setDescription] = useState(t.description)
-  const duplicate = useMutation({
-    mutationFn: () =>
-      api.importSetup({
-        name: `${t.name} copy`.slice(0, 80),
-        format: t.format,
-        third_place: t.third_place,
-        groups: t.groups,
-        advance: t.advance,
-        rounds: t.rounds,
-        best_of: t.best_of,
-        description: t.description,
-        teams: t.teams.map((team) => ({ name: team.name, score: team.score })),
-      }),
-    onSuccess: (copy) => {
-      void client.invalidateQueries({ queryKey: ['tournaments'] })
-      navigate(`/t/${copy.slug}`)
-    },
-  })
-  const [color, setColor] = useState(t.accent ?? '#0a6fe0')
-  const recolor = useMutation({
-    mutationFn: (accent: string | null) => api.setAccent(t.id, accent),
-    onSuccess: (next) => {
-      client.setQueryData(['tournament', next.slug], next)
-      setAsking(null)
-    },
-  })
-  const rename = useMutation({
-    mutationFn: () => api.rename(t.id, name.trim(), description),
-    onSuccess: (next) => {
-      client.setQueryData(['tournament', next.slug], next)
-      void client.invalidateQueries({ queryKey: ['tournaments'] })
-      setAsking(null)
-    },
-  })
-  const remove = useMutation({
-    mutationFn: () => api.remove(t.id),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['tournaments'] })
-      navigate('/')
-    },
-  })
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        onClick={() => {
-          setName(t.name)
-          setDescription(t.description)
-          setAsking('rename')
-        }}
-      >
-        Rename
-      </Button>
-      <Button
-        onClick={() => {
-          setColor(t.accent ?? '#0a6fe0')
-          setAsking('color')
-        }}
-      >
-        Color
-      </Button>
-      <Button onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>
-        Duplicate
-      </Button>
-      <ExportButton filename={`${t.slug}-backup.json`} build={() => JSON.stringify(t, null, 2)} label="Backup JSON" type="application/json" />
-      {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
-      <Button variant="danger" onClick={() => setAsking('delete')}>
-        Delete
-      </Button>
-      <ErrorText error={reset.error ?? remove.error ?? duplicate.error} />
-      {asking === 'color' && (
-        <Modal label="Tournament color" onClose={() => setAsking(null)} backdropCloses={false}>
-          <form
-            className={modalForm}
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (isHex(color)) recolor.mutate(color)
-            }}
-          >
-            <ModalHeader title="Tournament color" subtitle="Tints buttons and highlights on this tournament, its stage screen and its embed." />
-            <ModalBody>
-              <div className="flex items-end gap-3">
-                <input type="color" aria-label="Pick a color" value={isHex(color) ? color : '#0a6fe0'} onChange={(e) => setColor(e.target.value)} className="h-10 w-14 cursor-pointer rounded-control border border-field-line bg-field p-1" />
-                <Field label="Hex color">
-                  <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={7} className="w-32 font-mono" />
-                </Field>
-              </div>
-              <ErrorText error={recolor.error} />
-            </ModalBody>
-            <ModalFooter
-              note={
-                <Button type="button" variant="ghost" onClick={() => recolor.mutate(null)} disabled={recolor.isPending || t.accent === null}>
-                  Use site color
-                </Button>
-              }
-            >
-              <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" disabled={recolor.isPending || !isHex(color)}>
-                Save color
-              </Button>
-            </ModalFooter>
-          </form>
-        </Modal>
-      )}
-      {asking === 'rename' && (
-        <Modal label="Rename tournament" onClose={() => setAsking(null)} backdropCloses={false} dirty={name.trim() !== t.name || description !== (t.description ?? '')}>
-          <form
-            className={modalForm}
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (name.trim()) rename.mutate()
-            }}
-          >
-            <ModalHeader title="Rename tournament" />
-            <ModalBody>
-              <Field label="Tournament name">
-                <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
-              </Field>
-              <Field label="Description, shown under the title">
-                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} rows={4} placeholder="Rules, venue, check in time" />
-              </Field>
-              <ErrorText error={rename.error} />
-            </ModalBody>
-            <ModalFooter>
-              <Button type="button" variant="ghost" onClick={() => setAsking(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" disabled={rename.isPending || !name.trim()}>
-                Save name
-              </Button>
-            </ModalFooter>
-          </form>
-        </Modal>
-      )}
-      {asking === 'reset' && (
-        <ConfirmDialog
-          title="Reset the bracket?"
-          message="All results are removed. The roster stays so you can start again."
-          confirmLabel="Reset bracket"
-          danger
-          pending={reset.isPending}
-          onConfirm={() => reset.mutate()}
-          onClose={() => setAsking(null)}
-        />
-      )}
-      {asking === 'delete' && (
-        <ConfirmDialog
-          title={`Delete ${t.name}?`}
-          message="The tournament, its teams and its bracket are removed. This cannot be undone."
-          confirmLabel="Delete"
-          danger
-          pending={remove.isPending}
-          onConfirm={() => remove.mutate()}
-          onClose={() => setAsking(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-type View = 'bracket' | 'schedule' | 'standings' | 'groups' | 'matches' | 'teams' | 'activity'
+type View = 'play' | 'bracket' | 'schedule' | 'standings' | 'groups' | 'matches' | 'teams' | 'activity'
 
 const KNOCKOUT_VIEWS: TabItem<View>[] = [
   { id: 'bracket', label: 'Bracket' },
@@ -290,6 +110,7 @@ const LEAGUE_VIEWS: TabItem<View>[] = [
 export function TournamentPage() {
   const { slug = '' } = useParams()
   const admin = useIsAdmin()
+  const who = useWho()
   const { data: t, isPending, error } = useTournament(slug)
   const canScore = useCanScore(t?.id)
   usePageTitle(t?.name)
@@ -299,9 +120,12 @@ export function TournamentPage() {
   const [embedding, setEmbedding] = useState(false)
   const [params, setParams] = useSearchParams()
   const rows = useMemo(() => (t ? computeTeamRows(t) : []), [t])
-  const views = t && isLeagueFormat(t.format) ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
+  const baseViews = t && isLeagueFormat(t.format) ? LEAGUE_VIEWS : t?.format === 'group_knockout' ? GROUP_VIEWS : KNOCKOUT_VIEWS
+  // A tournament decided by challenges starts with the tab where players play them.
+  const playing = t !== undefined && t.challenges.assignment !== 'none'
+  const views: TabItem<View>[] = playing ? [{ id: 'play', label: 'Play' }, ...baseViews] : baseViews
   const groupsDone = (t?.bracket?.matches ?? []).filter((m) => m.stage === 'league').every((m) => m.score !== null || m.forfeit)
-  const fallback = t?.format === 'group_knockout' && groupsDone ? 'bracket' : views[0].id
+  const fallback: View = playing && who !== null ? 'play' : t?.format === 'group_knockout' && groupsDone ? 'bracket' : baseViews[0].id
   const requested = params.get('view')
   const view: View = views.find((v) => v.id === requested)?.id ?? fallback
   const knockout = useMemo(() => (t?.bracket ? { ...t.bracket, matches: t.bracket.matches.filter((m) => m.stage !== 'league') } : null), [t?.bracket])
@@ -342,7 +166,7 @@ export function TournamentPage() {
                 </>
               )}
             </span>
-            <StatusPill status={t.status} />
+            <StatusPill status={t.status} paused={t.paused} />
           </p>
           {t.description && <p className="mt-3 max-w-prose whitespace-pre-line text-sm text-muted">{t.description}</p>}
         </div>
@@ -379,13 +203,18 @@ export function TournamentPage() {
             </Link>
           )}
           {mapBracket && <BracketDownload bracket={mapBracket} teamName={teamName} title={t.name} slug={t.slug} />}
-          {admin && <AdminActions t={t} />}
+          {admin && t.event_id !== null && (
+            <Link to={`/admin/events/${t.event_id}?view=tournament`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
+              <Settings size={16} aria-hidden="true" /> Manage tournament
+            </Link>
+          )}
         </div>
       </div>
       <Champion t={t} teamName={teamName} />
       {followed !== null && <FollowChip t={t} teamId={followed} teamName={teamName} onOpen={() => setTeamId(followed)} onStop={() => follow(null)} />}
       {t.bracket ? (
         <Tabs items={views} value={view} onChange={(v) => setParams(v === fallback ? {} : { view: v }, { replace: true })} label="Tournament views">
+          {view === 'play' && <PlayTab tournament={t} teamName={(id) => teamName({ kind: 'team', team: id })} />}
           {view === 'bracket' && mapBracket && <BracketView bracket={mapBracket} teamName={teamName} onEdit={canScore ? setEditing : undefined} pinned={followed} />}
           {view === 'groups' && <GroupsView tournament={t} teamName={teamName} onSelect={setTeamId} onEdit={canScore ? setEditing : undefined} />}
           {view === 'schedule' && <ScheduleBoard tournament={t} teamName={teamName} onEdit={canScore ? setEditing : undefined} />}
@@ -406,12 +235,21 @@ export function TournamentPage() {
             </div>
           )}
         </Tabs>
-      ) : admin ? (
-        <RosterEditor key={`${t.id}-draft`} tournament={t} />
       ) : (
         <div className="rounded-card border border-dashed border-field-line p-10 text-center">
           <p className="text-lg font-medium">The bracket is not ready</p>
-          <p className="mt-1 text-muted">It appears here once the organizer starts the tournament.</p>
+          <p className="mt-1 text-muted">
+            It appears here once the organizer starts the tournament.
+            {admin && t.event_id !== null && (
+              <>
+                {' '}
+                <Link to={`/admin/events/${t.event_id}?view=tournament`} className="font-medium text-accent hover:underline">
+                  Set up the roster and start it
+                </Link>
+                .
+              </>
+            )}
+          </p>
         </div>
       )}
       {embedding && <EmbedDialog tournament={t} onClose={() => setEmbedding(false)} />}

@@ -10,9 +10,9 @@ pub mod window;
 
 pub use error::CoreError;
 pub use event::{EventKind, EventState, Mode};
-pub use role::{Permission, Role, scoreboard_visible};
+pub use role::{MatrixError, Permission, PermissionMatrix, Role, scoreboard_visible};
 pub use team::{TeamError, TeamRules, can_invite, can_join, can_leave};
 pub use window::{
-    Denied, EventSchedule, can_register, can_submit, can_use_instance, can_view_challenges,
-    effective_state,
+    Denied, EventSchedule, RegistrationPolicy, can_register, can_register_under, can_submit,
+    can_use_instance, can_view_challenges, effective_state,
 };

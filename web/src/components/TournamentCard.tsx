@@ -59,7 +59,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
             {t.third_place ? ' with third place' : ''}
           </p>
         </div>
-        <StatusPill status={t.status} />
+        <StatusPill status={t.status} paused={t.paused} />
       </div>
       <div className="mt-auto flex flex-col gap-3">
         {t.progress.total > 0 && <Progress played={t.progress.played} total={t.progress.total} />}

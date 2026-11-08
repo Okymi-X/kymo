@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, PlayerChallenge } from '../api/platformTypes'
-import { countdown, flagHint, isNoDeadline, registrationStatus, fileSize, fromLocalInput, groupByCategory, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
+import { countdown, flagHint, isNoDeadline, registrationStatus, fileSize, fromLocalInput, groupByCategory, moveLabel, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
 
 const challenge = (id: number, category_id: number, points: number, title = `c${id}`): PlayerChallenge => ({
   id,
@@ -53,7 +53,11 @@ describe('groupByCategory', () => {
 describe('event states', () => {
   it('only offers the moves the server allows', () => {
     expect(nextStates.draft).toEqual(['registration_open', 'live'])
-    expect(nextStates.ended).toEqual(['archived'])
+    // Reopening an ended event is a deliberate move back to live.
+    expect(nextStates.ended).toEqual(['live', 'archived'])
+    expect(moveLabel('ended', 'live')).toBe('Reopen')
+    expect(moveLabel('paused', 'live')).toBe('Resume')
+    expect(moveLabel('draft', 'live')).toBe('Move to live')
     expect(nextStates.archived).toEqual([])
   })
 })

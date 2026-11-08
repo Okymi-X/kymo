@@ -1,11 +1,13 @@
-mod admin;
+pub(crate) mod admin;
 mod admin_challenges;
 mod challenges;
+mod duel;
 mod events;
 mod instances;
 mod labs;
 mod monitor;
 mod ops;
+mod permissions;
 mod players;
 mod public;
 mod scoreboard;
@@ -58,7 +60,19 @@ pub fn router(state: AppState) -> Router {
             put(events::update).delete(events::remove),
         )
         .route("/admin/events/{id}/state", post(events::set_state))
-        .route("/admin/events/{id}/participants", get(events::participants))
+        .route(
+            "/admin/events/{id}/registration",
+            put(events::set_registration_closed),
+        )
+        .route(
+            "/admin/events/{id}/participants",
+            get(events::participants).post(events::add_participant),
+        )
+        .route(
+            "/admin/events/{id}/participants/{participant_id}",
+            delete(events::remove_participant),
+        )
+        .route("/admin/events/{id}/candidates", get(events::candidates))
         .route(
             "/admin/users",
             get(players::list_users).post(players::create_user),
@@ -69,6 +83,49 @@ pub fn router(state: AppState) -> Router {
             get(players::get_registration).put(players::set_registration),
         )
         .route(
+            "/admin/permissions",
+            get(permissions::show).put(permissions::update),
+        )
+        .route("/admin/permissions/reset", post(permissions::reset))
+        .route("/permissions/mine", get(permissions::mine))
+        .route(
+            "/admin/tournaments/{id}/challenge-settings",
+            put(duel::save_settings),
+        )
+        .route(
+            "/admin/tournaments/{id}/roster/from-registrations",
+            post(duel::fill_roster),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/challenges",
+            put(duel::assign),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/duel",
+            get(duel::staff_view),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/finalize",
+            post(duel::finalize),
+        )
+        .route(
+            "/admin/tournaments/{id}/matches/{match_id}/restart",
+            post(duel::restart),
+        )
+        .route("/tournaments/{slug}/play/mine", get(duel::mine))
+        .route(
+            "/tournaments/{slug}/matches/{match_id}/play",
+            get(duel::play),
+        )
+        .route(
+            "/tournaments/{slug}/matches/{match_id}/challenges/{challenge_id}/submit",
+            post(duel::answer),
+        )
+        .route(
+            "/admin/challenges/{id}/items",
+            get(admin_challenges::list_items).put(admin_challenges::put_items),
+        )
+        .route(
             "/admin/contact",
             get(players::get_contact).put(players::set_contact),
         )
@@ -76,6 +133,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/events/{slug}/challenges/{id}/submit",
             post(challenges::submit),
+        )
+        .route(
+            "/events/{slug}/challenges/{id}/items/{item_id}/submit",
+            post(challenges::submit_item),
         )
         .route(
             "/events/{slug}/challenges/{id}/hints/{hint_id}/unlock",
@@ -224,6 +285,11 @@ pub fn router(state: AppState) -> Router {
             post(admin_challenges::set_scoreboard),
         )
         .route("/ladder", get(public::ladder))
+        .route("/ladder/timeline", get(public::ladder_timeline))
+        .route(
+            "/admin/events/{id}/scoreboard.csv",
+            get(scoreboard::export_csv),
+        )
         .route(
             "/report/{code}",
             get(public::report_info).post(public::report_submit),

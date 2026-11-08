@@ -15,7 +15,7 @@ export const nextStates: Record<EventState, EventState[]> = {
   registration_open: ['draft', 'live'],
   live: ['paused', 'ended'],
   paused: ['live', 'ended'],
-  ended: ['archived'],
+  ended: ['live', 'archived'],
   archived: [],
 }
 
@@ -105,10 +105,21 @@ export type Registration = { open: true } | { open: false; reason: string }
  * the server's rule (the server still decides): a live event only takes late registrations
  * when it has a registration close time that has not passed.
  */
+/** What a button for moving an event to `to` says. Resuming and reopening are different from a first start. */
+export function moveLabel(from: EventState, to: EventState): string {
+  if (from === 'paused' && to === 'live') return 'Resume'
+  if (from === 'ended' && to === 'live') return 'Reopen'
+  return `Move to ${stateLabel[to].toLowerCase()}`
+}
+
 export function registrationStatus(
-  event: Pick<EventInfo, 'effective_state' | 'registration_opens' | 'registration_closes'>,
+  event: Pick<EventInfo, 'effective_state' | 'registration_opens' | 'registration_closes'> & Partial<Pick<EventInfo, 'registration_open' | 'registration_note'>>,
   nowSeconds: number,
 ): Registration {
+  // The server decides, by the same rule that accepts or refuses the registration.
+  if (event.registration_open !== undefined) {
+    return event.registration_open ? { open: true } : { open: false, reason: event.registration_note ?? 'Registration is closed.' }
+  }
   const { effective_state: state, registration_opens: opens, registration_closes: closes } = event
   const when = (t: number) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
   switch (state) {

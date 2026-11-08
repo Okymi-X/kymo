@@ -4,6 +4,8 @@ import { platform } from '../../api/platform'
 import type { Role } from '../../api/platformTypes'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, TD, Toggle } from '../../components/platform/bits'
 import { CreateUserDialog } from '../../components/platform/CreateUserDialog'
+import { EditUserDialog } from '../../components/platform/EditUserDialog'
+import type { User } from '../../api/platformTypes'
 import { Pager } from '../../components/Pager'
 import { Button, ErrorText, Field, Input, PageTitle, SearchField, Select } from '../../components/ui'
 import { timeAgo } from '../../lib/time'
@@ -81,6 +83,7 @@ function Body() {
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
   const client = useQueryClient()
   const users = useQuery({ queryKey: ['users', q, page], queryFn: () => platform.users({ q: q.trim() || undefined, page }) })
   const update = useMutation({
@@ -137,9 +140,14 @@ function Body() {
                   <td className={`${TD} text-muted`}>{timeAgo(u.created_at)}</td>
                   <td className={TD}>{u.banned ? <Pill tone="text-danger">Banned</Pill> : <Pill>Active</Pill>}</td>
                   <td className={TD}>
-                    <Button variant={u.banned ? 'secondary' : 'danger'} onClick={() => update.mutate({ id: u.id, banned: !u.banned })} disabled={update.isPending}>
-                      {u.banned ? 'Unban' : 'Ban'}
-                    </Button>
+                    <span className="flex gap-2">
+                      <Button onClick={() => setEditing(u)} aria-label={`Edit ${u.username}`}>
+                        Edit
+                      </Button>
+                      <Button variant={u.banned ? 'secondary' : 'danger'} onClick={() => update.mutate({ id: u.id, banned: !u.banned })} disabled={update.isPending}>
+                        {u.banned ? 'Unban' : 'Ban'}
+                      </Button>
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -165,6 +173,9 @@ function Body() {
                       </option>
                     ))}
                   </Select>
+                  <Button onClick={() => setEditing(u)} aria-label={`Edit ${u.username}`}>
+                    Edit
+                  </Button>
                   <Button variant={u.banned ? 'secondary' : 'danger'} onClick={() => update.mutate({ id: u.id, banned: !u.banned })} disabled={update.isPending}>
                     {u.banned ? 'Unban' : 'Ban'}
                   </Button>
@@ -172,6 +183,7 @@ function Body() {
               </li>
             ))}
           </ul>
+          {editing && <EditUserDialog key={editing.id} user={editing} onClose={() => setEditing(null)} />}
           <Pager page={page} pages={pages} from={(page - 1) * data.per_page + 1} to={Math.min(data.total, page * data.per_page)} total={data.total} onChange={setPage} noun="users" />
         </>
       )}

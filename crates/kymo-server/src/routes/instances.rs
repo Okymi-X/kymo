@@ -6,23 +6,26 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::auth::{ClientIp, Player, Require, needs};
+use crate::auth::{Account, ClientIp, Player, Require, needs};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::instance_store;
 use crate::instances;
 use crate::state::AppState;
-use crate::submit::{challenge_of, play_context, released};
+use crate::submit::{challenge_of, play_context_any, released};
 
 async fn context(
     state: &AppState,
     player: &Player,
     slug: &str,
     challenge_id: i64,
+    starting: bool,
 ) -> Result<(crate::submit::Play, crate::challenge_store::ChallengeRow), ApiError> {
-    let play = play_context(state, slug, player.id).await?;
+    let play = play_context_any(state, slug, player.id).await?;
     let challenge = challenge_of(state, &play, challenge_id).await?;
     released(&challenge, state.now())?;
+    // In a tournament only the players of a match the challenge is assigned to may use it.
+    crate::duel::player_gate(state, &play.event, challenge.id, player.id, starting).await?;
     Ok((play, challenge))
 }
 
@@ -84,21 +87,21 @@ async fn record(
 }
 
 pub async fn show(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path((slug, id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let (play, challenge) = context(&state, &player, &slug, id).await?;
+    let (play, challenge) = context(&state, &player, &slug, id, false).await?;
     Ok(Json(instances::current(&state, &play, &challenge).await?))
 }
 
 pub async fn start(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     ip: ClientIp,
     State(state): State<AppState>,
     Path((slug, id)): Path<(String, i64)>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let (play, challenge) = context(&state, &player, &slug, id).await?;
+    let (play, challenge) = context(&state, &player, &slug, id, true).await?;
     let outcome = instances::start(&state, &play, &challenge, player.id).await;
     record(
         &state,
@@ -114,12 +117,12 @@ pub async fn start(
 }
 
 pub async fn restart(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     ip: ClientIp,
     State(state): State<AppState>,
     Path((slug, id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let (play, challenge) = context(&state, &player, &slug, id).await?;
+    let (play, challenge) = context(&state, &player, &slug, id, true).await?;
     let outcome = instances::restart(&state, &play, &challenge, player.id).await;
     record(
         &state,
@@ -135,12 +138,12 @@ pub async fn restart(
 }
 
 pub async fn stop(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     ip: ClientIp,
     State(state): State<AppState>,
     Path((slug, id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let (play, challenge) = context(&state, &player, &slug, id).await?;
+    let (play, challenge) = context(&state, &player, &slug, id, false).await?;
     let outcome = instances::stop(&state, &play, &challenge).await;
     record(
         &state,
@@ -229,10 +232,10 @@ pub async fn admin_reap(
 }
 
 pub async fn list(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let play = play_context(&state, &slug, player.id).await?;
+    let play = crate::submit::play_context(&state, &slug, player.id).await?;
     Ok(Json(instances::list_for(&state, &play).await?))
 }

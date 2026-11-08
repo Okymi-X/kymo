@@ -231,6 +231,22 @@ pub async fn update_profile(
     Ok(())
 }
 
+/// Sets or clears (empty) the email of an account. A taken address is a conflict.
+pub async fn set_email(pool: &SqlitePool, id: i64, email: Option<&str>) -> Result<(), ApiError> {
+    sqlx::query("UPDATE user SET email = ? WHERE id = ?")
+        .bind(email)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => {
+                ApiError::Conflict("another account uses that email address".into())
+            }
+            _ => e.into(),
+        })?;
+    Ok(())
+}
+
 pub async fn set_password(pool: &SqlitePool, id: i64, hash: &str) -> Result<(), ApiError> {
     sqlx::query("UPDATE user SET password_hash = ? WHERE id = ?")
         .bind(hash)
@@ -249,7 +265,7 @@ pub struct UserPage {
 }
 
 /// Escapes LIKE wildcards so a search for `%` finds a literal percent sign.
-fn like_pattern(query: &str) -> String {
+pub(crate) fn like_pattern(query: &str) -> String {
     let mut out = String::from("%");
     for c in query.chars() {
         if matches!(c, '%' | '_' | '\\') {

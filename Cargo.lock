@@ -1244,6 +1244,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kymo-duel"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "kymo-engine"
 version = "0.3.0"
 dependencies = [
@@ -1320,6 +1328,7 @@ dependencies = [
  "futures-core",
  "http-body-util",
  "kymo-core",
+ "kymo-duel",
  "kymo-engine",
  "kymo-instances",
  "kymo-jeopardy",

@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::{ClientIp, Player, Require, needs};
+use crate::auth::{Account, ClientIp, Require, needs};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::monitor_store;
@@ -27,7 +27,7 @@ pub struct HostQuery {
 
 /// What a player needs to know before they download a profile.
 pub async fn status(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     State(state): State<AppState>,
     Query(q): Query<HostQuery>,
 ) -> Result<Json<Value>, ApiError> {
@@ -66,7 +66,7 @@ pub async fn status(
 /// Issues a new certificate and returns the `.ovpn` file. The previous profile for the same
 /// host stops working. A POST because it changes state; the response is never cached.
 pub async fn profile(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     ip: ClientIp,
     State(state): State<AppState>,
     Query(q): Query<HostQuery>,

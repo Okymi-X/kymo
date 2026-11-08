@@ -2,7 +2,8 @@ import { Check, Copy } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useIsAdmin, useSignedIn, useWho, useCanMonitor } from '../../api/client'
-import type { EventState } from '../../api/platformTypes'
+import { useMyPermissions } from '../../api/platformHooks'
+import type { EventState, Permission } from '../../api/platformTypes'
 import { stateLabel } from '../../lib/platform'
 import { Button } from '../ui'
 
@@ -69,11 +70,12 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
 }
 
 /** Keeps a page for people who are signed in (and optionally with a role), otherwise explains. */
-export function Gate({ need, children }: { need: 'player' | 'admin' | 'monitor'; children: ReactNode }) {
+export function Gate({ need, permission, children }: { need: 'player' | 'admin' | 'monitor' | 'permission'; permission?: Permission; children: ReactNode }) {
   const signedIn = useSignedIn()
   const who = useWho()
   const admin = useIsAdmin()
   const monitor = useCanMonitor()
+  const mine = useMyPermissions()
   if (!signedIn) {
     return (
       <Panel className="mx-auto max-w-md text-center">
@@ -84,7 +86,10 @@ export function Gate({ need, children }: { need: 'player' | 'admin' | 'monitor';
       </Panel>
     )
   }
-  const ok = need === 'player' ? who !== null : need === 'admin' ? admin : monitor
+  // A page gated on one permission waits for the server's answer instead of guessing from the role.
+  if (need === 'permission' && mine.isPending) return <Loading />
+  const ok =
+    need === 'player' ? who !== null : need === 'admin' ? admin : need === 'permission' ? permission !== undefined && (mine.data?.permissions.includes(permission) ?? false) : monitor
   if (!ok) {
     return (
       <Panel className="mx-auto max-w-md text-center">

@@ -83,6 +83,19 @@ pub struct AttachmentPart {
     pub data_base64: String,
 }
 
+fn flag_kind() -> String {
+    "flag".into()
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ItemPart {
+    pub question: String,
+    pub answer: FlagSpec,
+    pub case_sensitive: bool,
+    pub points: i64,
+    pub max_attempts: Option<i64>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ChallengePart {
     pub category: String,
@@ -100,6 +113,12 @@ pub struct ChallengePart {
     pub position: i64,
     pub requires_instance: bool,
     pub instance_config: Option<Value>,
+    /// `flag` (also instance backed) or `dfir`. Older bundles have only flag challenges.
+    #[serde(default = "flag_kind")]
+    pub kind: String,
+    /// The questions of a DFIR challenge.
+    #[serde(default)]
+    pub items: Vec<ItemPart>,
     pub hints: Vec<HintPart>,
     pub attachments: Vec<AttachmentPart>,
 }
@@ -153,6 +172,18 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
             position: fields.position,
             requires_instance: fields.requires_instance,
             instance_config: fields.instance_config,
+            kind: row.kind.clone(),
+            items: crate::duel_store::items(pool, row.id)
+                .await?
+                .into_iter()
+                .map(|i| ItemPart {
+                    question: i.question,
+                    answer: i.answer,
+                    case_sensitive: i.case_sensitive,
+                    points: i.points,
+                    max_attempts: i.max_attempts,
+                })
+                .collect(),
             hints: hints.remove(&row.id).unwrap_or_default(),
             attachments,
         });
@@ -206,6 +237,7 @@ struct Prepared {
     state: String,
     hints: Vec<(String, i64, i64)>,
     attachments: Vec<(String, String, Vec<u8>)>,
+    items: Vec<crate::duel_store::ItemFields>,
 }
 
 fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
@@ -233,6 +265,12 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
         team_max: bundle.event.team_max,
         allow_invites: bundle.event.allow_invites,
         roster_locked: bundle.event.roster_locked,
+        // Bundles from before registration policies: a closing time meant "at that time".
+        registration_policy: if bundle.event.registration_closes.is_some() {
+            kymo_core::RegistrationPolicy::AtTime
+        } else {
+            kymo_core::RegistrationPolicy::AtStart
+        },
     };
     bundle.settings.validate()?;
 
@@ -268,7 +306,27 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             position: part.position,
             requires_instance: part.requires_instance,
             instance_config: part.instance_config.clone(),
+            kind: part.kind.clone(),
         };
+        if !matches!(part.kind.as_str(), "flag" | "dfir") {
+            return Err(bad("a challenge type is flag or dfir"));
+        }
+        if part.kind == "dfir" {
+            if !matches!(part.scoring, Scoring::Static { .. }) || part.requires_instance {
+                return Err(bad("a DFIR challenge has fixed points and no instance"));
+            }
+            let points: Vec<u32> = part
+                .items
+                .iter()
+                .map(|i| u32::try_from(i.points).unwrap_or(0))
+                .collect();
+            let total = u32::try_from(kymo_jeopardy::current_value(&part.scoring, 0)).unwrap_or(0);
+            kymo_duel::check_items(total, &points)
+                .map_err(|e| bad(format!("{}: {e}", part.title)))?;
+            for i in &part.items {
+                i.answer.validate().map_err(|e| bad(e.to_string()))?;
+            }
+        }
         fields.validate()?;
         if part.hints.len() > MAX_HINTS || part.attachments.len() > MAX_ATTACHMENTS {
             return Err(bad("a challenge has at most 20 hints and 20 attachments"));
@@ -307,6 +365,17 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             state: part.state.clone(),
             hints,
             attachments,
+            items: part
+                .items
+                .iter()
+                .map(|i| crate::duel_store::ItemFields {
+                    question: i.question.clone(),
+                    answer: i.answer.clone(),
+                    case_sensitive: i.case_sensitive,
+                    points: i.points,
+                    max_attempts: i.max_attempts,
+                })
+                .collect(),
         });
     }
     Ok((fields, prepared))
@@ -373,6 +442,9 @@ async fn fill(
         }
         for (name, mime, data) in &item.attachments {
             store::attachment_insert(pool, id, name, mime, data).await?;
+        }
+        if !item.items.is_empty() {
+            crate::duel_store::replace_items(pool, id, &item.items).await?;
         }
         if options.keep_state && item.state != "draft" {
             store::set_challenge_state(pool, id, &item.state).await?;

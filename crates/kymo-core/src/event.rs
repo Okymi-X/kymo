@@ -50,6 +50,7 @@ impl EventState {
                 | (Live, Ended)
                 | (Paused, Live)
                 | (Paused, Ended)
+                | (Ended, Live)
                 | (Ended, Archived)
         );
         if ok {
@@ -146,7 +147,7 @@ mod tests {
     use super::*;
     use EventState::*;
 
-    const ALLOWED: [(EventState, EventState); 9] = [
+    const ALLOWED: [(EventState, EventState); 10] = [
         (Draft, RegistrationOpen),
         (Draft, Live),
         (RegistrationOpen, Draft),
@@ -155,6 +156,7 @@ mod tests {
         (Live, Ended),
         (Paused, Live),
         (Paused, Ended),
+        (Ended, Live),
         (Ended, Archived),
     ];
 
@@ -171,9 +173,9 @@ mod tests {
     #[test]
     fn invalid_transition_carries_states() {
         assert_eq!(
-            Ended.can_move_to(Live),
+            Archived.can_move_to(Live),
             Err(CoreError::InvalidTransition {
-                from: Ended,
+                from: Archived,
                 to: Live
             })
         );

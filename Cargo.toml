@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kymo-engine", "crates/kymo-core", "crates/kymo-jeopardy", "crates/kymo-instances", "crates/kymo-vpn", "crates/kymo-monitor", "crates/kymo-lab", "crates/kymo-server"]
+members = ["crates/kymo-engine", "crates/kymo-core", "crates/kymo-jeopardy", "crates/kymo-duel", "crates/kymo-instances", "crates/kymo-vpn", "crates/kymo-monitor", "crates/kymo-lab", "crates/kymo-server"]
 
 [workspace.package]
 version = "0.3.0"

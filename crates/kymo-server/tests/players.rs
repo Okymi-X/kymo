@@ -1184,3 +1184,58 @@ async fn an_admin_can_create_accounts_while_sign_ups_stay_closed() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn an_admin_edits_a_profile_and_resets_a_password() {
+    let w = world().await;
+    let admin = admin_token(&w.app).await;
+    let (token, id) = player(&w.app, "dana").await;
+    let (status, body) = call(
+        &w.app,
+        "PUT",
+        &format!("/api/v1/admin/users/{id}"),
+        Some(&admin),
+        Some(json!({ "display_name": "Dana K", "bio": "Forensics", "email": "Dana@Example.org", "new_password": "a brand new password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (body["display_name"].as_str(), body["email"].as_str()),
+        (Some("Dana K"), Some("dana@example.org"))
+    );
+    // The old session is gone and the new password works.
+    let (status, _) = call(&w.app, "GET", "/api/v1/me", Some(&token), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = call(
+        &w.app,
+        "POST",
+        "/api/v1/auth/player-login",
+        None,
+        Some(json!({ "username": "dana", "password": "a brand new password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // A weak password or a bad email changes nothing, and values stay out of the audit log.
+    let (status, _) = call(
+        &w.app,
+        "PUT",
+        &format!("/api/v1/admin/users/{id}"),
+        Some(&admin),
+        Some(json!({ "bio": "changed", "new_password": "short" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, log) = call(
+        &w.app,
+        "GET",
+        "/api/v1/admin/monitor/audit?action=user_update",
+        Some(&admin),
+        None,
+    )
+    .await;
+    let detail = log["entries"][0]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("password_reset=changed") && !detail.contains("brand new"),
+        "{detail}"
+    );
+}

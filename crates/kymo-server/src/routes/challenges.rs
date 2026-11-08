@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::auth::{ClientIp, Player};
+use crate::auth::{Account, ClientIp, needs};
 use crate::challenge_store::{self as store, CategoryRow};
 use crate::error::ApiError;
 use crate::event_store;
@@ -69,8 +69,20 @@ struct ChallengeOut {
     max_attempts: Option<i64>,
     attempts_remaining: Option<u32>,
     requires_instance: bool,
+    /// `flag` (also instance backed) or `dfir`, answered question by question.
+    kind: String,
+    items: Vec<ItemOut>,
     hints: Vec<HintOut>,
     attachments: Vec<AttachmentOut>,
+}
+
+#[derive(Serialize)]
+struct ItemOut {
+    id: i64,
+    question: String,
+    points: i64,
+    solved: bool,
+    attempts_remaining: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -85,7 +97,7 @@ fn view_gate(effective: EventState) -> Result<(), ApiError> {
 }
 
 pub async fn list(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<ChallengeList>, ApiError> {
@@ -102,12 +114,52 @@ pub async fn list(
         .solves_of(play.scorer.id())
         .map(|s| (s.challenge_id, s.at))
         .collect();
+    let answered = jeopardy_store::items_solved(&state.pool, event_id, play.scorer).await?;
+    let all_items = crate::duel_store::items_of_event(&state.pool, event_id).await?;
     let mut challenges = Vec::new();
     for row in store::challenges(&state.pool, event_id).await? {
         if row.state == "draft" || released(&row, now).is_err() {
             continue;
         }
-        let solved_by = counts.get(&(row.id as u64)).copied().unwrap_or(0);
+        let dfir = row.kind == "dfir";
+        let mut items = Vec::new();
+        if dfir {
+            for item in all_items.iter().filter(|i| i.challenge_id == row.id) {
+                let used =
+                    jeopardy_store::item_attempts_used(&state.pool, item.id, play.scorer).await?;
+                items.push(ItemOut {
+                    id: item.id,
+                    question: item.question.clone(),
+                    points: item.points,
+                    solved: answered.contains_key(&item.id),
+                    attempts_remaining: item
+                        .max_attempts
+                        .and_then(|m| u32::try_from(m).ok())
+                        .map(|m| m.saturating_sub(used)),
+                });
+            }
+        }
+        let all_answered = dfir && !items.is_empty() && items.iter().all(|i| i.solved);
+        let solved_by = if dfir {
+            // Participants who answered every question.
+            let ids: Vec<u64> = all_items
+                .iter()
+                .filter(|i| i.challenge_id == row.id)
+                .map(|i| jeopardy_store::ITEM_BASE + i.id as u64)
+                .collect();
+            let mut per: HashMap<u64, usize> = HashMap::new();
+            for s in board.solves.iter().filter(|s| ids.contains(&s.challenge)) {
+                *per.entry(s.participant).or_default() += 1;
+            }
+            u32::try_from(
+                per.values()
+                    .filter(|n| **n == ids.len() && !ids.is_empty())
+                    .count(),
+            )
+            .unwrap_or(0)
+        } else {
+            counts.get(&(row.id as u64)).copied().unwrap_or(0)
+        };
         let attempts_remaining = match row.max_attempts {
             Some(_) => {
                 let used = jeopardy_store::attempts_used(&state.pool, row.id, play.scorer).await?;
@@ -117,8 +169,20 @@ pub async fn list(
         };
         challenges.push(ChallengeOut {
             points: current_value(&row.scoring, solved_by),
-            solved: solved_at.contains_key(&row.id),
-            solved_at: solved_at.get(&row.id).copied(),
+            solved: if dfir {
+                all_answered
+            } else {
+                solved_at.contains_key(&row.id)
+            },
+            solved_at: if dfir {
+                all_answered
+                    .then(|| answered.values().copied().max())
+                    .flatten()
+            } else {
+                solved_at.get(&row.id).copied()
+            },
+            kind: row.kind.clone(),
+            items,
             solved_by,
             status: if open_for_play(&play, &row, now).is_ok() {
                 "open"
@@ -182,7 +246,7 @@ pub async fn list(
 }
 
 pub async fn unlock_hint(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path((slug, challenge_id, hint_id)): Path<(String, i64, i64)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -209,14 +273,15 @@ pub async fn unlock_hint(
 }
 
 pub async fn download(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path((slug, challenge_id, attachment_id)): Path<(String, i64, i64)>,
 ) -> Result<Response, ApiError> {
-    let play = play_context(&state, &slug, player.id).await?;
+    let play = crate::submit::play_context_any(&state, &slug, player.id).await?;
     view_gate(play.effective)?;
     let challenge = challenge_of(&state, &play, challenge_id).await?;
     released(&challenge, state.now())?;
+    crate::duel::player_gate(&state, &play.event, challenge.id, player.id, false).await?;
     let meta = store::attachment_meta(&state.pool, attachment_id).await?;
     if meta.challenge_id != challenge.id {
         return Err(ApiError::NotFound);
@@ -239,7 +304,7 @@ pub struct SubmitBody {
 }
 
 pub async fn submit(
-    player: Player,
+    Account(player, _): Account<needs::SubmitFlag>,
     ClientIp(ip): ClientIp,
     State(state): State<AppState>,
     Path((slug, challenge_id)): Path<(String, i64)>,
@@ -253,6 +318,33 @@ pub async fn submit(
         flag: &body.flag,
     };
     let outcome = submit::run(&state, &play, &challenge, &attempt).await?;
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "verdict": submit::verdict_str(outcome.verdict),
+            "correct": outcome.verdict == Verdict::Correct,
+            "points": outcome.points,
+            "attempts_remaining": outcome.attempts_remaining,
+        })),
+    ))
+}
+
+/// Answers one question of a DFIR challenge.
+pub async fn submit_item(
+    Account(player, _): Account<needs::SubmitFlag>,
+    ClientIp(ip): ClientIp,
+    State(state): State<AppState>,
+    Path((slug, challenge_id, item_id)): Path<(String, i64, i64)>,
+    Json(body): Json<SubmitBody>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let play = play_context(&state, &slug, player.id).await?;
+    let challenge = challenge_of(&state, &play, challenge_id).await?;
+    let attempt = Attempt {
+        user_id: player.id,
+        ip: ip.to_string(),
+        flag: &body.flag,
+    };
+    let outcome = submit::run_item(&state, &play, &challenge, item_id, &attempt).await?;
     Ok((
         StatusCode::OK,
         Json(json!({

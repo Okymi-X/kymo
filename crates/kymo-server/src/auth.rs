@@ -36,7 +36,7 @@ impl FromRequestParts<AppState> for Admin {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         let access = access_of(parts, state).await?;
-        if access.role().can(Permission::ManageSettings) {
+        if state.can(access.role(), Permission::ManageSettings).await? {
             Ok(Admin)
         } else {
             Err(ApiError::Forbidden)
@@ -73,15 +73,20 @@ pub mod needs {
         ManageChallenges,
         ManageUsers,
         ManageSettings,
+        ManagePermissions,
         Monitor,
         ModerateBans,
         ViewAudit,
-        Referee
+        Referee,
+        PlayEvent,
+        ManageTeam,
+        SubmitFlag,
+        StartInstance
     );
 }
 
 /// Succeeds when the caller's role holds the permission named by `P`, for any kind of token.
-/// Role logic lives in `kymo_core::Role::can`, never in handlers.
+/// The decision comes from the configured matrix (`AppState::can`), never from handlers.
 pub struct Require<P: Needs>(pub Caller, PhantomData<P>);
 
 impl<P: Needs> FromRequestParts<AppState> for Require<P> {
@@ -93,7 +98,7 @@ impl<P: Needs> FromRequestParts<AppState> for Require<P> {
             user_id: access.user.map(|u| u.id),
             role: access.role(),
         };
-        if caller.role.can(P::PERMISSION) {
+        if state.can(caller.role, P::PERMISSION).await? {
             Ok(Require(caller, PhantomData))
         } else {
             Err(ApiError::Forbidden)
@@ -140,6 +145,24 @@ impl FromRequestParts<AppState> for Player {
     }
 }
 
+/// A signed in account whose role holds the permission named by `P`: `Player` plus the check,
+/// so an organizer can switch what players may do (submit flags, start instances, manage a
+/// team) without any route knowing about roles.
+pub struct Account<P: Needs>(pub Player, pub PhantomData<P>);
+
+impl<P: Needs> FromRequestParts<AppState> for Account<P> {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        let player = Player::from_request_parts(parts, state).await?;
+        if state.can(player.role, P::PERMISSION).await? {
+            Ok(Account(player, PhantomData))
+        } else {
+            Err(ApiError::Forbidden)
+        }
+    }
+}
+
 /// A caller who may record results and schedules: the organizer, or a referee token for the
 /// tournaments it was issued for.
 pub struct Official {
@@ -162,12 +185,12 @@ impl FromRequestParts<AppState> for Official {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         let access = access_of(parts, state).await?;
         let role = access.role();
-        if !role.can(Permission::Referee) {
+        if !state.can(role, Permission::Referee).await? {
             return Err(ApiError::Forbidden);
         }
         // Only roles that manage events see every tournament. A referee is limited to the
         // scope of its token; a referee account has none yet, so it sees no tournament.
-        let scope = (!role.can(Permission::ManageEvents)).then_some(access.scope);
+        let scope = (!state.can(role, Permission::ManageEvents).await?).then_some(access.scope);
         Ok(Official { scope })
     }
 }
@@ -181,7 +204,7 @@ impl FromRequestParts<AppState> for SessionAdmin {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         let access = access_of(parts, state).await?;
-        if access.session && access.role().can(Permission::ManageSettings) {
+        if access.session && state.can(access.role(), Permission::ManageSettings).await? {
             Ok(SessionAdmin)
         } else {
             Err(ApiError::Unauthorized)

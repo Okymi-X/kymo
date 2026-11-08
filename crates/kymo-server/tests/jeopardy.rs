@@ -525,7 +525,8 @@ async fn challenge_crud_and_validation() {
             Some(json!({ "name": "X" })),
         )
         .await;
-    assert_eq!(status, StatusCode::CONFLICT);
+    // Tournament events keep challenges for matches decided by challenges, so they take categories.
+    assert_eq!(status, StatusCode::CREATED);
 }
 
 #[tokio::test]
