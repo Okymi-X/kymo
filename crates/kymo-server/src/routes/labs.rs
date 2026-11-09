@@ -334,6 +334,9 @@ pub async fn set_event_lab(
         return Err(ApiError::BadRequest("mode is published or vpn".into()));
     }
     crate::vpn::check_mode(&state, body.lab_host_id, &mode).await?;
+    if event.network_mode != mode {
+        crate::vpn::check_overrides(&state, id, &mode).await?;
+    }
     if event.lab_host_id != body.lab_host_id || event.network_mode != mode {
         let _guard = state.write_lock.lock().await;
         let live: i64 = sqlx::query_scalar(
@@ -364,5 +367,68 @@ pub async fn set_event_lab(
     }
     Ok(Json(
         json!({ "event_id": id, "lab_host_id": body.lab_host_id, "network_mode": mode }),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct ChallengeLabBody {
+    lab_host_id: Option<i64>,
+}
+
+/// Chooses where one challenge's instances run, overriding the event's host; none follows the
+/// event again. The event's network mode must work there, and not while its instances run.
+pub async fn set_challenge_lab(
+    who: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<ChallengeLabBody>,
+) -> Result<Json<Value>, ApiError> {
+    let challenge = crate::challenge_store::challenge_by_id(&state.pool, id).await?;
+    let event = event_store::by_id(&state.pool, challenge.event_id).await?;
+    if event.kind != "jeopardy" {
+        return Err(ApiError::Conflict(
+            "only Jeopardy events have challenge instances".into(),
+        ));
+    }
+    if let Some(lab) = body.lab_host_id {
+        labs::usable(&state, lab).await.map_err(|e| match e {
+            ApiError::NotFound => ApiError::BadRequest("that lab host does not exist".into()),
+            other => other,
+        })?;
+    }
+    crate::vpn::check_mode(
+        &state,
+        body.lab_host_id.or(event.lab_host_id),
+        &event.network_mode,
+    )
+    .await?;
+    if challenge.lab_host_id != body.lab_host_id {
+        let _guard = state.write_lock.lock().await;
+        let live: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM instance WHERE challenge_id = ? AND state IN ('starting', 'running')",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
+        if live > 0 {
+            return Err(ApiError::Conflict(
+                "stop this challenge's running instances before moving it to another lab host"
+                    .into(),
+            ));
+        }
+        crate::challenge_store::set_lab_host(&state.pool, id, body.lab_host_id).await?;
+        monitor_store::audit(
+            &state.pool,
+            state.now(),
+            Some(&who.0),
+            "challenge_lab",
+            "challenge",
+            id,
+            &format!("{:?}", body.lab_host_id),
+        )
+        .await?;
+    }
+    Ok(Json(
+        json!({ "challenge_id": id, "lab_host_id": body.lab_host_id }),
     ))
 }

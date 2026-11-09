@@ -50,7 +50,7 @@ function CreateEvent() {
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-card border border-line bg-surface p-4">
       <Field label="New event">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring CTF 2026" className="w-64" maxLength={80} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring CTF 2026" className="w-64 max-w-full" maxLength={80} />
       </Field>
       <Field label="Type">
         <Select value={kind} onChange={(e) => setKind(e.target.value as 'jeopardy' | 'tournament')}>
@@ -66,7 +66,7 @@ function CreateEvent() {
       </Field>
       {kind === 'jeopardy' && (
         <Field label="Instances run on">
-          <Select value={lab} onChange={(e) => setLab(e.target.value)} className="w-72">
+          <Select value={lab} onChange={(e) => setLab(e.target.value)} className="w-72 max-w-full">
             <option value="">This server</option>
             {choices.map((l) => (
               <option key={l.id} value={l.id}>

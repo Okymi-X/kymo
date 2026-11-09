@@ -462,6 +462,10 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
 
   await organizer(page)
   await fits()
+  // Creating an event: the host choice fits the screen.
+  await page.goto('/admin/events')
+  await expect(page.getByLabel('Instances run on')).toBeVisible()
+  await fits()
   // The Lab hosts page: long names and addresses wrap instead of widening the page.
   const narrow = (await (await request.post('/api/v1/admin/labs', {
     headers,
@@ -599,4 +603,78 @@ test('the lab host is chosen when the event is created, with what each host is a
   await page.getByLabel('Type').selectOption({ label: 'Tournament' })
   await expect(page.getByLabel('Instances run on')).toHaveCount(0)
   await request.delete(`/api/v1/admin/labs/${lab.lab.id}`, { headers }).catch(() => undefined)
+})
+
+test('a challenge can run on its own lab host while the event keeps its choice', async ({ page, request }) => {
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const lab = (await (await request.post('/api/v1/admin/labs', {
+    headers,
+    data: { name: 'Per challenge host', api_url: 'http://127.0.0.1:9', token: 'a-long-token-for-the-test-1234', public_host: '127.0.0.1' },
+  })).json()) as { lab: { id: number } }
+  const event = (await (await request.post('/api/v1/admin/events', { headers, data: { name: 'Mixed hosts', kind: 'jeopardy', mode: 'solo' } })).json()) as { id: number }
+  const category = (await (await request.post(`/api/v1/admin/events/${event.id}/categories`, { headers, data: { name: 'Web' } })).json()) as { id: number }
+  const made = await request.post(`/api/v1/admin/events/${event.id}/challenges`, {
+    headers,
+    data: {
+      category_id: category.id,
+      title: 'Own host',
+      description: '',
+      scoring: { kind: 'static', points: 100 },
+      flag: { kind: 'static', value: 'KYMO{x}' },
+      flag_prefix: '',
+      flag_suffix: '',
+      case_sensitive: true,
+      max_attempts: null,
+      release_at: null,
+      retire_at: null,
+      position: 0,
+      requires_instance: true,
+      instance_config: { image: 'registry.example.org/ctf/web:1.0', port: 8000, cpu_millis: 500, memory_mb: 256, pids: 128, ttl_secs: 1800 },
+    },
+  })
+  const challenge = (await made.json()) as { id: number }
+  await organizer(page)
+  await page.goto(`/admin/events/${event.id}`)
+  await page.getByRole('tab', { name: 'Challenges' }).click()
+  await page.getByRole('button', { name: 'Own host' }).click()
+  const runsOn = page.getByLabel('Runs on')
+  await expect(runsOn).toHaveValue('')
+  await runsOn.selectOption({ label: 'Per challenge host · 0 events, 0 running' })
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  // The editor closes once both the challenge and its host are saved.
+  await expect(runsOn).toHaveCount(0)
+  const after = await request.get(`/api/v1/admin/challenges/${challenge.id}`, { headers })
+  expect(((await after.json()) as { lab_host_id: number | null }).lab_host_id).toBe(lab.lab.id)
+  await request.delete(`/api/v1/admin/challenges/${challenge.id}`, { headers }).catch(() => undefined)
+  await request.delete(`/api/v1/admin/labs/${lab.lab.id}`, { headers }).catch(() => undefined)
+})
+
+test('an organizer on a public event page is told organizers cannot register, not asked to sign in', async ({ page, request }) => {
+  const login = await request.post('/api/v1/auth/login', { data: { password: PASSWORD } })
+  const headers = { authorization: `Bearer ${((await login.json()) as { token: string }).token}` }
+  const made = (await (await request.post('/api/v1/admin/events', { headers, data: { name: 'Organizer view', kind: 'jeopardy', mode: 'solo' } })).json()) as { id: number; slug: string }
+  await request.post(`/api/v1/admin/events/${made.id}/state`, { headers, data: { state: 'registration_open' } })
+  await organizer(page)
+  await page.goto(`/e/${made.slug}`)
+  await expect(page.getByText('You are signed in as an organizer.')).toBeVisible()
+  await expect(page.getByText('Sign in to register for this event.')).toHaveCount(0)
+})
+
+test('the header fits a phone that also shows a scrollbar, signed out and as an organizer', async ({ browser }) => {
+  // 305 is 320 minus a classic scrollbar: the width many desktop browsers leave a narrow window.
+  const context = await browser.newContext({ viewport: { width: 305, height: 700 } })
+  const page = await context.newPage()
+  for (const path of ['/', '/events', '/ladder', '/signin']) {
+    await page.goto(path)
+    await expect(page.getByRole('main')).toBeVisible()
+    expect(await page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), path).toBe(true)
+  }
+  await organizer(page)
+  for (const path of ['/admin/events', '/admin/ops', '/settings', '/monitor']) {
+    await page.goto(path)
+    await expect(page.getByRole('main')).toBeVisible()
+    expect(await page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), path).toBe(true)
+  }
+  await context.close()
 })

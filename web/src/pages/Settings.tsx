@@ -77,7 +77,7 @@ function ColorField({ label, value, onChange, against }: { label: string; value:
 function PresetPicker({ current, onPick }: { current: Appearance; onPick: (values: Appearance) => void }) {
   const active = matchingPreset(current)
   return (
-    <div role="radiogroup" aria-label="Theme presets" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div role="radiogroup" aria-label="Theme presets" className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))]">
       {PRESETS.map((p) => (
         <button
           key={p.id}
@@ -126,13 +126,13 @@ function Preview({ look }: { look: Appearance }) {
           <span className="font-mono text-xs tabular-nums text-muted">4/6</span>
         </div>
       </div>
-      <div className="w-56">
+      <div className="w-56 max-w-full">
         <MatchCard match={SAMPLE_MATCH} teamName={sampleName} quiet />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" type="button">Start tournament</Button>
         <Button type="button">Export CSV</Button>
-        <Input aria-label="Preview text field" placeholder="Team name" className="w-40" />
+        <Input aria-label="Preview text field" placeholder="Team name" className="w-40 max-w-full" />
       </div>
     </div>
   )
@@ -214,7 +214,7 @@ export function Settings() {
         <p className="max-w-xl text-lg text-muted">Pick a look for this instance. Changes preview on this page and apply to everyone once saved.</p>
       </div>
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
         <div className="flex flex-col gap-8">
           <Section title="Theme" hint="Start from a preset, then adjust anything below.">
             <PresetPicker current={current} onPick={setDraft} />
@@ -270,9 +270,9 @@ export function Settings() {
           </Section>
 
           <Section title="Shape and type">
-            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 sm:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-8 gap-y-6 sm:grid-cols-2">
               <Field label={`Corner radius, ${current.radius}px`}>
-                <input type="range" min={0} max={20} value={current.radius} onChange={(e) => set('radius', Number(e.target.value))} className="h-10 w-56 accent-accent" />
+                <input type="range" min={0} max={20} value={current.radius} onChange={(e) => set('radius', Number(e.target.value))} className="h-10 w-56 max-w-full accent-accent" />
               </Field>
               <Field label="Typeface">
                 <Segmented label="Typeface" value={current.font} options={fonts} onChange={(v) => set('font', v)} />

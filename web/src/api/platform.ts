@@ -135,6 +135,9 @@ export const platform = {
   /** The mode is sent with the host because the two must agree: the VPN needs a gateway there. */
   setEventLab: (event: number, lab: number | null, mode?: 'published' | 'vpn') =>
     request<{ event_id: number; lab_host_id: number | null; network_mode: string }>('PUT', `/admin/events/${event}/lab`, { lab_host_id: lab, ...(mode ? { network_mode: mode } : {}) }),
+  /** Where one challenge's instances run, overriding the event's lab host; null follows the event. */
+  setChallengeLab: (challenge: number, lab: number | null) =>
+    request<{ challenge_id: number; lab_host_id: number | null }>('PUT', `/admin/challenges/${challenge}/lab`, { lab_host_id: lab }),
   adminVpn: () => request<AdminVpn>('GET', '/admin/vpn'),
   syncVpn: () => request<VpnSyncReport>('POST', '/admin/vpn/sync'),
   revokeVpnClient: (userId: number) => request<void>('DELETE', `/admin/vpn/clients/${userId}`),

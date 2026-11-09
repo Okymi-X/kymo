@@ -19,7 +19,7 @@ export function VpnPanel({ labHost = null }: { labHost?: number | null }) {
   if (!v.enabled) {
     return (
       <Panel>
-        <p className="text-sm text-muted">This event uses a private network, but the VPN is not enabled on this server. Ask the organizer.</p>
+        <p className="text-sm text-muted">This event uses a private network, but its VPN is not available{labHost === null ? ' on this server' : ' on the lab host that runs it'} right now. Try again shortly or ask the organizer.</p>
       </Panel>
     )
   }

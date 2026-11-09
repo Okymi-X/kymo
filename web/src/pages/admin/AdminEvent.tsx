@@ -277,8 +277,11 @@ function NetworkMode({ event }: { event: EventInfo }) {
   const lab = event.lab_host_id === null ? null : (labs.data?.labs ?? []).find((l) => l.id === event.lab_host_id) ?? null
   // The gateway players would connect to: the lab host's own, or this server's.
   const gateway = lab ? lab.vpn : vpn.data?.enabled && vpn.data.local ? { host: vpn.data.host ?? '', port: vpn.data.port ?? 1194, only: false } : null
-  const enabled = vpn.data?.enabled ?? false
+  // A lab host's gateway is what that host reported; this server's own VPN setting says nothing about it.
+  const enabled = lab ? true : (vpn.data?.enabled ?? false)
   const hasGateway = enabled && gateway !== null && gateway.host !== '' && gateway.host !== '-'
+  // Reachability is a separate state from having no gateway: say which one it is.
+  const down = lab !== null && lab.enabled && (lab.last_error !== null || lab.last_ok_at === null)
   const loopback = hasGateway && /^(127\.|localhost$|::1$)/.test(gateway?.host ?? '')
   const publishedAllowed = !gateway?.only
   return (
@@ -292,6 +295,11 @@ function NetworkMode({ event }: { event: EventInfo }) {
       {event.network_mode === 'vpn' && !hasGateway && (
         <p role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
           {lab ? `The lab host ${lab.name} has no VPN gateway.` : 'This server has no VPN gateway of its own.'} Players cannot reach instances until you pick a host with one.
+        </p>
+      )}
+      {event.network_mode === 'vpn' && hasGateway && down && lab && (
+        <p role="alert" className="rounded-control border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          The VPN gateway is set up at {gateway?.host}:{gateway?.port}, but the lab host {lab.name} is not answering right now{lab.last_error ? ` (${lab.last_error})` : ''}. Check that it is running; players can connect again once it is.
         </p>
       )}
       <p className="text-sm text-muted">
@@ -312,7 +320,7 @@ function NetworkMode({ event }: { event: EventInfo }) {
             Published ports{publishedAllowed ? '' : ' (this lab host refuses them)'}
           </option>
           <option value="vpn" disabled={!hasGateway && event.network_mode !== 'vpn'}>
-            Private VPN{hasGateway ? '' : !enabled ? ' (not enabled on this server)' : lab ? ' (this lab host has no gateway)' : ' (no gateway on this server)'}
+            Private VPN{hasGateway ? '' : lab ? ' (this lab host has no gateway)' : !enabled ? ' (not enabled on this server)' : ' (no gateway on this server)'}
           </option>
         </Select>
         {event.network_mode === 'vpn' && gateway && <span className="text-sm text-muted">Players connect to <code className="font-mono text-ink">{gateway.host}:{gateway.port}</code> (UDP)</span>}
@@ -587,12 +595,44 @@ function Instances({ event }: { event: EventInfo }) {
     mutationFn: (id: number) => platform.stopAdminInstance(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-instances', event.id] }),
   })
+  const [page, setPage] = useState(1)
+  const [stateFilter, setStateFilter] = useState('')
+  const [search, setSearch] = useState('')
   if (q.isPending) return <Loading />
   if (q.error) return <ErrorText error={q.error} />
-  const rows = q.data?.instances ?? []
-  if (rows.length === 0) return <Empty>No instances have been started.</Empty>
+  const all = q.data?.instances ?? []
+  if (all.length === 0) return <Empty>No instances have been started.</Empty>
+  // A long history of stopped and failed runs is paged and filterable, so a live problem is easy to find.
+  const needle = search.trim().toLowerCase()
+  const matching = all.filter(
+    (r) =>
+      (stateFilter === '' || r.state === stateFilter) &&
+      (needle === '' || `${r.challenge_title ?? ''} ${r.username ?? ''} ${r.participant.team ?? ''} #${r.id}`.toLowerCase().includes(needle)),
+  )
+  const states = [...new Set(all.map((r) => r.state))].sort()
+  const size = 25
+  const pages = Math.max(1, Math.ceil(matching.length / size))
+  const at = Math.min(page, pages)
+  const rows = matching.slice((at - 1) * size, at * size)
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Search">
+          <Input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Challenge, player, team or #run" className="w-64 max-w-full" />
+        </Field>
+        <Field label="State">
+          <Select value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); setPage(1) }}>
+            <option value="">All states</option>
+            {states.map((s) => (
+              <option key={s} value={s}>
+                {s} ({all.filter((r) => r.state === s).length})
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      {rows.length === 0 && <Empty>No instances match these filters.</Empty>}
+      {rows.length > 0 && (
       <DataTable caption="Instances" head={['Run', 'Challenge', 'Owner', 'State', 'Port', 'Started', 'Expires', '']}>
         {rows.map((r) => (
           <tr key={r.id}>
@@ -616,6 +656,8 @@ function Instances({ event }: { event: EventInfo }) {
           </tr>
         ))}
       </DataTable>
+      )}
+      <Pager page={at} pages={pages} from={(at - 1) * size + 1} to={Math.min(at * size, matching.length)} total={matching.length} onChange={setPage} noun="instances" />
       <ErrorText error={stop.error} />
     </div>
   )

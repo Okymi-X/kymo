@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock } from 'lucide-react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
-import { useIsAdmin, useWho } from '../api/client'
+import { useIsAdmin, useSignedIn, useWho } from '../api/client'
 import { platform } from '../api/platform'
 import { useEvent, useMyTeam } from '../api/platformHooks'
 import { isNoDeadline, registrationStatus } from '../lib/platform'
@@ -47,6 +47,7 @@ function Schedule({ e }: { e: EventInfo }) {
 function Registration({ event }: { event: EventInfo }) {
   const who = useWho()
   const admin = useIsAdmin()
+  const signedIn = useSignedIn()
   const team = useMyTeam().data
   const client = useQueryClient()
   const done = () => void client.invalidateQueries({ queryKey: ['event', event.slug] })
@@ -58,6 +59,14 @@ function Registration({ event }: { event: EventInfo }) {
   const signUpInfo = useQuery({ queryKey: ['sign-ups-open'], queryFn: platform.signUpsOpen, enabled: !who }).data
   const signUps = signUpInfo?.open
 
+  if (!who && signedIn) {
+    return (
+      <Panel className="flex flex-col gap-1">
+        <p className="font-medium">You are signed in as an organizer.</p>
+        <p className="text-sm text-muted">Organizer sessions manage events and cannot register as players. To take part, sign in with a player account.</p>
+      </Panel>
+    )
+  }
   if (!who) {
     return (
       <Panel className="flex flex-wrap items-center justify-between gap-3">

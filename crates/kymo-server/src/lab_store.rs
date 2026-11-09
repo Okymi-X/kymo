@@ -180,10 +180,13 @@ pub async fn get(pool: &SqlitePool, id: i64) -> Result<LabHostRow, ApiError> {
 }
 
 pub async fn counts(pool: &SqlitePool, id: i64) -> Result<(i64, i64), ApiError> {
-    let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event WHERE lab_host_id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event WHERE lab_host_id = ? OR id IN (SELECT event_id FROM challenge WHERE lab_host_id = ?)",
+    )
+    .bind(id)
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
     let live: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM instance WHERE lab_host_id = ? AND state IN ('starting', 'running')",
     )

@@ -54,7 +54,7 @@ function Champion({ t, teamName }: { t: Tournament; teamName: (s: Slot) => strin
   )
 }
 
-type Pending = 'reset' | 'delete' | 'rename' | 'color' | null
+type Pending = 'reset' | 'delete' | 'rename' | 'color' | 'duplicate' | null
 
 function FollowChip({ t, teamId, teamName, onOpen, onStop }: { t: Tournament; teamId: number; teamName: (s: Slot) => string; onOpen: () => void; onStop: () => void }) {
   const row = computeTeamRows(t).find((r) => r.team.id === teamId)
@@ -159,9 +159,7 @@ function AdminActions({ t }: { t: Tournament }) {
       >
         Color
       </Button>
-      <Button onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>
-        Duplicate
-      </Button>
+      <Button onClick={() => setAsking('duplicate')}>Duplicate</Button>
       <ExportButton filename={`${t.slug}-backup.json`} build={() => JSON.stringify(t, null, 2)} label="Backup JSON" type="application/json" />
       {t.status !== 'draft' && <Button onClick={() => setAsking('reset')}>Reset bracket</Button>}
       <Button variant="danger" onClick={() => setAsking('delete')}>
@@ -233,6 +231,16 @@ function AdminActions({ t }: { t: Tournament }) {
             </ModalFooter>
           </form>
         </Modal>
+      )}
+      {asking === 'duplicate' && (
+        <ConfirmDialog
+          title={`Duplicate ${t.name}?`}
+          message={`A new draft called "${t.name} copy" is created with the same format, settings and teams, and opened. Results are not copied, and this one is not changed.`}
+          confirmLabel="Create the copy"
+          pending={duplicate.isPending}
+          onConfirm={() => duplicate.mutate()}
+          onClose={() => setAsking(null)}
+        />
       )}
       {asking === 'reset' && (
         <ConfirmDialog

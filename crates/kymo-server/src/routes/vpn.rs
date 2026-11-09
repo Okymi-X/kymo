@@ -39,8 +39,11 @@ pub async fn status(
         Ok(s) => s,
         // The gateway of this host cannot be reached or does not exist: say so, do not hide it.
         Err(ApiError::Unavailable(reason)) => {
+            // Players get the headline ("the lab host X did not answer"); the technical cause
+            // after it (connection refused, os error ...) is for the organizer's pages.
+            let headline = reason.split(": ").next().unwrap_or(&reason);
             return Ok(Json(
-                json!({ "enabled": true, "available": false, "reason": reason }),
+                json!({ "enabled": true, "available": false, "reason": headline }),
             ));
         }
         Err(e) => return Err(e),
@@ -259,6 +262,9 @@ pub async fn set_network(
         ));
     }
     vpn::check_mode(&state, event.lab_host_id, &body.mode).await?;
+    if event.network_mode != body.mode {
+        vpn::check_overrides(&state, id, &body.mode).await?;
+    }
     if event.network_mode != body.mode {
         let _guard = state.write_lock.lock().await;
         let live: i64 = sqlx::query_scalar(

@@ -53,9 +53,16 @@ pub struct ChallengeRow {
     pub requires_instance: bool,
     pub instance_config: Option<String>,
     pub created_at: i64,
+    /// Where this challenge's instances run when it is not the event's lab host; none follows the event.
+    pub lab_host_id: Option<i64>,
 }
 
 impl ChallengeRow {
+    /// The lab host this challenge's instances run on: its own choice, else the event's.
+    pub fn host(&self, event_host: Option<i64>) -> Option<i64> {
+        self.lab_host_id.or(event_host)
+    }
+
     /// Release and retire times for `kymo_core::can_submit`. A retired challenge is closed
     /// regardless of its schedule.
     pub fn window(&self) -> kymo_core::window::ChallengeWindow {
@@ -668,4 +675,17 @@ pub struct Base64Upload {
     pub name: String,
     pub mime: Option<String>,
     pub data_base64: String,
+}
+
+pub async fn set_lab_host(
+    pool: &SqlitePool,
+    id: i64,
+    lab_host_id: Option<i64>,
+) -> Result<(), ApiError> {
+    sqlx::query("UPDATE challenge SET lab_host_id = ? WHERE id = ?")
+        .bind(lab_host_id)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }

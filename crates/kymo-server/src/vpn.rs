@@ -110,6 +110,20 @@ pub async fn setup_for(state: &AppState, hid: i64) -> Result<VpnSetup, ApiError>
     })
 }
 
+/// Whether every lab host that one of the event's challenges has chosen for itself can run `mode`.
+pub async fn check_overrides(state: &AppState, event_id: i64, mode: &str) -> Result<(), ApiError> {
+    let hosts: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT lab_host_id FROM challenge WHERE event_id = ? AND lab_host_id IS NOT NULL",
+    )
+    .bind(event_id)
+    .fetch_all(&state.pool)
+    .await?;
+    for host in hosts {
+        check_mode(state, Some(host), mode).await?;
+    }
+    Ok(())
+}
+
 /// Whether an event may use `mode` on `lab_host_id` (none is this server): the VPN needs a
 /// gateway there, and a lab host that is VPN only never publishes a port. Says why not, in words
 /// an organizer can act on.

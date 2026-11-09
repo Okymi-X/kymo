@@ -247,14 +247,14 @@ async fn begin(
     open_for_play(play, challenge, now)?;
     let scorer = play.scorer;
 
-    // Where this run will live: the event's lab host, or this machine's own runtime.
-    let lab_host_id = play.event.lab_host_id;
+    // Where this run will live: the challenge's own lab host, else the event's, else this machine's runtime.
+    let lab_host_id = challenge.host(play.event.lab_host_id);
     if let Some(id) = lab_host_id {
         labs::usable(state, id).await?;
     }
     if lab_host_id.is_none() && !setup.runtime.can_start() {
         return Err(ApiError::Unavailable(
-            "this server runs no challenge containers itself: an organizer must choose a lab host for this event".into(),
+            "this server runs no challenge containers itself: an organizer must choose a lab host for this event or challenge".into(),
         ));
     }
     let target = labs::target(state, setup, lab_host_id).await?;

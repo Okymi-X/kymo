@@ -18,6 +18,7 @@ const challenge = (id: number, category_id: number, points: number, title = `c${
   max_attempts: null,
   attempts_remaining: null,
   requires_instance: false,
+  lab_host_id: null,
   hints: [],
   attachments: [],
 })

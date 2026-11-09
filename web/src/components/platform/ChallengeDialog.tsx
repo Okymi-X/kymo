@@ -86,7 +86,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
           </div>
         )}
 
-        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={labHost} />}
+        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={challenge.lab_host_id ?? labHost} />}
         {challenge.requires_instance && challenge.solved && (
           <p className="text-sm text-muted">You solved this challenge, so a new instance cannot be started for it.</p>
         )}

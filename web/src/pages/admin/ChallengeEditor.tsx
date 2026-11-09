@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Paperclip, Trash2 } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { platform } from '../../api/platform'
@@ -6,7 +6,7 @@ import type { AdminChallenge, Category, ChallengeBody, FlagSpec, Scoring } from 
 import { Modal, ModalBody, ModalCancel, ModalFooter, ModalHeader, modalForm } from '../../components/Modal'
 import { Pill, Toggle } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, Select, Textarea } from '../../components/ui'
-import { fileSize, flagHint, fromLocalInput, toLocalInput, verdictText } from '../../lib/platform'
+import { fileSize, flagHint, fromLocalInput, labLabel, toLocalInput, verdictText } from '../../lib/platform'
 
 export interface Draft {
   title: string
@@ -28,6 +28,8 @@ export interface Draft {
   retire: string
   position: string
   requiresInstance: boolean
+  /** The lab host this challenge runs on; empty follows the event. */
+  labHost: string
   image: string
   port: string
   cpu: string
@@ -56,6 +58,7 @@ export const blank = (category: number): Draft => ({
   retire: '',
   position: '0',
   requiresInstance: false,
+  labHost: '',
   image: '',
   port: '8000',
   cpu: '500',
@@ -90,6 +93,7 @@ export function fromChallenge(c: AdminChallenge): Draft {
     retire: toLocalInput(c.retire_at),
     position: String(c.position),
     requiresInstance: c.requires_instance,
+    labHost: c.lab_host_id === null ? '' : String(c.lab_host_id),
     image: cfg?.image ?? '',
     port: String(cfg?.port ?? 8000),
     cpu: String(cfg?.cpu_millis ?? 500),
@@ -170,7 +174,7 @@ export function validate(d: Draft): Problems {
   const ret = fromLocalInput(d.retire)
   if (rel !== null && ret !== null && rel >= ret) p.retire = 'It must retire after it is released.'
   if (d.requiresInstance) {
-    if (d.image.trim() === '') p.image = 'Name the container image.'
+    if (d.image.trim() === '') p.image = 'Name the image or machine to start.'
     if (!inRange(d.port, 1, 65535)) p.port = '1 to 65535.'
     if (!inRange(d.cpu, 1, 4000)) p.cpu = '1 to 4000.'
     if (!inRange(d.memory, 1, 2048)) p.memory = '1 to 2048.'
@@ -331,10 +335,17 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
   const [touched, setTouched] = useState(false)
   const shown: Problems = touched || dirty ? problems : {}
 
+  const labs = useQuery({ queryKey: ['labs'], queryFn: platform.labs })
   const refresh = () => void client.invalidateQueries({ queryKey: ['admin-challenges', eventId] })
   const save = useMutation({
-    mutationFn: () => (challenge ? platform.updateChallenge(challenge.id, toBody(d)) : platform.createChallenge(eventId, toBody(d))),
+    mutationFn: async () => {
+      const saved = challenge ? await platform.updateChallenge(challenge.id, toBody(d)) : await platform.createChallenge(eventId, toBody(d))
+      // The host is its own call: it has its own checks (the lab host must work with the event's network mode).
+      if (d.requiresInstance && d.labHost !== start.labHost) await platform.setChallengeLab(saved.id, d.labHost === '' ? null : Number(d.labHost))
+      return saved
+    },
     onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['labs'] })
       refresh()
       onClose()
     },
@@ -464,11 +475,23 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
             </div>
           </Section>
 
-          <Section title="Instance" help="Give every player or team their own copy of a service to attack. Turn it off for a plain flag.">
-            <Toggle label="Each player or team starts its own container" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
+          <Section title="Instance" help="Give every player or team their own copy of a service or machine to attack. Turn it off for a plain flag.">
+            <Toggle label="Each player or team starts its own instance" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
             {d.requiresInstance && (
               <>
-                <Field label="Container image" error={shown.image} hint="A name the container platform can already run, for example registry.example.org/ctf/web:1.0.">
+                <Field label="Runs on" hint="Where this challenge's instances start. Leave it on the event's choice, or pick a lab host for this challenge alone.">
+                  <Select value={d.labHost} onChange={(e) => set('labHost', e.target.value)}>
+                    <option value="">Same as the event</option>
+                    {(labs.data?.labs ?? [])
+                      .filter((l) => l.enabled || String(l.id) === d.labHost)
+                      .map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {labLabel(l)}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+                <Field label="Image or machine" error={shown.image} hint="What to start: a container image the lab host can run (registry.example.org/ctf/web:1.0), or the name of a virtual machine its manifests list.">
                   <Input value={d.image} onChange={(e) => set('image', e.target.value)} placeholder="registry.example.org/ctf/web-1:1.0" className="font-mono" aria-invalid={shown.image ? true : undefined} />
                 </Field>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">

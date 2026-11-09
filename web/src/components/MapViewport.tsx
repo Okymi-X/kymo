@@ -373,7 +373,7 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
             <button type="button" className={buttonClass} aria-label="Zoom out" onClick={() => zoomBy(0.8)}>
               <Minus size={16} aria-hidden="true" />
             </button>
-            <button type="button" className="min-w-12 rounded-[calc(var(--radius-control)-2px)] px-1 text-center font-mono text-xs tabular-nums text-muted hover:bg-line/60 hover:text-ink" aria-label="Actual size" title="Actual size" onClick={actualSize}>
+            <button type="button" className="min-h-8 min-w-12 rounded-[calc(var(--radius-control)-2px)] px-1 text-center font-mono text-xs tabular-nums text-muted hover:bg-line/60 hover:text-ink" aria-label="Actual size" title="Actual size" onClick={actualSize}>
               {Math.round(view.s * 100)}%
             </button>
             <button type="button" className={buttonClass} aria-label="Zoom in" onClick={() => zoomBy(1.25)}>
@@ -383,7 +383,7 @@ export function MapViewport({ width, height, rects, focus = null, label, hideCon
             <button type="button" className={buttonClass} aria-label="Show everything" title="Show everything" onClick={showAll}>
               <Maximize size={15} aria-hidden="true" />
             </button>
-            <button type="button" className="rounded-[calc(var(--radius-control)-2px)] px-2 text-xs font-medium text-muted hover:bg-line/60 hover:text-ink" aria-label="Reset view" onClick={resetView}>
+            <button type="button" className="min-h-8 rounded-[calc(var(--radius-control)-2px)] px-2 text-xs font-medium text-muted hover:bg-line/60 hover:text-ink" aria-label="Reset view" onClick={resetView}>
               Reset
             </button>
             <span className="ml-1 mr-2 hidden whitespace-nowrap text-xs text-muted lg:inline" aria-hidden="true">

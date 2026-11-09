@@ -20,7 +20,7 @@ function Brand({ siteName, logo }: { siteName: string; logo: string | null }) {
       {logo ? (
         <img src={logo} alt={siteName} className="h-9 w-auto max-w-48 object-contain" />
       ) : siteName === DEFAULT_APPEARANCE.site_name ? (
-        <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-8 w-auto sm:h-10" />
+        <img src="/logo.png" alt="Kymo" width={114} height={40} className="h-8 w-auto max-[359px]:h-6 sm:h-10" />
       ) : (
         <span className="text-base font-semibold tracking-tight">{siteName}</span>
       )}
@@ -168,7 +168,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
         <div className="flex min-w-0 flex-1 justify-center">
           <Context />
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <LiveBadge />
           <button
             type="button"

@@ -91,6 +91,8 @@ export interface PlayerChallenge {
   max_attempts: number | null
   attempts_remaining: number | null
   requires_instance: boolean
+  /** Where its instance runs: which VPN profile it needs. */
+  lab_host_id: number | null
   hints: PlayerHint[]
   attachments: PlayerAttachment[]
 }
@@ -262,12 +264,13 @@ export interface AdminChallenge {
   requires_instance: boolean
   instance_config: InstanceConfig | null
   created_at: number
+  lab_host_id: number | null
   solves: number
   hints: AdminHint[]
   attachments: AdminAttachment[]
 }
 
-export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'solves' | 'hints' | 'attachments' | 'state'>
+export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state'>
 
 export interface JeopardySettings {
   tie_breaks: ('earliest_last_solve' | 'most_solves' | 'first_blood')[]

@@ -392,8 +392,9 @@ pub async fn report(state: &AppState) -> Result<Value, ApiError> {
         // Events that are open or running and send their instances here: players cannot start
         // anything for them while this lab host is off or down.
         let live_events: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM event WHERE lab_host_id = ? AND state IN ('registration_open', 'live', 'paused')",
+            "SELECT COUNT(*) FROM event WHERE (lab_host_id = ? OR id IN (SELECT event_id FROM challenge WHERE lab_host_id = ?)) AND state IN ('registration_open', 'live', 'paused')",
         )
+        .bind(row.id)
         .bind(row.id)
         .fetch_one(pool)
         .await?;

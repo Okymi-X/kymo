@@ -879,6 +879,87 @@ async fn an_event_on_a_lab_host_runs_its_instances_there_and_players_get_the_lab
     assert_eq!(lab.runtime.running(), 0, "stopped on the lab host");
 }
 
+#[tokio::test]
+async fn a_challenge_can_run_on_its_own_lab_host_while_the_event_keeps_another() {
+    let lab = lab_host().await;
+    let c = Ctx::new(roomy()).await;
+    let (_, added) = c.add_lab("Lab A", &lab.url, LAB_TOKEN).await;
+    let lab_id = added["lab"]["id"].as_i64().unwrap();
+    let on_lab = c.challenge(json!({})).await;
+    let on_event = c.challenge(json!({})).await;
+    let alice = c.live_player("alice").await;
+    let bob = c.live_player("bob").await;
+    c.set_state("live").await;
+
+    // Only the first challenge is sent to the lab host; the event itself stays on this server.
+    let (status, body) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{on_lab}/lab"),
+            Some(json!({ "lab_host_id": lab_id })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, bad) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{on_lab}/lab"),
+            Some(json!({ "lab_host_id": 999 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+
+    let (status, started) = c.act(&alice, "POST", on_lab, "").await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    assert_eq!(lab.runtime.running(), 1, "it ran on its own lab host");
+    assert_eq!(c.fake.running_count(), 0);
+    let (status, started) = c.act(&bob, "POST", on_event, "").await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    assert_eq!(c.fake.running_count(), 1, "the other follows the event");
+    assert_eq!(lab.runtime.running(), 1);
+
+    // Players are told where each one runs, and the list says which host.
+    let (status, list) = call(
+        &c.w.app,
+        "GET",
+        &format!("/api/v1/events/{}/challenges", c.slug),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let host = |id: i64| {
+        list["challenges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == id)
+            .unwrap()["lab_host_id"]
+            .clone()
+    };
+    assert_eq!(host(on_lab), json!(lab_id));
+    assert_eq!(host(on_event), Value::Null);
+
+    // Not while it is running; after a stop it can follow the event again.
+    let (status, busy) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{on_lab}/lab"),
+            Some(json!({ "lab_host_id": null })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{busy}");
+    assert_eq!(c.act(&alice, "DELETE", on_lab, "").await.0, StatusCode::OK);
+    let (status, _) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{on_lab}/lab"),
+            Some(json!({ "lab_host_id": null })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
 impl Ctx {
     fn set_time_forward(&self, secs: i64) {
         self.w.clock.fetch_add(secs, Ordering::SeqCst);

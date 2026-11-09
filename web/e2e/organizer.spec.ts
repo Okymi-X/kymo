@@ -659,6 +659,9 @@ test('a tournament can be duplicated and a setup file imported', async ({ page }
   // The header counts saved teams only, so this waits for the save to finish before copying.
   await expect(page.getByText(/4 teams/)).toBeVisible()
   await page.getByRole('button', { name: 'Duplicate' }).click()
+  // Copying asks first and says what it will make.
+  await expect(page.getByRole('dialog', { name: /Duplicate Original Cup/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Create the copy' }).click()
   await expect(page.getByRole('heading', { name: 'Original Cup copy' })).toBeVisible()
   await expect(page.getByText(/4 teams/)).toBeVisible()
 

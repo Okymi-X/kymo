@@ -271,13 +271,13 @@ function Body() {
   const q = useQuery({ queryKey: ['health'], queryFn: platform.health, refetchInterval: 15_000 })
   return (
     <div className="flex flex-col gap-6">
-      <nav aria-label="Sections" className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <nav aria-label="Sections" className="-mt-2 flex flex-wrap gap-x-3 gap-y-0 text-sm">
         {[
           ['health', 'Health'],
           ['vpn', 'VPN'],
           ['backups', 'Backups'],
         ].map(([id, label]) => (
-          <a key={id} href={`#${id}`} className="font-medium text-accent hover:underline">
+          <a key={id} href={`#${id}`} className="inline-flex min-h-8 min-w-8 items-center font-medium text-accent hover:underline">
             {label}
           </a>
         ))}

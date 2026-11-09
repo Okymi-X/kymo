@@ -69,6 +69,8 @@ struct ChallengeOut {
     max_attempts: Option<i64>,
     attempts_remaining: Option<u32>,
     requires_instance: bool,
+    /// Where its instance runs (the challenge's own choice, else the event's): which VPN profile it needs.
+    lab_host_id: Option<i64>,
     hints: Vec<HintOut>,
     attachments: Vec<AttachmentOut>,
 }
@@ -115,6 +117,7 @@ pub async fn list(
             }
             None => None,
         };
+        let host = row.host(play.event.lab_host_id);
         challenges.push(ChallengeOut {
             points: current_value(&row.scoring, solved_by),
             solved: solved_at.contains_key(&row.id),
@@ -166,6 +169,7 @@ pub async fn list(
             retire_at: row.retire_at,
             max_attempts: row.max_attempts,
             requires_instance: row.requires_instance,
+            lab_host_id: host,
         });
     }
     Ok(Json(ChallengeList {

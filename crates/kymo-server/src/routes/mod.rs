@@ -111,6 +111,7 @@ pub fn router(state: AppState) -> Router {
             get(labs::screen),
         )
         .route("/admin/events/{id}/lab", put(labs::set_event_lab))
+        .route("/admin/challenges/{id}/lab", put(labs::set_challenge_lab))
         .route("/admin/vpn", get(vpn::admin_status))
         .route("/admin/vpn/sync", post(vpn::admin_sync))
         .route("/admin/vpn/clients/{user_id}", delete(vpn::admin_revoke))
