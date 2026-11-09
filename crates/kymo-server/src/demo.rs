@@ -355,7 +355,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
     } else {
         Status::Live
     };
-    db::save_bracket(pool, id, Some(&bracket), status).await
+    db::save_bracket(pool, id, Some(&bracket), status, now()).await
 }
 
 /// One sample challenge: where it sits, what it is worth, its flag and a hint.
@@ -627,7 +627,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
         users.push(id);
     }
     if matches!(plan.state, EventState::RegistrationOpen | EventState::Draft) {
-        return event_store::set_state(pool, event_id, plan.state).await;
+        return event_store::set_state(pool, event_id, plan.state, at).await;
     }
     // Solves: the player at rank r solves the first (n - 2r) challenges, easiest first, with
     // some wrong guesses on the way, spread over the event so the chart has a story.
@@ -668,7 +668,12 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
         }
     }
     tx.commit().await?;
-    event_store::set_state(pool, event_id, plan.state).await
+    let ended_at = if plan.state == EventState::Ended {
+        at + plan.ends
+    } else {
+        at
+    };
+    event_store::set_state(pool, event_id, plan.state, ended_at).await
 }
 
 /// Creates the sample tournaments and Jeopardy events that do not exist yet and returns how

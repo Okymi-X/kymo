@@ -37,6 +37,7 @@ export interface EventInfo {
   registration_closes: number | null
   starts_at: number | null
   ends_at: number | null
+  ended_at: number | null
   scoreboard_public: boolean
   description: string
   team_min: number

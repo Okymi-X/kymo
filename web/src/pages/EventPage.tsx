@@ -12,6 +12,7 @@ import { MyProgress } from '../components/platform/MyProgress'
 import { MyInstances } from '../components/platform/MyInstances'
 import { VpnPanel } from '../components/platform/VpnPanel'
 import { Scoreboard } from '../components/platform/Scoreboard'
+import { EventCountdown } from '../components/platform/EventCountdown'
 import { Tabs, type TabItem } from '../components/Tabs'
 import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, PageTitle } from '../components/ui'
@@ -176,6 +177,7 @@ export function EventPage() {
           <StatePill state={live} />
           <Pill>{event.mode === 'team' ? 'Teams' : 'Solo'}</Pill>
         </div>
+        <EventCountdown event={event} />
         {event.description && <p className="max-w-2xl whitespace-pre-wrap text-muted">{event.description}</p>}
         <Schedule e={event} />
       </div>

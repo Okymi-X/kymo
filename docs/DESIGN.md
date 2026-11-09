@@ -8,7 +8,7 @@ Direction: calm, precise, Apple level restraint. Content is the bracket; chrome 
 - Radius: 8 controls, 12 cards, 999 pills.
 - Light: bg #FAFAFA, surface #FFFFFF, border #E5E5E7, text #1D1D1F, muted #6E6E73.
 - Dark: bg #0B0B0C, surface #141416, border #2A2A2E, text #F5F5F7, muted #98989D.
-- Accent: #0A84FF (focus, active match). Success #30D158 (winner). Danger #FF453A.
+- Accent: #0A84FF (focus, active match). Success #30D158 (winner). Warning #A86400 (light theme), #FFD166 (dark theme). Danger #FF453A.
 - Elevation: 1px border plus a soft shadow only on floating layers.
 
 ## Motion

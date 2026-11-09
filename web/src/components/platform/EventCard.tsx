@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import type { EventInfo } from '../../api/platformTypes'
 import { isNoDeadline } from '../../lib/platform'
 import { Pill, StatePill } from './bits'
+import { EventCountdown } from './EventCountdown'
 
 export function eventLink(e: Pick<EventInfo, 'kind' | 'slug'>): string {
   return e.kind === 'jeopardy' ? `/e/${e.slug}` : `/t/${e.slug}`
@@ -22,13 +23,14 @@ export function EventCard({ event }: { event: EventInfo }) {
   return (
     <Link
       to={eventLink(event)}
-      className="group flex flex-col gap-3 rounded-card border border-line bg-surface p-5 shadow-[var(--shadow-card)] transition-[transform,box-shadow] hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
+      className="group flex flex-col gap-4 rounded-card border border-line bg-surface p-6 shadow-[var(--shadow-card)] transition-[transform,box-shadow] hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">{event.name}</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{event.name}</h2>
         <StatePill state={event.effective_state} />
       </div>
       {event.description && <p className="line-clamp-3 text-sm text-muted">{event.description}</p>}
+      <EventCountdown event={event} compact />
       <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted">
         <Pill>
           <span className="inline-flex items-center gap-1">

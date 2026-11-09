@@ -322,6 +322,7 @@ pub async fn save_bracket(
     id: i64,
     bracket: Option<&Bracket>,
     status: Status,
+    at: i64,
 ) -> Result<(), ApiError> {
     let json = bracket
         .map(serde_json::to_string)
@@ -336,10 +337,13 @@ pub async fn save_bracket(
     // The tournament's event follows it, so the events list and Operations do not show a
     // finished tournament as a draft.
     sqlx::query(
-        "UPDATE event SET state = CASE ? WHEN 'live' THEN 'live' WHEN 'done' THEN 'ended' ELSE 'draft' END \
+        "UPDATE event SET state = CASE ? WHEN 'live' THEN 'live' WHEN 'done' THEN 'ended' ELSE 'draft' END, \
+         ended_at = CASE WHEN ? = 'done' THEN COALESCE(ended_at, ?) ELSE NULL END \
          WHERE id = (SELECT event_id FROM tournament WHERE id = ?)",
     )
     .bind(status)
+    .bind(status)
+    .bind(at)
     .bind(id)
     .execute(pool)
     .await?;

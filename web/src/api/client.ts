@@ -5,6 +5,7 @@ const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
 const SCOPE_KEY = 'kymo.referee'
 const WHO_KEY = 'kymo.who'
+const SESSION_KEYS = [TOKEN_KEY, SCOPE_KEY, WHO_KEY]
 
 /** Who is signed in beyond the token: a player account with its role. The legacy organizer
  *  password and referee tokens have no account, so they store nothing here. */
@@ -16,18 +17,41 @@ export interface Who {
 
 const listeners = new Set<() => void>()
 
-function readToken(): string | null {
+function readStored(key: string): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY)
+    return localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
+// Preserve a session from a tab that was open before auth state moved to shared storage.
+try {
+  if (localStorage.getItem(TOKEN_KEY) === null) {
+    for (const key of SESSION_KEYS) {
+      const value = sessionStorage.getItem(key)
+      if (value !== null) localStorage.setItem(key, value)
+    }
+  }
+  SESSION_KEYS.forEach((key) => sessionStorage.removeItem(key))
+} catch {
+  /* storage unavailable */
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === null || SESSION_KEYS.includes(event.key)) listeners.forEach((l) => l())
+  })
+}
+
+function readToken(): string | null {
+  return readStored(TOKEN_KEY)
+}
+
 /** Tournament ids a referee token covers, or null for the organizer. */
 function readScope(): number[] | null {
   try {
-    const raw = sessionStorage.getItem(SCOPE_KEY)
+    const raw = readStored(SCOPE_KEY)
     return raw === null ? null : (JSON.parse(raw) as number[])
   } catch {
     return null
@@ -36,7 +60,7 @@ function readScope(): number[] | null {
 
 function readWho(): Who | null {
   try {
-    const raw = sessionStorage.getItem(WHO_KEY)
+    const raw = readStored(WHO_KEY)
     return raw === null ? null : (JSON.parse(raw) as Who)
   } catch {
     return null
@@ -49,21 +73,19 @@ export const session = {
   who: readWho,
   set(token: string, scope: number[] | null = null, who: Who | null = null) {
     try {
-      sessionStorage.setItem(TOKEN_KEY, token)
-      if (scope === null) sessionStorage.removeItem(SCOPE_KEY)
-      else sessionStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
-      if (who === null) sessionStorage.removeItem(WHO_KEY)
-      else sessionStorage.setItem(WHO_KEY, JSON.stringify(who))
+      localStorage.setItem(TOKEN_KEY, token)
+      if (scope === null) localStorage.removeItem(SCOPE_KEY)
+      else localStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
+      if (who === null) localStorage.removeItem(WHO_KEY)
+      else localStorage.setItem(WHO_KEY, JSON.stringify(who))
     } catch {
-      /* storage unavailable: session lasts until reload */
+      /* storage unavailable: sign-in cannot be persisted */
     }
     listeners.forEach((l) => l())
   },
   clear() {
     try {
-      sessionStorage.removeItem(TOKEN_KEY)
-      sessionStorage.removeItem(SCOPE_KEY)
-      sessionStorage.removeItem(WHO_KEY)
+      SESSION_KEYS.forEach((key) => localStorage.removeItem(key))
     } catch {
       /* nothing stored */
     }
@@ -77,7 +99,7 @@ export const session = {
 
 /** The signed in player account, or null for visitors, the legacy organizer and referee tokens. */
 export function useWho(): Who | null {
-  const raw = useSyncExternalStore(session.subscribe, () => sessionStorage.getItem(WHO_KEY))
+  const raw = useSyncExternalStore(session.subscribe, () => readStored(WHO_KEY))
   return useMemo(() => {
     try {
       return raw === null ? null : (JSON.parse(raw) as Who)
@@ -98,13 +120,13 @@ export function useIsAdmin(): boolean {
   return useSyncExternalStore(session.subscribe, () => {
     if (session.token() === null) return false
     const who = readWho()
-    return who ? who.role === 'admin' : sessionStorage.getItem(SCOPE_KEY) === null
+    return who ? who.role === 'admin' : readStored(SCOPE_KEY) === null
   })
 }
 
 /** Signed in as a referee, who can only record results and schedules for some tournaments. */
 export function useIsReferee(): boolean {
-  return useSyncExternalStore(session.subscribe, () => sessionStorage.getItem(SCOPE_KEY) !== null && session.token() !== null)
+  return useSyncExternalStore(session.subscribe, () => readStored(SCOPE_KEY) !== null && session.token() !== null)
 }
 
 /** Whether the signed in account may use the monitor: monitors and admins. */

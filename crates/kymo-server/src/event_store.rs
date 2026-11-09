@@ -24,6 +24,7 @@ pub struct EventRow {
     pub registration_closes: Option<i64>,
     pub starts_at: Option<i64>,
     pub ends_at: Option<i64>,
+    pub ended_at: Option<i64>,
     pub scoreboard_public: bool,
     pub description: String,
     pub team_min: i64,
@@ -85,6 +86,7 @@ pub struct EventOut {
     pub registration_closes: Option<i64>,
     pub starts_at: Option<i64>,
     pub ends_at: Option<i64>,
+    pub ended_at: Option<i64>,
     pub scoreboard_public: bool,
     pub description: String,
     pub team_min: i64,
@@ -98,8 +100,15 @@ pub struct EventOut {
 
 impl EventOut {
     pub fn new(row: EventRow, now: i64) -> Result<Self, ApiError> {
+        let effective_state = row.effective_state(now)?;
+        let ended_at = row.ended_at.or_else(|| {
+            (matches!(effective_state, EventState::Ended | EventState::Archived))
+                .then_some(row.ends_at)
+                .flatten()
+                .filter(|ends_at| *ends_at <= now)
+        });
         Ok(EventOut {
-            effective_state: row.effective_state(now)?,
+            effective_state,
             id: row.id,
             kind: row.kind,
             mode: row.mode,
@@ -110,6 +119,7 @@ impl EventOut {
             registration_closes: row.registration_closes,
             starts_at: row.starts_at,
             ends_at: row.ends_at,
+            ended_at,
             scoreboard_public: row.scoreboard_public,
             description: row.description,
             team_min: row.team_min,
@@ -297,12 +307,25 @@ pub async fn update(pool: &SqlitePool, id: i64, fields: &EventFields) -> Result<
     }
 }
 
-pub async fn set_state(pool: &SqlitePool, id: i64, state: EventState) -> Result<(), ApiError> {
-    sqlx::query("UPDATE event SET state = ? WHERE id = ?")
-        .bind(state.as_str())
-        .bind(id)
-        .execute(pool)
-        .await?;
+pub async fn set_state(
+    pool: &SqlitePool,
+    id: i64,
+    state: EventState,
+    at: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "UPDATE event SET state = ?, ended_at = CASE \
+         WHEN ? = 'ended' THEN ? \
+         WHEN ? IN ('draft', 'registration_open') THEN NULL \
+         ELSE ended_at END WHERE id = ?",
+    )
+    .bind(state.as_str())
+    .bind(state.as_str())
+    .bind(at)
+    .bind(state.as_str())
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

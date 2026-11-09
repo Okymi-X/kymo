@@ -8,7 +8,7 @@
 - [x] Embeddable view (/embed/{slug}, iframe snippet dialog, transparent for stream overlays, only embed pages can be framed), print styles, 100 team demo tournament (CTF World Open)
 - [x] Stage mode (/t/{slug}/stage): projector screen with a rotating bracket, standings or groups (15 s, pause, arrows, F for full screen), Up next, live Latest, champion takeover; Stage mode link on every started tournament. 1 e2e (17 total)
 - [x] Navigation rework: primary link with active state, organizer menu (Appearance, API tokens, sign out, keyboard friendly), tournament title and progress move into the header when the page title scrolls away. Activity tab (public timeline with corrections), follow a team (remembered in the browser, chip with next match, highlighted in the bracket). 3 e2e
-- [x] Demo data: `kymo-server seed-demo`, POST /admin/demo and a Load sample tournaments button, six tournaments covering every format and state (1 API test)
+- [x] Demo data: `kymo-server seed-demo`, POST /admin/demo and a Load sample tournaments button; eight tournaments plus three Jeopardy events with challenges, hints, players and solves, safe to run again
 - [x] No flash on refresh: server inlines the saved look (CSS, data-scheme, title, JSON) into index.html, the app seeds its cache from it. Appearance page rebuilt: presets, brand and tagline, color mode, density, live preview with real components, sticky save bar. Server 2 tests, web 8 tests, e2e 1
 - [x] Activity log API (events table, GET /tournaments/{slug}/activity, corrections marked), 1 test
 - [x] Groups then knockout: snake seeded groups (2 to 8, 3 to 32 teams), top 1 to 4 advance, knockout fills when the groups finish and follows group edits until a knockout match is played, same group rematches avoided in round one. Engine 6 tests, API 1, stats 3, e2e 1. Groups view with a table per group and folded fixtures
@@ -37,11 +37,13 @@
 - [x] Docs initialized
 - [x] Workspace scaffold, engine crate: single and double elimination, byes, edit, undo (11 tests, clippy clean)
 
-## In progress
-- [ ] P1 kymo-core crate: event state machine, time windows, permissions (pure, tested)
-- [ ] P1 kymo-jeopardy crate: flags, scoring, ranking, rate math (pure, tested)
-
 ## Done (latest)
+- [x] Event countdowns show days/hours/minutes/seconds, stay compact, turn yellow under five minutes and red under two; after ending they show elapsed time at coarse human intervals
+- [x] Ended event elapsed labels abbreviate hours, minutes, days and months while spelling out years
+- [x] Right-align the countdown on event cards and event detail pages
+- [x] Use a smaller, lighter countdown on event cards while retaining the larger event page version
+- [x] Docker development override layers on production Compose; it keeps the same bind address, database path and volume, while cargo-watch rebuilds the embedded UI and restarts the server
+- [x] Auth sessions are shared across tabs for organizer, player, monitor and referee sign-ins; cross-tab storage changes update the UI, and legacy per-tab sessions migrate on load
 - [x] P8 experience pass: instances wait for the service to answer, show no address before that or after the container dies, fail with a reason, rotate addresses and are listed per event; one dialog framework with sticky header and footer, scroll lock, a discard guard and a redesigned challenge editor with live validation; the sign-up form explains closed sign-ups up front and validates as you type; plain language errors everywhere and no more generic token message; controls that respond at once; a race that signed a freshly signed in referee out is fixed. Evidence: Rust 310 tests, web unit 97, browser 42, clippy and tsc clean, and screenshots of the editor and the instance states taken against real containers
 - [x] P7 private VPN per player, built and tested except one real container run: kymo-vpn crate (addressing 7 tests, PKI 7, profile 4, firewall rules 4, gateway fake 2, OpenSSL interop 1), lab networks and placement in kymo-instances (16 tests), migration 0019, server service and routes (tests/vpn.rs 15), event network mode, bundles carry it, health and ops page, web panels (player profile download, instance note, admin network mode, ops gateway section), e2e 40, README deployment and VPN guide, deploy/ examples (systemd, Caddy, nginx, env, gateway image)
 - [x] P3 Docker runtime verified against a live daemon (rootless Podman through its Docker compatible socket): start, publish a port, serve, find by label, stop, no leftover container or network. Stop kills immediately (21 s to 0.9 s). tests/docker.rs in kymo-instances, skipped unless KYMO_TEST_IMAGE is set. Lab images in lab/. Full player flow with real containers checked on a throwaway server
@@ -118,4 +120,5 @@
 - [x] Sample data seed command (`seed-demo`): tournaments and Jeopardy events with challenges, hints, players and solves, idempotent
 - [x] A challenge can run on its own lab host, overriding the event's (`PUT /admin/challenges/{id}/lab`, migration 0028, Runs on in the challenge editor)
 - [x] Retest fixes: header fits 305 px, tap targets at least 32 px, Duplicate asks before copying
+- [x] Public event cards use two columns on desktop and have more padding and larger titles
 - [ ] README with quickstart
