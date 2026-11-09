@@ -116,6 +116,6 @@
 - [ ] Per instance random flag (so a leaked flag is not valid for others) and a readiness check before an instance is reported running
 - [ ] Scoreboard import for seeding (first provider TBD), then per match result pull, see ARCHITECTURE
 - [x] Sample data seed command (`seed-demo`): tournaments and Jeopardy events with challenges, hints, players and solves, idempotent
-- [x] A challenge can run on its own lab host, overriding the event's (`PUT /admin/challenges/{id}/lab`, migration 0027, Runs on in the challenge editor)
+- [x] A challenge can run on its own lab host, overriding the event's (`PUT /admin/challenges/{id}/lab`, migration 0028, Runs on in the challenge editor)
 - [x] Retest fixes: header fits 305 px, tap targets at least 32 px, Duplicate asks before copying
 - [ ] README with quickstart
