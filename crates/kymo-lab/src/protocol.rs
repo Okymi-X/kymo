@@ -33,7 +33,7 @@
 
 use std::collections::BTreeMap;
 
-use kymo_instances::{ExtraPort, InstanceSpec};
+use kymo_instances::{Endpoint, ExtraPort, InstanceSpec, RunFlag};
 use serde::{Deserialize, Serialize};
 
 pub const API_VERSION: &str = "v1";
@@ -54,6 +54,10 @@ pub struct CreateRequest {
     /// Put the instance on a private lab network, with nothing published on the host.
     #[serde(default)]
     pub lab: Option<LabPlacement>,
+    /// Flags the platform generated for this run. The lab host puts each where its manifest
+    /// says, or keeps it for the Verifier. Absent for an ordinary instance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<RunFlag>,
 }
 
 /// A private lab network (made with `PUT /v1/vpn/labs/{network}`) and the instance's place in it.
@@ -65,6 +69,11 @@ pub struct LabPlacement {
     /// The network's own address on the lab host (its `.1`), which names the bridge a virtual
     /// machine's tap is plugged into.
     pub bind: String,
+    /// The address the platform allocated for the run's Verifier container, taken from the same
+    /// network like the instance's own. Present for a Responder, absent for every other
+    /// instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verifier_ip: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +104,13 @@ pub struct InstanceInfo {
     pub expires_at: i64,
     #[serde(default)]
     pub meta: BTreeMap<String, String>,
+    /// The instance's address on its lab network.
+    #[serde(default)]
+    pub ip: Option<String>,
+    /// Where the instance, and its Verifier if it has one, can be reached. Flag values are
+    /// never part of an instance record.
+    #[serde(default)]
+    pub endpoints: Vec<Endpoint>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,11 +2,12 @@
 //! rate limit, attempt cap, scoring); this module only orders the checks and stores the result.
 
 use kymo_core::{EventState, can_submit};
-use kymo_jeopardy::{Verdict, check, current_value, score_for_solve};
+use kymo_jeopardy::{FlagSpec, Verdict, check, current_value, score_for_solve};
 
 use crate::challenge_store::{self, ChallengeRow};
 use crate::error::ApiError;
 use crate::event_store::{self, EventRow};
+use crate::flag_set;
 use crate::jeopardy_store::{self, Board, NewSubmission, Scorer};
 use crate::state::AppState;
 
@@ -104,6 +105,8 @@ pub struct Outcome {
     pub verdict: Verdict,
     pub points: Option<i64>,
     pub attempts_remaining: Option<u32>,
+    /// Flags found and flags in all, for a challenge with several flags.
+    pub flags: Option<(u32, u32)>,
 }
 
 /// Checks the flag and records the submission, and the solve when it is correct.
@@ -128,12 +131,20 @@ pub async fn run(
     if jeopardy_store::is_solved(&state.pool, challenge.id, scorer.id()).await? {
         return Err(ApiError::Conflict("already solved".into()));
     }
-    let verdict = check(
-        &challenge.flag,
-        &challenge.format(),
-        challenge.case_sensitive,
-        attempt.flag,
-    );
+    if challenge.multi_flag {
+        return run_multi(state, play, challenge, attempt, now).await;
+    }
+    let dynamic = challenge.flag_mode == "dynamic";
+    let verdict = if dynamic {
+        judge_dynamic(state, challenge, scorer, attempt.flag).await?
+    } else {
+        check(
+            &challenge.flag,
+            &challenge.format(),
+            challenge.case_sensitive,
+            attempt.flag,
+        )
+    };
     let mut used = 0;
     if verdict.counts_as_attempt() {
         let settings = jeopardy_store::settings(&state.pool, play.event.id).await?;
@@ -153,6 +164,7 @@ pub async fn run(
         event_id: play.event.id,
         challenge_id: challenge.id,
         item_id: None,
+        flag_id: None,
         scorer,
         user_id: attempt.user_id,
         ip: &attempt.ip,
@@ -168,6 +180,9 @@ pub async fn run(
         jeopardy_store::insert_solve(&mut tx, &record, hints_cost).await?;
     }
     tx.commit().await?;
+    if dynamic && verdict == Verdict::Incorrect {
+        note_sharing(state, challenge, scorer, attempt).await?;
+    }
 
     let points = if verdict == Verdict::Correct {
         state.notify(&play.event.slug);
@@ -191,6 +206,7 @@ pub async fn run(
         attempts_remaining: challenge
             .attempt_cap()
             .remaining(used.saturating_add(counted)),
+        flags: None,
     })
 }
 
@@ -248,6 +264,7 @@ pub async fn run_item(
         event_id: play.event.id,
         challenge_id: challenge.id,
         item_id: Some(item.id),
+        flag_id: None,
         scorer,
         user_id: attempt.user_id,
         ip: &attempt.ip,
@@ -268,5 +285,195 @@ pub async fn run_item(
         verdict,
         points: (verdict == Verdict::Correct).then_some(item.points),
         attempts_remaining: cap.remaining(used.saturating_add(1)),
+        flags: None,
+    })
+}
+
+/// A spec that never matches, used to ask only whether a submission has the accepted shape.
+fn shape_only() -> FlagSpec {
+    FlagSpec::PerTeam {
+        expected: String::new(),
+    }
+}
+
+/// Judges a submission against the flag generated for this participant's own runs. Every run's
+/// flag is compared, with no early exit, so timing does not say which run matched.
+async fn judge_dynamic(
+    state: &AppState,
+    challenge: &ChallengeRow,
+    scorer: Scorer,
+    submitted: &str,
+) -> Result<Verdict, ApiError> {
+    let format = challenge.format();
+    let shape = check(&shape_only(), &format, challenge.case_sensitive, submitted);
+    if shape == Verdict::BadFormat {
+        return Ok(shape);
+    }
+    let own = flag_set::run_values(&state.pool, challenge.id, scorer).await?;
+    let mut correct = false;
+    for value in own.values().flatten() {
+        let spec = FlagSpec::PerTeam {
+            expected: value.clone(),
+        };
+        correct |= check(&spec, &format, challenge.case_sensitive, submitted) == Verdict::Correct;
+    }
+    Ok(if correct {
+        Verdict::Correct
+    } else {
+        Verdict::Incorrect
+    })
+}
+
+/// A wrong flag that was generated for somebody else is a sign of sharing: leave a note for the
+/// organizers. The flag value is never written to the note.
+async fn note_sharing(
+    state: &AppState,
+    challenge: &ChallengeRow,
+    scorer: Scorer,
+    attempt: &Attempt<'_>,
+) -> Result<(), ApiError> {
+    let Some((kind, id)) =
+        flag_set::owner_of_value(&state.pool, challenge.id, attempt.flag.trim()).await?
+    else {
+        return Ok(());
+    };
+    if kind == scorer.kind() && id == scorer.id() {
+        return Ok(());
+    }
+    crate::monitor_store::audit_from(
+        &state.pool,
+        state.now(),
+        Some(attempt.user_id),
+        "player",
+        Some(&attempt.ip),
+        "flag_shared",
+        "challenge",
+        challenge.id,
+        &format!(
+            "submitted a flag that was generated for {kind} {id} on challenge {}",
+            challenge.id
+        ),
+    )
+    .await
+}
+
+/// Submission on a challenge with several flags: one input, each flag found once, partial
+/// credit per flag, and the challenge is solved with its last flag.
+async fn run_multi(
+    state: &AppState,
+    play: &Play,
+    challenge: &ChallengeRow,
+    attempt: &Attempt<'_>,
+    now: i64,
+) -> Result<Outcome, ApiError> {
+    let scorer = play.scorer;
+    let flags = challenge_store::flag_rows(&state.pool, challenge.id).await?;
+    let total = u32::try_from(flags.len()).unwrap_or(u32::MAX);
+    let format = challenge.format();
+    let submitted = attempt.flag.trim();
+    let shape = check(&shape_only(), &format, challenge.case_sensitive, submitted);
+    let dynamic = challenge.flag_mode == "dynamic";
+    let own = if dynamic {
+        flag_set::run_values(&state.pool, challenge.id, scorer).await?
+    } else {
+        Default::default()
+    };
+    let have = flag_set::found(&state.pool, challenge.id, scorer).await?;
+
+    // Compare against every flag, found or not, with no early exit.
+    let mut matched: Option<i64> = None;
+    if shape != Verdict::BadFormat {
+        for flag in &flags {
+            let candidates: Vec<String> = if dynamic {
+                own.get(&flag.id).cloned().unwrap_or_default()
+            } else {
+                vec![flag.value.clone()]
+            };
+            for value in candidates {
+                let spec = FlagSpec::PerTeam { expected: value };
+                if check(&spec, &format, challenge.case_sensitive, submitted) == Verdict::Correct {
+                    matched = Some(flag.id);
+                }
+            }
+        }
+    }
+    if matched.is_some_and(|id| have.contains_key(&id)) {
+        return Err(ApiError::Conflict("you already have this flag".into()));
+    }
+    let verdict = match (shape, matched) {
+        (Verdict::BadFormat, _) => Verdict::BadFormat,
+        (_, Some(_)) => Verdict::Correct,
+        _ => Verdict::Incorrect,
+    };
+
+    // Only wrong tries count against the cap here: a right flag is progress, not a try.
+    let found_now = u32::try_from(have.len()).unwrap_or(u32::MAX);
+    let mut wrong = 0;
+    if verdict.counts_as_attempt() {
+        let settings = jeopardy_store::settings(&state.pool, play.event.id).await?;
+        state
+            .rate_check(play.event.id, scorer.id(), &settings.rate_rule())
+            .map_err(|denied| ApiError::RateLimited {
+                retry_after: denied.retry_after_secs,
+            })?;
+        let used = jeopardy_store::attempts_used(&state.pool, challenge.id, scorer).await?;
+        wrong = used.saturating_sub(found_now);
+        challenge
+            .attempt_cap()
+            .check(wrong)
+            .map_err(|capped| ApiError::Conflict(capped.to_string()))?;
+    }
+
+    let record = NewSubmission {
+        event_id: play.event.id,
+        challenge_id: challenge.id,
+        item_id: None,
+        flag_id: matched,
+        scorer,
+        user_id: attempt.user_id,
+        ip: &attempt.ip,
+        value: submitted,
+        verdict: verdict_str(verdict),
+        at: now,
+    };
+    let mut tx = crate::db::begin_write(&state.pool).await?;
+    jeopardy_store::insert_submission(&mut tx, &record).await?;
+    let mut award = None;
+    let mut found_after = found_now;
+    if let (Verdict::Correct, Some(flag_id)) = (verdict, matched) {
+        let weights: Vec<i64> = flags.iter().map(|f| f.weight).collect();
+        let shares =
+            kymo_jeopardy::dynamic::split_points(current_value(&challenge.scoring, 0), &weights);
+        let base_of = |id: i64| {
+            flags
+                .iter()
+                .position(|f| f.id == id)
+                .and_then(|i| shares.get(i))
+                .copied()
+                .unwrap_or(0)
+        };
+        let hints = jeopardy_store::hints_cost(&mut tx, challenge.id, scorer).await?;
+        let paid: i64 = have.iter().map(|(id, points)| base_of(*id) - points).sum();
+        let (points, _) = kymo_jeopardy::dynamic::charge_hint_cost(base_of(flag_id), hints - paid);
+        flag_set::insert_flag_solve(&mut tx, &record, flag_id, points).await?;
+        found_after = found_now + 1;
+        if found_after == total {
+            jeopardy_store::insert_solve(&mut tx, &record, 0).await?;
+        }
+        award = Some(points);
+    }
+    tx.commit().await?;
+    if award.is_none() && verdict == Verdict::Incorrect {
+        note_sharing(state, challenge, scorer, attempt).await?;
+    }
+    if award.is_some() {
+        state.notify(&play.event.slug);
+    }
+    let wrong_now = wrong.saturating_add(u32::from(verdict == Verdict::Incorrect));
+    Ok(Outcome {
+        verdict,
+        points: award,
+        attempts_remaining: challenge.attempt_cap().remaining(wrong_now),
+        flags: Some((found_after, total)),
     })
 }

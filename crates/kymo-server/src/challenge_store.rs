@@ -1,6 +1,7 @@
 //! Storage and validation of Jeopardy categories, challenges, hints and attachments.
 //! Rules about scoring and flags live in kymo-jeopardy; this module only checks and stores.
 
+use kymo_jeopardy::dynamic::{self, DEFAULT_RANDOM_LEN, MAX_FLAGS, MAX_WEIGHT};
 use kymo_jeopardy::{FlagSpec, Scoring};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -55,9 +56,20 @@ pub struct ChallengeRow {
     /// `flag` (also instance backed) or `dfir` (question items, tournament events only).
     pub kind: String,
     pub created_at: i64,
+    /// `static` (the flag above) or `dynamic` (generated for every run, see `challenge_flag`).
+    pub flag_mode: String,
+    /// More than one flag: the flags are rows of `challenge_flag`.
+    pub multi_flag: bool,
+    /// A Responder: players fix the machine and a Verifier releases the flag.
+    pub responder: bool,
 }
 
 impl ChallengeRow {
+    /// The flags come from `challenge_flag` and the instance runs, not from the `flag` column.
+    pub fn uses_flag_set(&self) -> bool {
+        self.flag_mode == "dynamic" || self.multi_flag
+    }
+
     /// Release and retire times for `kymo_core::can_submit`. A retired challenge is closed
     /// regardless of its schedule.
     pub fn window(&self) -> kymo_core::window::ChallengeWindow {
@@ -451,6 +463,342 @@ pub async fn challenge_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+// Dynamic and multi flag settings
+
+const MAX_FLAG_NAME: usize = 32;
+const MAX_FLAG_LABEL: usize = 60;
+
+/// One flag of a challenge that has a flag set.
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct FlagRow {
+    pub id: i64,
+    pub challenge_id: i64,
+    pub position: i64,
+    pub name: String,
+    pub label: String,
+    pub value: String,
+    pub random_len: i64,
+    pub closing: String,
+    pub weight: i64,
+}
+
+fn default_random_len() -> i64 {
+    DEFAULT_RANDOM_LEN as i64
+}
+
+fn one() -> i64 {
+    1
+}
+
+/// What an admin sends for one flag. `value` is the whole flag when the mode is static and
+/// the prefix when it is dynamic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlagInput {
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    pub value: String,
+    #[serde(default = "default_random_len")]
+    pub random_len: i64,
+    #[serde(default)]
+    pub closing: String,
+    #[serde(default = "one")]
+    pub weight: i64,
+}
+
+impl From<&FlagRow> for FlagInput {
+    fn from(row: &FlagRow) -> Self {
+        FlagInput {
+            name: row.name.clone(),
+            label: row.label.clone(),
+            value: row.value.clone(),
+            random_len: row.random_len,
+            closing: row.closing.clone(),
+            weight: row.weight,
+        }
+    }
+}
+
+/// The dynamic, multi flag and Responder settings of a challenge, validated together with the
+/// rest of it. The default is the classic single static flag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlagSet {
+    pub mode: String,
+    pub responder: bool,
+    pub flags: Vec<FlagInput>,
+}
+
+impl Default for FlagSet {
+    fn default() -> Self {
+        FlagSet {
+            mode: "static".into(),
+            responder: false,
+            flags: Vec::new(),
+        }
+    }
+}
+
+impl FlagSet {
+    pub fn from_rows(row: &ChallengeRow, flags: &[FlagRow]) -> Self {
+        FlagSet {
+            mode: row.flag_mode.clone(),
+            responder: row.responder,
+            flags: flags.iter().map(FlagInput::from).collect(),
+        }
+    }
+
+    /// More than one flag.
+    pub fn multi(&self) -> bool {
+        self.flags.len() > 1
+    }
+
+    /// The flags come from `challenge_flag`, not from the challenge's own flag.
+    pub fn uses_rows(&self) -> bool {
+        self.mode == "dynamic" || self.multi()
+    }
+
+    /// Checks the settings against the rest of the challenge. `tournament` is true when the
+    /// event is a tournament, where only plain single static flags are allowed.
+    pub fn validate(&self, fields: &ChallengeFields, tournament: bool) -> Result<(), ApiError> {
+        if !matches!(self.mode.as_str(), "static" | "dynamic") {
+            return Err(bad("the flag mode is static or dynamic"));
+        }
+        let special = self.mode == "dynamic" || self.responder || self.flags.len() > 1;
+        if !special {
+            return Ok(());
+        }
+        if tournament {
+            return Err(bad(
+                "dynamic flags, several flags and Responder challenges are for Jeopardy events",
+            ));
+        }
+        if fields.kind != "flag" {
+            return Err(bad("only a single flag challenge can have these settings"));
+        }
+        if self.mode == "dynamic" && !fields.requires_instance {
+            return Err(bad("dynamic flags need an instance"));
+        }
+        if self.responder {
+            if !fields.requires_instance {
+                return Err(bad("a Responder needs an instance"));
+            }
+            if self.flags.len() > 1 {
+                return Err(bad("a Responder has exactly one flag"));
+            }
+            if self.mode == "static" && !matches!(fields.flag, FlagSpec::Static { .. }) {
+                return Err(bad("a static Responder flag must be a plain flag"));
+            }
+        }
+        if !self.uses_rows() {
+            return Ok(());
+        }
+        if self.flags.is_empty() || self.flags.len() > MAX_FLAGS {
+            return Err(bad("a challenge has 1 to 8 flags"));
+        }
+        if self.multi() && !matches!(fields.scoring, Scoring::Static { .. }) {
+            return Err(bad(
+                "a challenge with several flags uses static points, split by weight",
+            ));
+        }
+        let format =
+            kymo_jeopardy::FlagFormat::new(fields.flag_prefix.clone(), fields.flag_suffix.clone());
+        let mut seen = std::collections::BTreeSet::new();
+        for flag in &self.flags {
+            check_flag_input(flag, &self.mode, &format, fields.case_sensitive)?;
+            if !seen.insert(flag.name.as_str()) {
+                return Err(bad("flag names must be different from each other"));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_flag_input(
+    flag: &FlagInput,
+    mode: &str,
+    format: &kymo_jeopardy::FlagFormat,
+    case_sensitive: bool,
+) -> Result<(), ApiError> {
+    let name_ok = !flag.name.is_empty()
+        && flag.name.len() <= MAX_FLAG_NAME
+        && flag
+            .name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !name_ok {
+        return Err(bad(
+            "a flag name is 1 to 32 characters: lowercase letters, digits and underscores",
+        ));
+    }
+    if flag.label.chars().count() > MAX_FLAG_LABEL
+        || flag.label.chars().any(crate::text::is_hidden_char)
+    {
+        return Err(bad("a flag label is at most 60 characters of plain text"));
+    }
+    if !(1..=MAX_WEIGHT).contains(&flag.weight) {
+        return Err(bad("a flag weight is 1 to 1000"));
+    }
+    if flag.value.chars().any(crate::text::is_hidden_char)
+        || flag.closing.chars().any(crate::text::is_hidden_char)
+    {
+        return Err(bad("a flag is plain text"));
+    }
+    if mode == "dynamic" {
+        let random_len = usize::try_from(flag.random_len).unwrap_or(0);
+        dynamic::validate_shape(
+            &flag.value,
+            &flag.closing,
+            random_len,
+            format,
+            case_sensitive,
+        )
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    } else {
+        let shown = if case_sensitive {
+            flag.value.clone()
+        } else {
+            flag.value.to_lowercase()
+        };
+        let fold = |s: &str| {
+            if case_sensitive {
+                s.to_owned()
+            } else {
+                s.to_lowercase()
+            }
+        };
+        if flag.value.trim().is_empty() || flag.value.chars().count() > MAX_FLAG {
+            return Err(bad("a flag is 1 to 500 characters"));
+        }
+        if !shown.starts_with(&fold(&format.prefix)) || !shown.ends_with(&fold(&format.suffix)) {
+            return Err(bad(
+                "a flag must fit the accepted prefix and suffix, or nobody can submit it",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The flags of every challenge of an event, for the admin listing.
+pub async fn flag_rows_of_event(
+    pool: &SqlitePool,
+    event_id: i64,
+) -> Result<Vec<FlagRow>, ApiError> {
+    Ok(sqlx::query_as(
+        "SELECT f.* FROM challenge_flag f JOIN challenge c ON c.id = f.challenge_id WHERE c.event_id = ? ORDER BY f.challenge_id, f.position, f.id",
+    )
+    .bind(event_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn flag_rows(pool: &SqlitePool, challenge_id: i64) -> Result<Vec<FlagRow>, ApiError> {
+    Ok(
+        sqlx::query_as("SELECT * FROM challenge_flag WHERE challenge_id = ? ORDER BY position, id")
+            .bind(challenge_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
+/// Whether a run or a solve exists, after which the flag settings can no longer change (only
+/// the labels).
+pub async fn flags_locked(pool: &SqlitePool, challenge_id: i64) -> Result<bool, ApiError> {
+    let used: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM instance WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM flag_solve WHERE challenge_id = ?1)",
+    )
+    .bind(challenge_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(used > 0)
+}
+
+/// Writes the settings of a challenge. Once the challenge is locked only labels may differ;
+/// anything else is refused, so a half played challenge cannot end up inconsistent.
+pub async fn apply_flag_set(
+    pool: &SqlitePool,
+    challenge_id: i64,
+    set: &FlagSet,
+) -> Result<(), ApiError> {
+    let row = challenge_by_id(pool, challenge_id).await?;
+    let current = FlagSet::from_rows(&row, &flag_rows(pool, challenge_id).await?);
+    let wanted = if set.uses_rows() {
+        set.clone()
+    } else {
+        FlagSet {
+            flags: Vec::new(),
+            ..set.clone()
+        }
+    };
+    if current == wanted {
+        return Ok(());
+    }
+    if flags_locked(pool, challenge_id).await? {
+        return apply_labels_only(pool, challenge_id, &current, &wanted).await;
+    }
+    let mut tx = crate::db::begin_write(pool).await?;
+    sqlx::query("UPDATE challenge SET flag_mode = ?, multi_flag = ?, responder = ? WHERE id = ?")
+        .bind(&wanted.mode)
+        .bind(wanted.multi())
+        .bind(wanted.responder)
+        .bind(challenge_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM challenge_flag WHERE challenge_id = ?")
+        .bind(challenge_id)
+        .execute(&mut *tx)
+        .await?;
+    for (position, flag) in wanted.flags.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO challenge_flag (challenge_id, position, name, label, value, random_len, closing, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(challenge_id)
+        .bind(position as i64)
+        .bind(&flag.name)
+        .bind(&flag.label)
+        .bind(&flag.value)
+        .bind(flag.random_len)
+        .bind(&flag.closing)
+        .bind(flag.weight)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn apply_labels_only(
+    pool: &SqlitePool,
+    challenge_id: i64,
+    current: &FlagSet,
+    wanted: &FlagSet,
+) -> Result<(), ApiError> {
+    let strip = |set: &FlagSet| FlagSet {
+        flags: set
+            .flags
+            .iter()
+            .map(|f| FlagInput {
+                label: String::new(),
+                ..f.clone()
+            })
+            .collect(),
+        ..set.clone()
+    };
+    if strip(current) != strip(wanted) {
+        return Err(ApiError::Conflict(
+            "the flags can no longer change once the challenge has a run or a solve, only their labels".into(),
+        ));
+    }
+    for flag in &wanted.flags {
+        sqlx::query("UPDATE challenge_flag SET label = ? WHERE challenge_id = ? AND name = ?")
+            .bind(&flag.label)
+            .bind(challenge_id)
+            .bind(&flag.name)
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 

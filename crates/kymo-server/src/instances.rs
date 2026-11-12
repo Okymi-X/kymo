@@ -5,8 +5,8 @@
 
 use kymo_core::EventState;
 use kymo_instances::{
-    Action, Denied, InstanceSpec, InstanceState, Placement, RuntimeStatus, StartRequest, Usage,
-    authorize, effective_state, expires_at,
+    Action, Denied, InstanceSpec, InstanceState, Placement, RuntimeStatus, StartExtras,
+    StartRequest, Usage, authorize, effective_state, expires_at,
 };
 use serde_json::{Value, json};
 
@@ -15,6 +15,7 @@ use crate::error::ApiError;
 use crate::event_store;
 use crate::instance_store::{self as store, InstanceRow, NewRun};
 use crate::labs;
+use crate::run_flags;
 use crate::state::{AppState, InstanceSetup};
 use crate::submit::{Play, open_for_play};
 use crate::vpn;
@@ -42,6 +43,14 @@ pub fn spec_of(challenge: &ChallengeRow, setup: &InstanceSetup) -> Result<Instan
     spec.validate(&setup.caps)
         .map_err(|_| ApiError::Unavailable("this challenge has no valid instance setup".into()))?;
     Ok(spec)
+}
+
+/// The endpoints the lab host reported for a run, as they were stored.
+fn endpoints(stored: Option<&str>) -> Value {
+    stored
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .filter(Value::is_array)
+        .unwrap_or_else(|| json!([]))
 }
 
 /// The other published services of a machine, by name, for the player to connect to.
@@ -79,6 +88,8 @@ pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64
         "machine": row.machine,
         "port": (connect && !row.machine).then_some(row.host_port).flatten(),
         "services": if connect && !row.machine { services(row.extra_ports.as_deref()) } else { json!([]) },
+        // Where the machine and, for a Responder, its Verifier can be reached.
+        "endpoints": if connect { endpoints(row.endpoints.as_deref()) } else { json!([]) },
         "started_at": row.started_at,
         "expires_at": row.expires_at,
         "remaining_secs": if state.is_live() { (row.expires_at - now).max(0) } else { 0 },
@@ -120,6 +131,14 @@ async fn probe(state: &AppState, setup: &InstanceSetup, row: &InstanceRow) -> bo
         row.host_port.and_then(|p| u16::try_from(p).ok()),
     ) {
         (Some(ip), Some(port)) => {
+            // A lab host may still be setting the instance up (writing its flags): not ready.
+            if let (Some(handle), Ok(target)) = (
+                row.handle.as_deref(),
+                labs::target(state, setup, row.lab_host_id).await,
+            ) && !target.runtime.ready(handle).await
+            {
+                return false;
+            }
             vpn::lab_reachable(state, row.lab_host_id.unwrap_or(0), ip, port).await
         }
         // The runtime the run lives on checks its own way: a remote lab host is reached the way
@@ -279,7 +298,25 @@ async fn begin(
         None
     };
 
-    let (run_id, previous, lab_ip) = {
+    // Flags this run needs (dynamic flags, or the one a Verifier will release). Only a lab host
+    // can hand them out, and a Responder needs the private network for its Verifier.
+    let flags = run_flags::plan(&state.pool, challenge).await?;
+    if (!flags.is_empty() || challenge.responder) && lab_host_id.is_none() {
+        return Err(ApiError::Unavailable(
+            "this challenge needs a lab host: an organizer must choose one for the event".into(),
+        ));
+    }
+    if (!flags.is_empty() || challenge.responder)
+        && let Some(id) = lab_host_id
+    {
+        labs::require_flag_support(state, id).await?;
+    }
+    if challenge.responder && vpn_lab.is_none() {
+        return Err(ApiError::Unavailable(
+            "this challenge needs the private VPN network".into(),
+        ));
+    }
+    let (run_id, previous, lab_ip, verifier_ip) = {
         let _guard = state.write_lock.lock().await;
         let latest = store::latest(&state.pool, challenge.id, scorer).await?;
         let record = latest.as_ref().map(InstanceRow::record).transpose()?;
@@ -295,9 +332,14 @@ async fn begin(
             .await?,
         };
         authorize(&setup.policy, record.as_ref(), usage, action, now).map_err(denied)?;
-        let lab_ip = match &vpn_lab {
-            Some(lab) => Some(vpn::free_lab_ip(state, lab).await?),
-            None => None,
+        let (lab_ip, verifier_ip) = match &vpn_lab {
+            // A Responder takes two addresses: the machine and its Verifier.
+            Some(lab) if challenge.responder => {
+                let mut ips = vpn::free_lab_ips(state, lab, 2).await?.into_iter();
+                (ips.next(), ips.next())
+            }
+            Some(lab) => (Some(vpn::free_lab_ip(state, lab).await?), None),
+            None => (None, None),
         };
         let run_id = store::insert(
             &state.pool,
@@ -313,11 +355,13 @@ async fn begin(
                 lab_host_id,
                 name: &name,
                 public_host: &target.host,
+                verifier_ip: verifier_ip.as_deref(),
             },
         )
         .await?;
+        run_flags::keep(&state.pool, run_id, &flags).await?;
         let previous = latest.filter(|r| r.state == "running" || r.state == "starting");
-        (run_id, previous, lab_ip)
+        (run_id, previous, lab_ip, verifier_ip)
     };
 
     if let Some(old) = previous {
@@ -365,9 +409,14 @@ async fn begin(
             ("user".into(), user_id.to_string()),
         ],
     };
-    match target.runtime.start(&request).await {
-        Ok(started) => {
-            store::mark_started(&state.pool, run_id, &started).await?;
+    let extras = StartExtras {
+        flags: flags.iter().map(|f| f.flag.clone()).collect(),
+        verifier_ip: verifier_ip.clone(),
+    };
+    match target.runtime.start_with(&request, &extras).await {
+        Ok(outcome) => {
+            store::mark_started(&state.pool, run_id, &outcome.started).await?;
+            store::set_endpoints(&state.pool, run_id, &outcome.endpoints).await?;
             wait_ready(state, setup, run_id).await?;
         }
         Err(e) => {

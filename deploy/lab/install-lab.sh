@@ -56,7 +56,14 @@ done
 if [ "$UNINSTALL" -eq 1 ]; then
     say "Stopping and removing the service"
     systemctl disable --now kymo-lab 2>/dev/null || true
+    systemctl disable --now kymo-lab-firewall 2>/dev/null || true
     rm -f /etc/systemd/system/kymo-lab.service /usr/local/bin/kymo-lab
+    rm -f /etc/systemd/system/kymo-lab-firewall.service /usr/local/sbin/kymo-lab-firewall
+    if command -v iptables >/dev/null 2>&1; then
+        iptables -w -D INPUT -s "${VPN_POOL:-10.77.0.0/16}" -j KYMO-LAB-IN 2>/dev/null || true
+        iptables -w -F KYMO-LAB-IN 2>/dev/null || true
+        iptables -w -X KYMO-LAB-IN 2>/dev/null || true
+    fi
     systemctl daemon-reload
     command -v docker >/dev/null 2>&1 && docker rm -f kymo-lab-vpn-gateway >/dev/null 2>&1 || true
     if command -v ufw >/dev/null 2>&1; then
@@ -136,6 +143,17 @@ if [ "$VPN" -eq 1 ]; then
     docker build -q -t localhost/kymo/vpn-gateway:1 "$GW_DIR" >/dev/null || die "could not build the gateway image (it needs to download Alpine packages)"
 fi
 
+# The Verifier image, for Responder challenges: one container per instance, started by the lab
+# host. It is built when the release carries it (the binary and helpers next to a Dockerfile).
+VER_DIR=""
+for candidate in "$HERE/verifier" "$HERE/../verifier"; do
+    [ -f "$candidate/Dockerfile" ] && [ -f "$candidate/kymo-verifier" ] && { VER_DIR=$candidate; break; }
+done
+if [ -n "$VER_DIR" ] && [ "$HAS_DOCKER" -eq 1 ]; then
+    say "Building the Verifier image"
+    docker build -q -t localhost/kymo/verifier:1 "$VER_DIR" >/dev/null || say "could not build the Verifier image: Responder challenges will not start here (it needs to download Debian packages)"
+fi
+
 say "Creating the service user"
 id kymo-lab >/dev/null 2>&1 || useradd --system --home /var/lib/kymo-lab --shell /usr/sbin/nologin kymo-lab
 GROUPS_LINE=""
@@ -157,15 +175,28 @@ esac
 say "Installing the program"
 install -m 0755 "$BIN" /usr/local/bin/kymo-lab
 install -d -m 0750 -o root -g kymo-lab /etc/kymo-lab
-install -d -m 0755 -o root -g kymo-lab /etc/kymo-lab/manifests
+# Manifests may carry an SSH password for writing flags, so they are not readable by everyone.
+install -d -m 0750 -o root -g kymo-lab /etc/kymo-lab/manifests
+chmod 0750 /etc/kymo-lab/manifests
+chmod 0640 /etc/kymo-lab/manifests/*.json 2>/dev/null || true
+chgrp kymo-lab /etc/kymo-lab/manifests/*.json 2>/dev/null || true
+# Verifier definitions (verifier.json and the check scripts) and the SSH keys they use.
+install -d -m 0750 -o root -g kymo-lab /etc/kymo-lab/verifiers
+install -d -m 0750 -o root -g kymo-lab /etc/kymo-lab/keys
 install -d -m 0750 -o kymo-lab -g kymo-lab /var/lib/kymo-lab
 # Virtual machine images go here (readable by the service, writable by root).
 install -d -m 0755 /var/lib/kymo-lab/images 2>/dev/null || true
 # Example manifests, never active until renamed to .json.
 for example in "$HERE"/manifests/*.json.example; do
     [ -f "$example" ] || continue
-    [ -f "/etc/kymo-lab/manifests/$(basename "$example")" ] || install -m 0644 "$example" /etc/kymo-lab/manifests/
+    [ -f "/etc/kymo-lab/manifests/$(basename "$example")" ] || install -m 0640 -o root -g kymo-lab "$example" /etc/kymo-lab/manifests/
 done
+# The Verifier template to copy from (verifier.json, a bash and a python script).
+if [ -d "$HERE/verifiers/template" ] && [ ! -d /etc/kymo-lab/verifiers/template ]; then
+    cp -r "$HERE/verifiers/template" /etc/kymo-lab/verifiers/template
+    chown -R root:kymo-lab /etc/kymo-lab/verifiers/template
+    chmod -R g+rX,o-rwx /etc/kymo-lab/verifiers/template
+fi
 
 if [ -f /etc/kymo-lab/lab.env ]; then
     say "Keeping the existing settings and token in /etc/kymo-lab/lab.env"
@@ -206,6 +237,17 @@ chmod 0644 /etc/systemd/system/kymo-lab.service
 systemctl daemon-reload
 systemctl enable kymo-lab >/dev/null 2>&1
 systemctl restart kymo-lab
+
+# Keep lab networks away from this machine itself (see the script). Only with the VPN, where a
+# player can have root in a challenge machine on a bridge whose address is this host.
+if [ "$VPN" -eq 1 ] && [ -f "$HERE/kymo-lab-firewall" ] && command -v iptables >/dev/null 2>&1; then
+    say "Installing the lab network firewall rule"
+    install -m 0755 "$HERE/kymo-lab-firewall" /usr/local/sbin/kymo-lab-firewall
+    install -m 0644 "$HERE/kymo-lab-firewall.service" /etc/systemd/system/kymo-lab-firewall.service
+    systemctl daemon-reload
+    systemctl enable kymo-lab-firewall >/dev/null 2>&1
+    systemctl restart kymo-lab-firewall || say "could not apply the firewall rule: run /usr/local/sbin/kymo-lab-firewall $VPN_POOL by hand"
+fi
 
 say "Waiting for it to answer"
 ADDR=$(grep '^KYMO_LAB_ADDR=' /etc/kymo-lab/lab.env | cut -d= -f2)

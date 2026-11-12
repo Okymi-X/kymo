@@ -2,7 +2,9 @@ kymo-lab: the Kymo lab host
 
   kymo-lab               run (configured by KYMO_LAB_* environment variables)
   kymo-lab fingerprint   print the certificate fingerprint the platform pins
-  kymo-lab check         verify configuration, Docker access and manifests
+  kymo-lab check         verify configuration, Docker access, manifests, flag delivery and Verifier definitions
+  kymo-lab verifier test DIR --target IP [--ports 22,80] [--lib DIR] [--strict]
+                         run a Verifier definition against a running machine, with no player
   kymo-lab version
 
 Environment:
@@ -19,5 +21,7 @@ Environment:
   KYMO_LAB_TLS            on (default) or off
   KYMO_LAB_TLS_NAMES      extra host names or IPs for the generated certificate
   KYMO_LAB_TLS_CERT/KEY   use this certificate and key instead of a generated one
+  KYMO_LAB_VERIFIERS      Verifier definitions directory (default /etc/kymo-lab/verifiers)
+  KYMO_LAB_VERIFIER_IMAGE the Verifier container image (default localhost/kymo/verifier:1)
 
 See the Kymo README, "Separate lab host".

@@ -69,6 +69,12 @@ struct ChallengeOut {
     max_attempts: Option<i64>,
     attempts_remaining: Option<u32>,
     requires_instance: bool,
+    /// A Responder: players fix the machine and a Verifier releases the flag.
+    responder: bool,
+    /// Flags in all, and how many this participant has found. More than one only for a
+    /// challenge with several flags. Names and labels are never sent.
+    flags_total: u32,
+    flags_found: u32,
     /// `flag` (also instance backed) or `dfir`, answered question by question.
     kind: String,
     items: Vec<ItemOut>,
@@ -116,6 +122,11 @@ pub async fn list(
         .collect();
     let answered = jeopardy_store::items_solved(&state.pool, event_id, play.scorer).await?;
     let all_items = crate::duel_store::items_of_event(&state.pool, event_id).await?;
+    let found_flags = crate::flag_set::found_counts(&state.pool, event_id, play.scorer).await?;
+    let mut flag_totals: HashMap<i64, u32> = HashMap::new();
+    for flag in store::flag_rows_of_event(&state.pool, event_id).await? {
+        *flag_totals.entry(flag.challenge_id).or_default() += 1;
+    }
     let mut challenges = Vec::new();
     for row in store::challenges(&state.pool, event_id).await? {
         if row.state == "draft" || released(&row, now).is_err() {
@@ -230,6 +241,17 @@ pub async fn list(
             retire_at: row.retire_at,
             max_attempts: row.max_attempts,
             requires_instance: row.requires_instance,
+            responder: row.responder,
+            flags_total: if row.multi_flag {
+                flag_totals.get(&row.id).copied().unwrap_or(1)
+            } else {
+                1
+            },
+            flags_found: if row.multi_flag {
+                found_flags.get(&row.id).copied().unwrap_or(0)
+            } else {
+                u32::from(solved_at.contains_key(&row.id))
+            },
         });
     }
     Ok(Json(ChallengeList {
@@ -318,15 +340,17 @@ pub async fn submit(
         flag: &body.flag,
     };
     let outcome = submit::run(&state, &play, &challenge, &attempt).await?;
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "verdict": submit::verdict_str(outcome.verdict),
-            "correct": outcome.verdict == Verdict::Correct,
-            "points": outcome.points,
-            "attempts_remaining": outcome.attempts_remaining,
-        })),
-    ))
+    let mut answer = json!({
+        "verdict": submit::verdict_str(outcome.verdict),
+        "correct": outcome.verdict == Verdict::Correct,
+        "points": outcome.points,
+        "attempts_remaining": outcome.attempts_remaining,
+    });
+    if let Some((found, total)) = outcome.flags {
+        answer["flags_found"] = json!(found);
+        answer["flags_total"] = json!(total);
+    }
+    Ok((StatusCode::OK, Json(answer)))
 }
 
 /// Answers one question of a DFIR challenge.

@@ -18,6 +18,7 @@ import { RosterEditor } from '../../components/RosterEditor'
 import { TournamentAdmin } from '../../components/TournamentAdmin'
 import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
+import { InstanceDetails } from './InstanceDetails'
 import { TournamentChallengeSettings } from './TournamentChallenges'
 
 type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
@@ -728,6 +729,7 @@ function Instances({ event }: { event: EventInfo }) {
     mutationFn: (id: number) => platform.stopAdminInstance(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-instances', event.id] }),
   })
+  const [details, setDetails] = useState<number | null>(null)
   if (q.isPending) return <Loading />
   if (q.error) return <ErrorText error={q.error} />
   const rows = q.data?.instances ?? []
@@ -747,7 +749,8 @@ function Instances({ event }: { event: EventInfo }) {
             <td className={`${TD} font-mono`}>{r.host_port ?? ''}</td>
             <td className={`${TD} text-muted`}>{timeAgo(r.started_at)}</td>
             <td className={`${TD} text-muted`}>{new Date(r.expires_at * 1000).toLocaleTimeString()}</td>
-            <td className={TD}>
+            <td className={`${TD} flex flex-wrap gap-2`}>
+              <Button onClick={() => setDetails(r.id)}>Details</Button>
               {(r.state === 'running' || r.state === 'starting') && (
                 <Button variant="danger" onClick={() => stop.mutate(r.id)} disabled={stop.isPending}>
                   Stop
@@ -758,6 +761,7 @@ function Instances({ event }: { event: EventInfo }) {
         ))}
       </DataTable>
       <ErrorText error={stop.error} />
+      {details !== null && <InstanceDetails run={details} onClose={() => setDetails(null)} />}
     </div>
   )
 }

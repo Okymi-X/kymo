@@ -291,7 +291,21 @@ pub async fn lab_for(
     let setup = &setup;
     let now = state.now();
     let lab = match store::lab_of(&state.pool, event_id, scorer).await? {
-        Some(lab) => lab,
+        Some(mut lab) => {
+            // The event moved to another lab host (or the old one was removed): the lab follows,
+            // otherwise the new host would not know the player may reach it.
+            if lab.lab_host_id != hid {
+                if store::live_instances_in_lab(&state.pool, &lab).await? > 0 {
+                    return Err(ApiError::Conflict(
+                        "your instances are still running on another lab host: stop them first"
+                            .into(),
+                    ));
+                }
+                store::move_lab(&state.pool, lab.id, hid).await?;
+                lab.lab_host_id = hid;
+            }
+            lab
+        }
         None => {
             let used = store::used_lab_indices(&state.pool).await?;
             let idx = setup.labs.next_free(&used).map_err(|_| {
@@ -339,6 +353,17 @@ pub fn lab_subnet(setup: &VpnSetup, lab: &LabRow) -> Result<Ipv4Net, ApiError> {
 /// first, so a new instance never reuses the address of the one that just ended: a stale
 /// connection or a bookmark then cannot land on a different challenge by accident.
 pub async fn free_lab_ip(state: &AppState, lab: &LabRow) -> Result<String, ApiError> {
+    let mut ips = free_lab_ips(state, lab, 1).await?;
+    ips.pop().ok_or(ApiError::Internal)
+}
+
+/// Several distinct free addresses at once, in turn like `free_lab_ip`. A Responder takes two:
+/// one for the machine and one for its Verifier.
+pub async fn free_lab_ips(
+    state: &AppState,
+    lab: &LabRow,
+    count: usize,
+) -> Result<Vec<String>, ApiError> {
     let setup = setup(state)?;
     let in_use = store::lab_ips_in_use(&state.pool, lab.id).await?;
     let subnet = lab_subnet(setup, lab)?;
@@ -352,13 +377,18 @@ pub async fn free_lab_ip(state: &AppState, lab: &LabRow) -> Result<String, ApiEr
     let start = last
         .and_then(|ip| slots.iter().position(|s| *s == ip))
         .map_or(0, |i| i + 1);
-    (0..slots.len())
+    let picked: Vec<String> = (0..slots.len())
         .map(|k| &slots[(start + k) % slots.len()])
-        .find(|ip| !in_use.contains(*ip))
+        .filter(|ip| !in_use.contains(*ip))
+        .take(count)
         .cloned()
-        .ok_or_else(|| {
-            ApiError::Conflict("your private network is full, stop another instance first".into())
-        })
+        .collect();
+    if picked.len() < count {
+        return Err(ApiError::Conflict(
+            "your private network is full, stop another instance first".into(),
+        ));
+    }
+    Ok(picked)
 }
 
 /// Whether the service at a lab address accepts connections, asked from inside the gateway.

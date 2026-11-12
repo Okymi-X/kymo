@@ -1,0 +1,17 @@
+{
+  "artifact": "ghost-files",
+  "runtime": "vm",
+  "file": "ghost-files.qcow2",
+  "ports": [ { "name": "ssh", "port": 22 }, { "name": "web", "port": 80 } ],
+  "display": "machine",
+  "memory_mb": 512,
+  "cpu_millis": 1000,
+  "boot_timeout_secs": 90,
+  "max_ttl_secs": 4200,
+  "verifier": {
+    "definition": "ghost-files",
+    "port": 8080,
+    "memory_mb": 128,
+    "cpu_millis": 250
+  }
+}

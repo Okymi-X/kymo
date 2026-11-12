@@ -16,7 +16,7 @@ use super::events::set_or_clear;
 use crate::auth::{Require, needs};
 use crate::challenge_store::{
     self as store, AttachmentMeta, Base64Upload, CategoryRow, ChallengeFields, ChallengeRow,
-    HintRow, MAX_ATTACHMENT, MAX_TITLE,
+    FlagInput, FlagRow, FlagSet, HintRow, MAX_ATTACHMENT, MAX_TITLE,
 };
 use crate::error::ApiError;
 use crate::event_store::{self, EventOut, EventRow};
@@ -147,6 +147,11 @@ pub struct AdminChallenge {
     instance_config: Option<Value>,
     kind: String,
     created_at: i64,
+    flag_mode: String,
+    multi_flag: bool,
+    responder: bool,
+    /// The flags of a dynamic or multi flag challenge; empty for a plain static flag.
+    flags: Vec<FlagRow>,
     solves: i64,
     hints: Vec<HintRow>,
     attachments: Vec<AttachmentMeta>,
@@ -157,6 +162,7 @@ fn admin_out(
     solves: i64,
     hints: Vec<HintRow>,
     attachments: Vec<AttachmentMeta>,
+    flags: Vec<FlagRow>,
 ) -> AdminChallenge {
     AdminChallenge {
         instance_config: row
@@ -181,6 +187,10 @@ fn admin_out(
         requires_instance: row.requires_instance,
         kind: row.kind,
         created_at: row.created_at,
+        flag_mode: row.flag_mode,
+        multi_flag: row.multi_flag,
+        responder: row.responder,
+        flags,
         solves,
         hints,
         attachments,
@@ -192,7 +202,8 @@ async fn one(state: &AppState, row: ChallengeRow) -> Result<AdminChallenge, ApiE
     let hints = store::hints(&state.pool, row.id).await?;
     let attachments = store::attachments_of_challenge(&state.pool, row.id).await?;
     let solves = totals.get(&row.id).copied().unwrap_or(0);
-    Ok(admin_out(row, solves, hints, attachments))
+    let flags = store::flag_rows(&state.pool, row.id).await?;
+    Ok(admin_out(row, solves, hints, attachments, flags))
 }
 
 pub async fn list_challenges(
@@ -204,6 +215,7 @@ pub async fn list_challenges(
     let totals = jeopardy_store::solve_totals(&state.pool, event_id).await?;
     let hints = store::hints_of_event(&state.pool, event_id).await?;
     let attachments = store::attachments_of_event(&state.pool, event_id).await?;
+    let all_flags = store::flag_rows_of_event(&state.pool, event_id).await?;
     let list = store::challenges(&state.pool, event_id)
         .await?
         .into_iter()
@@ -219,7 +231,12 @@ pub async fn list_challenges(
                 .cloned()
                 .collect();
             let solves = totals.get(&row.id).copied().unwrap_or(0);
-            admin_out(row, solves, own_hints, own_files)
+            let own_flags = all_flags
+                .iter()
+                .filter(|f| f.challenge_id == row.id)
+                .cloned()
+                .collect();
+            admin_out(row, solves, own_hints, own_files, own_flags)
         })
         .collect();
     Ok(Json(list))
@@ -249,6 +266,21 @@ pub struct ChallengeBody {
     #[serde(default)]
     requires_instance: bool,
     instance_config: Option<Value>,
+    /// `static` (default) or `dynamic`: generated for every instance run.
+    flag_mode: Option<String>,
+    /// A Responder: players fix the machine and a Verifier releases the flag.
+    #[serde(default)]
+    responder: bool,
+    /// The flags of a dynamic or multi flag challenge.
+    #[serde(default)]
+    flags: Vec<FlagInput>,
+}
+
+/// The value stored in the `flag` column of a challenge whose flags live in `challenge_flag`.
+fn placeholder_flag() -> FlagSpec {
+    FlagSpec::Static {
+        value: "set for each run".into(),
+    }
 }
 
 /// Tournament challenges are worth a fixed number of points; a DFIR challenge is too, in any event.
@@ -283,7 +315,13 @@ pub async fn create_challenge(
 ) -> Result<(StatusCode, Json<AdminChallenge>), ApiError> {
     let event = authoring_event(&state, event_id).await?;
     let kind = body.kind.as_deref().unwrap_or("flag");
+    let set = FlagSet {
+        mode: body.flag_mode.clone().unwrap_or_else(|| "static".into()),
+        responder: body.responder,
+        flags: body.flags.clone(),
+    };
     let flag = match kind {
+        "flag" if set.uses_rows() => body.flag.unwrap_or_else(placeholder_flag),
         "flag" => body
             .flag
             .ok_or_else(|| bad("a flag challenge needs a flag"))?,
@@ -311,7 +349,9 @@ pub async fn create_challenge(
         instance_config: body.instance_config,
     };
     fields.validate()?;
+    set.validate(&fields, event.kind == "tournament")?;
     let id = store::challenge_insert(&state.pool, event_id, &fields, state.now()).await?;
+    store::apply_flag_set(&state.pool, id, &set).await?;
     let row = store::challenge_by_id(&state.pool, id).await?;
     Ok((StatusCode::CREATED, Json(one(&state, row).await?)))
 }
@@ -345,6 +385,9 @@ pub struct ChallengePatch {
     requires_instance: Option<bool>,
     #[serde(default, deserialize_with = "set_or_clear")]
     instance_config: Option<Option<Value>>,
+    flag_mode: Option<String>,
+    responder: Option<bool>,
+    flags: Option<Vec<FlagInput>>,
 }
 
 pub async fn update_challenge(
@@ -364,6 +407,7 @@ pub async fn update_challenge(
         f.description = description.trim().to_owned();
     }
     f.scoring = body.scoring.unwrap_or(f.scoring);
+    let flag_given = body.flag.is_some();
     f.flag = body.flag.unwrap_or(f.flag);
     f.flag_prefix = body.flag_prefix.unwrap_or(f.flag_prefix);
     f.flag_suffix = body.flag_suffix.unwrap_or(f.flag_suffix);
@@ -379,7 +423,18 @@ pub async fn update_challenge(
     if row.kind == "dfir" {
         check_items_total(&state, row.id, &f.scoring).await?;
     }
+    let had_rows = row.uses_flag_set();
+    let current = store::flag_rows(&state.pool, id).await?;
+    let mut set = FlagSet::from_rows(&row, &current);
+    set.mode = body.flag_mode.unwrap_or(set.mode);
+    set.responder = body.responder.unwrap_or(set.responder);
+    set.flags = body.flags.unwrap_or(set.flags);
+    if had_rows && !set.uses_rows() && !flag_given {
+        return Err(bad("enter the flag for a static challenge"));
+    }
     f.validate()?;
+    set.validate(&f, event.kind == "tournament")?;
+    store::apply_flag_set(&state.pool, id, &set).await?;
     store::challenge_update(&state.pool, &row, &f).await?;
     let fresh = store::challenge_by_id(&state.pool, id).await?;
     notify(&state, &fresh).await?;

@@ -5,6 +5,8 @@
 //! kymo-lab fingerprint   print the certificate fingerprint the platform must pin
 //! kymo-lab check         verify the configuration, Docker and QEMU access and manifests, then exit
 //! kymo-lab prepare       unpack the virtual machine images now (they also unpack when the service starts)
+//! kymo-lab verifier test DIR --target IP [--ports 22,80] [--lib DIR] [--strict]
+//!                        run a Verifier definition against a running machine, with no player
 //! kymo-lab version       print the version
 //! ```
 
@@ -102,6 +104,12 @@ fn settings() -> Result<Settings, String> {
     }
     if let Some(prefix) = var("KYMO_LAB_NAME_PREFIX") {
         config.name_prefix = prefix;
+    }
+    if let Some(image) = var("KYMO_LAB_VERIFIER_IMAGE") {
+        config.verifier_image = image;
+    }
+    if let Some(dir) = var("KYMO_LAB_VERIFIERS") {
+        config.verifiers_dir = PathBuf::from(dir);
     }
     for part in var("KYMO_LAB_ALLOW_FROM")
         .unwrap_or_default()
@@ -347,10 +355,174 @@ async fn check(s: &Settings) -> Result<(), String> {
             "vpn:           off (set KYMO_LAB_VPN_HOST to give players a tunnel instead of open ports)"
         ),
     }
+    for m in s
+        .config
+        .manifests
+        .iter()
+        .filter(|m| m.hardening().is_relaxed())
+    {
+        let h = m.hardening();
+        println!(
+            "warning: {} relaxes the container lock down (capabilities: {}; setuid programs {}). \
+             A player who breaks out of it gets more to work with: keep this lab host dedicated",
+            m.artifact,
+            if h.cap_add.is_empty() {
+                "none added".to_owned()
+            } else {
+                h.cap_add.join(", ")
+            },
+            if h.no_new_privileges {
+                "blocked"
+            } else {
+                "allowed"
+            },
+        );
+    }
+    check_flag_delivery(s)?;
     if s.tls {
         println!("fingerprint:   {}", identity(s)?.fingerprint);
     }
     println!("ok");
+    Ok(())
+}
+
+/// The `inject` and `verifier` blocks of every manifest: key files, definitions, passwords.
+/// Every problem is listed, and any of them fails the check.
+fn check_flag_delivery(s: &Settings) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut problems: Vec<String> = Vec::new();
+    for m in &s.config.manifests {
+        if let Some(inject) = &m.inject {
+            println!(
+                "inject:        {} puts {} flag(s) {}",
+                m.artifact,
+                inject.flags.len(),
+                if m.is_vm() {
+                    "in files over SSH"
+                } else {
+                    "in environment variables"
+                }
+            );
+            if let Some(key) = &inject.ssh_key
+                && std::fs::metadata(key).is_err()
+            {
+                problems.push(format!("{}: the SSH key {key} cannot be read", m.artifact));
+            }
+            if inject.ssh_password.is_some() {
+                // A manifest with a password must not be readable by everyone.
+                if let Some(path) = manifest_path(&s.manifests, &m.artifact)
+                    && std::fs::metadata(&path).is_ok_and(|md| md.permissions().mode() & 0o004 != 0)
+                {
+                    println!(
+                        "warning: {} holds an SSH password and is readable by every user; chmod 640 it",
+                        path.display()
+                    );
+                }
+            }
+        }
+        if let Some(verifier) = &m.verifier {
+            let dir = s.config.verifiers_dir.join(&verifier.definition);
+            match kymo_verifier::load(&dir) {
+                Ok(loaded) => println!(
+                    "verifier:      {} uses {} ({} check(s))",
+                    m.artifact,
+                    dir.display(),
+                    loaded.definition.checks.len()
+                ),
+                Err(list) => {
+                    for p in list {
+                        problems.push(format!(
+                            "{}: verifier {}: {p}",
+                            m.artifact, verifier.definition
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    for p in &problems {
+        eprintln!("problem: {p}");
+    }
+    Err(format!(
+        "{} problem(s) in inject and verifier settings",
+        problems.len()
+    ))
+}
+
+/// The file a manifest was read from, found by its artifact.
+fn manifest_path(dir: &std::path::Path, artifact: &str) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| {
+            p.extension().is_some_and(|x| x == "json")
+                && std::fs::read_to_string(p)
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<manifest::Manifest>(&t).ok())
+                    .is_some_and(|m| m.artifact == artifact)
+        })
+}
+
+/// `kymo-lab verifier test DIR --target IP`: runs a definition against a machine that is
+/// already running, so an author can see each check red on a fresh target and green after the
+/// fix, before any player is involved.
+async fn verifier_test(args: &[String]) -> Result<(), String> {
+    let mut dir: Option<PathBuf> = None;
+    let mut target: Option<String> = None;
+    let mut ports: Vec<u16> = Vec::new();
+    let mut lib = var("KYMO_VERIFIER_LIB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/local/lib/kymo-verifier"));
+    let mut strict = false;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--target" => target = it.next().cloned(),
+            "--ports" => {
+                ports = it
+                    .next()
+                    .map(|v| v.split(',').filter_map(|p| p.trim().parse().ok()).collect())
+                    .unwrap_or_default()
+            }
+            "--lib" => {
+                lib = it
+                    .next()
+                    .map(PathBuf::from)
+                    .ok_or("--lib needs a directory")?
+            }
+            "--strict" => strict = true,
+            other if !other.starts_with("--") && dir.is_none() => dir = Some(PathBuf::from(other)),
+            other => return Err(format!("unexpected argument {other}")),
+        }
+    }
+    let dir = dir.ok_or("usage: kymo-lab verifier test DIR --target IP")?;
+    let target = target.ok_or("--target IP is needed")?;
+    let loaded = kymo_verifier::load(&dir).map_err(|list| list.join("\n"))?;
+    let context =
+        kymo_verifier::Context::new(&loaded, &target, ports, &lib).map_err(|e| e.to_string())?;
+    println!(
+        "{} check(s) against {target}",
+        loaded.definition.checks.len()
+    );
+    let outcomes = kymo_verifier::run_all(&loaded, &context).await;
+    let mut all_fixed = true;
+    for (check, outcome) in loaded.definition.checks.iter().zip(&outcomes) {
+        all_fixed &= outcome.state == kymo_verifier::State::Fixed;
+        println!(
+            "{:<10} {:<32} {:>5} ms  {}",
+            format!("{:?}", outcome.state).to_lowercase(),
+            check.title,
+            outcome.millis,
+            outcome.detail
+        );
+    }
+    if strict && !all_fixed {
+        return Err("not every check is fixed".into());
+    }
     Ok(())
 }
 
@@ -382,10 +554,18 @@ async fn prepare(s: &Settings) -> Result<(), String> {
 
 async fn run(s: Settings) -> Result<(), String> {
     let runtime: Arc<dyn InstanceRuntime> = if s.docker {
-        Arc::new(
-            DockerRuntime::connect_scoped(s.bind.clone(), "lab")
-                .map_err(|e| format!("docker: {e}"))?,
-        )
+        let docker = DockerRuntime::connect_scoped(s.bind.clone(), "lab")
+            .map_err(|e| format!("docker: {e}"))?;
+        // What each image's manifest relaxes of the container lock down (usually nothing).
+        docker.set_hardening(
+            s.config
+                .manifests
+                .iter()
+                .filter(|m| !m.is_vm())
+                .map(|m| (m.artifact.clone(), m.hardening()))
+                .collect(),
+        );
+        Arc::new(docker)
     } else {
         Arc::new(server::Absent)
     };
@@ -482,6 +662,13 @@ async fn main() {
             Ok(s) => prepare(&s).await,
             Err(e) => Err(e),
         },
+        "verifier" => {
+            let rest: Vec<String> = std::env::args().skip(2).collect();
+            match rest.first().map(String::as_str) {
+                Some("test") => verifier_test(&rest[1..]).await,
+                _ => Err("usage: kymo-lab verifier test DIR --target IP".into()),
+            }
+        }
         "check" => match settings() {
             Ok(s) => check(&s).await,
             Err(e) => Err(e),

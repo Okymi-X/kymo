@@ -2,10 +2,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Paperclip, Trash2 } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { platform } from '../../api/platform'
-import type { AdminChallenge, Category, ChallengeBody, FlagSpec, Scoring } from '../../api/platformTypes'
+import type { AdminChallenge, Category, ChallengeBody, FlagInput, FlagSpec, Scoring } from '../../api/platformTypes'
 import { Modal, ModalBody, ModalCancel, ModalFooter, ModalHeader, modalForm } from '../../components/Modal'
 import { Pill, Toggle } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, Select, Textarea } from '../../components/ui'
+import { blankRow, exampleFlag, manifestSkeleton, MAX_FLAGS, resizeRows, rowProblems, splitPoints, type FlagRowDraft } from '../../lib/flags'
 import { fileSize, flagHint, fromLocalInput, toLocalInput, verdictText } from '../../lib/platform'
 import { DfirItems } from './DfirItems'
 
@@ -30,6 +31,14 @@ export interface Draft {
   release: string
   retire: string
   position: string
+  /** `static` (the flag above) or `dynamic` (generated for every instance run). */
+  flagMode: 'static' | 'dynamic'
+  /** How many flags; more than one makes a multi flag challenge. */
+  flagCount: string
+  /** The flags of a dynamic or multi flag challenge. */
+  rows: FlagRowDraft[]
+  /** Players fix the machine and a Verifier gives the flag. */
+  responder: boolean
   requiresInstance: boolean
   image: string
   port: string
@@ -59,6 +68,10 @@ export const blank = (category: number): Draft => ({
   release: '',
   retire: '',
   position: '0',
+  flagMode: 'static',
+  flagCount: '1',
+  rows: [blankRow('flag')],
+  responder: false,
   requiresInstance: false,
   image: '',
   port: '8000',
@@ -94,6 +107,13 @@ export function fromChallenge(c: AdminChallenge): Draft {
     release: toLocalInput(c.release_at),
     retire: toLocalInput(c.retire_at),
     position: String(c.position),
+    flagMode: c.flag_mode ?? 'static',
+    flagCount: String(Math.max(1, c.flags?.length ?? 0)),
+    rows:
+      c.flags && c.flags.length > 0
+        ? c.flags.map((f) => ({ name: f.name, label: f.label, value: f.value, randomLen: String(f.random_len), closing: f.closing, weight: String(f.weight) }))
+        : [blankRow('flag', c.flag_suffix)],
+    responder: c.responder ?? false,
     requiresInstance: c.requires_instance,
     image: cfg?.image ?? '',
     port: String(cfg?.port ?? 8000),
@@ -106,22 +126,38 @@ export function fromChallenge(c: AdminChallenge): Draft {
 
 const int = (s: string) => Math.trunc(Number(s))
 
+/** The flags come from the rows, not from the single flag field. */
+export const usesRows = (d: Draft): boolean => d.kind === 'flag' && (d.flagMode === 'dynamic' || int(d.flagCount) > 1)
+/** Several flags: static points, split by weight. */
+export const isMulti = (d: Draft): boolean => d.kind === 'flag' && int(d.flagCount) > 1
+
 /** Turns the form into the API body; the server validates every field again. */
 export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
   const dfir = d.kind === 'dfir'
   const scoring: Scoring =
-    d.scoring === 'static' || fixedPoints || dfir
+    d.scoring === 'static' || fixedPoints || dfir || isMulti(d)
       ? { kind: 'static', points: int(d.points) }
       : { kind: 'dynamic', initial: int(d.initial), minimum: int(d.minimum), decay: int(d.decay), curve: d.curve }
   const flag: FlagSpec =
     d.flagKind === 'static' ? { kind: 'static', value: d.flagValue } : d.flagKind === 'regex' ? { kind: 'regex', pattern: d.flagValue } : { kind: 'per_team', expected: d.flagValue }
+  const rows = usesRows(d)
+  const flags: FlagInput[] = rows
+    ? d.rows.slice(0, Math.max(1, int(d.flagCount))).map((r) => ({
+        name: r.name.trim(),
+        label: r.label.trim(),
+        value: r.value,
+        ...(d.flagMode === 'dynamic' ? { random_len: int(r.randomLen), closing: r.closing } : {}),
+        weight: int(r.weight) || 1,
+      }))
+    : []
   return {
     category_id: d.category_id,
     title: d.title.trim(),
     description: d.description,
     scoring,
     kind: d.kind,
-    ...(dfir ? {} : { flag }),
+    ...(dfir || rows ? {} : { flag }),
+    ...(dfir ? {} : { flag_mode: d.flagMode, responder: d.responder && d.requiresInstance, flags }),
     flag_prefix: d.prefix,
     flag_suffix: d.suffix,
     case_sensitive: d.caseSensitive,
@@ -149,7 +185,7 @@ export function validate(d: Draft, fixedPoints = false): Problems {
   const dfir = d.kind === 'dfir'
   if (d.title.trim() === '') p.title = 'Give the challenge a title.'
   if (d.category_id === 0) p.category_id = 'Add a category first.'
-  if (d.scoring === 'static' || fixedPoints || dfir) {
+  if (d.scoring === 'static' || fixedPoints || dfir || isMulti(d)) {
     if (!inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
   } else {
     if (!inRange(d.initial, 1, 100000)) p.initial = 'A whole number, 1 or more.'
@@ -157,8 +193,21 @@ export function validate(d: Draft, fixedPoints = false): Problems {
     else if (inRange(d.initial, 1, 100000) && Number(d.minimum) > Number(d.initial)) p.minimum = 'The floor cannot be above the start.'
     if (!inRange(d.decay, 1, 100000)) p.decay = 'A whole number, 1 or more.'
   }
+  const rows = usesRows(d)
+  if (!dfir && (d.flagMode === 'dynamic' || d.responder) && !d.requiresInstance) {
+    p.requiresInstance = d.responder ? 'A Responder needs an instance.' : 'Dynamic flags need an instance.'
+  }
+  const count = int(d.flagCount)
+  if (!dfir && (!Number.isInteger(count) || count < 1 || count > MAX_FLAGS)) p.flagCount = `1 to ${MAX_FLAGS}.`
+  if (d.responder && count > 1) p.flagCount = 'A Responder has exactly one flag.'
   if (dfir) {
     // The answers live in the questions.
+  } else if (rows) {
+    const used = d.rows.slice(0, Math.max(1, Math.min(count, MAX_FLAGS)))
+    const names = used.map((r) => r.name)
+    const bad = used.map((r) => rowProblems(r, d.flagMode, d.prefix, d.suffix, d.caseSensitive, names))
+    const first = bad.map((b) => Object.values(b)[0]).find(Boolean)
+    if (first) p.rows = first
   } else if (d.flagValue === '') {
     p.flagValue = 'Enter the flag.'
   } else if (d.flagKind === 'static' || d.flagKind === 'per_team') {
@@ -233,6 +282,84 @@ function dynamicSummary(d: Draft): string {
   const n = d.decay || '?'
   if (d.curve === 'linear') return `The first solver gets ${start}. Each solve after that takes ${n} points off, down to ${floor}.`
   return `The first solver gets ${start}, falling ${d.curve === 'parabolic' ? 'faster at first' : 'quickly then slowly'} to ${floor} after about ${n} solves. Everyone's points update as more teams solve it.`
+}
+
+/** The flags of a dynamic or multi flag challenge: one card each, with the share of the points a weight gives. */
+function FlagRows({ d, set, shown, locked }: { d: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; shown?: string; locked: boolean }) {
+  const dynamic = d.flagMode === 'dynamic'
+  const count = Math.max(1, Math.min(MAX_FLAGS, int(d.flagCount) || 1))
+  const rows = d.rows.slice(0, count)
+  const names = rows.map((r) => r.name)
+  const several = count > 1
+  const shares = splitPoints(int(d.points), rows.map((r) => int(r.weight) || 1))
+  const update = (i: number, patch: Partial<FlagRowDraft>) => set('rows', d.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const skeleton = manifestSkeleton(rows, d.responder)
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex flex-col gap-3">
+      {rows.map((r, i) => {
+        const bad = shown === undefined ? {} : rowProblems(r, d.flagMode, d.prefix, d.suffix, d.caseSensitive, names)
+        return (
+          <div key={i} className="flex flex-col gap-3 rounded-control border border-line p-3" role="group" aria-label={`Flag ${i + 1}`}>
+            <div className="grid gap-3 sm:grid-cols-[10rem_1fr_6rem]">
+              <Field label="Name" error={bad.name} hint="Matches the lab manifest.">
+                <Input value={r.name} onChange={(e) => update(i, { name: e.target.value })} disabled={locked} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={bad.name ? true : undefined} />
+              </Field>
+              <Field label="Label" hint="Only you see it.">
+                <Input value={r.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={i === 0 ? 'User flag' : ''} maxLength={60} />
+              </Field>
+              {several && (
+                <Field label="Weight" error={bad.weight} hint={Number.isFinite(shares[i]) && d.points !== '' ? `${shares[i]} pts` : undefined}>
+                  <Input type="number" min={1} value={r.weight} onChange={(e) => update(i, { weight: e.target.value })} disabled={locked} className="font-mono" aria-invalid={bad.weight ? true : undefined} />
+                </Field>
+              )}
+            </div>
+            <div className={dynamic ? 'grid gap-3 sm:grid-cols-[1fr_7rem_8rem]' : ''}>
+              <Field label={dynamic ? 'Flag prefix' : 'Flag'} error={bad.value} hint={dynamic ? 'The readable start, for example KYMO{box_.' : undefined}>
+                <Input value={r.value} onChange={(e) => update(i, { value: e.target.value })} disabled={locked} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={bad.value ? true : undefined} />
+              </Field>
+              {dynamic && (
+                <>
+                  <Field label="Random length" error={bad.randomLen} hint="Hex characters.">
+                    <Input type="number" min={4} max={32} value={r.randomLen} onChange={(e) => update(i, { randomLen: e.target.value })} disabled={locked} className="font-mono" aria-invalid={bad.randomLen ? true : undefined} />
+                  </Field>
+                  <Field label="Closing" error={bad.closing} hint="After the random part.">
+                    <Input value={r.closing} onChange={(e) => update(i, { closing: e.target.value })} disabled={locked} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={bad.closing ? true : undefined} />
+                  </Field>
+                </>
+              )}
+            </div>
+            {dynamic && r.value && (
+              <p className="text-xs text-muted">
+                A player gets, for example: <code className="font-mono text-ink">{exampleFlag(r.value, int(r.randomLen), r.closing)}</code>
+              </p>
+            )}
+          </div>
+        )
+      })}
+      {d.requiresInstance && (
+        <details className="rounded-control border border-line p-3 text-sm">
+          <summary className="cursor-pointer font-medium">Lab manifest block for {d.responder ? 'the Verifier' : 'these flags'}</summary>
+          <p className="mt-2 text-xs text-muted">
+            {d.responder ? 'Add this to the lab host manifest of the image. The definition names a directory of Verifier checks.' : 'Add this to the lab host manifest of the image, with the right variable names or file paths for your image.'}
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded-control border border-line bg-bg p-2 font-mono text-xs">{skeleton}</pre>
+          <Button
+            className="mt-2"
+            onClick={() => {
+              void navigator.clipboard?.writeText(skeleton).then(() => {
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1500)
+              })
+            }}
+          >
+            {copied ? 'Copied' : 'Copy block'}
+          </Button>
+        </details>
+      )}
+      {shown && <p className="text-sm text-danger">{shown}</p>}
+    </div>
+  )
 }
 
 function Extras({ challenge, tournament, onChanged }: { challenge: AdminChallenge; tournament: boolean; onChanged: () => void }) {
@@ -310,7 +437,12 @@ function Extras({ challenge, tournament, onChanged }: { challenge: AdminChalleng
         <ErrorText error={upload.error ?? delFile.error} />
       </Section>
 
-      {challenge.kind !== 'dfir' && (
+      {challenge.kind !== 'dfir' && (challenge.flag_mode === 'dynamic' || challenge.multi_flag) && (
+      <Section title="Test the flag" help="Dynamic flags are checked against a player's own instance, so there is nothing to test here. Start an instance as a player, or read a run's flag on the Instances page.">
+        <p className="text-sm text-muted">Not available for this challenge.</p>
+      </Section>
+      )}
+      {challenge.kind !== 'dfir' && challenge.flag_mode !== 'dynamic' && !challenge.multi_flag && (
       <Section title="Test the flag" help="Checks a flag the way a player's submission is checked, without recording a submission or a solve.">
         <div className="flex gap-2">
           <Input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Try a flag" aria-label="Flag to test" className="min-w-0 flex-1 font-mono" autoComplete="off" />
@@ -343,7 +475,23 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setD((prev) => ({ ...prev, [key]: value }))
   const dirty = JSON.stringify(d) !== JSON.stringify(start)
   const dfir = d.kind === 'dfir'
-  const fixedPoints = tournament || dfir
+  const multi = isMulti(d)
+  const rowsMode = usesRows(d)
+  const fixedPoints = tournament || dfir || multi
+  // The flags are fixed once a run or a solve exists (the server enforces it for runs too).
+  const flagsLocked = challenge !== null && challenge.solves > 0
+  const closing = d.suffix
+  const setFlagMode = (mode: Draft['flagMode']) =>
+    setD((prev) => ({
+      ...prev,
+      flagMode: mode,
+      // A dynamic flag needs its own closing text: start from the accepted suffix.
+      rows: mode === 'dynamic' ? prev.rows.map((r) => (r.closing === '' ? { ...r, closing } : r)) : prev.rows,
+    }))
+  const setFlagCount = (value: string) =>
+    setD((prev) => ({ ...prev, flagCount: value, rows: resizeRows(prev.rows, Math.trunc(Number(value)) || 1, prev.suffix) }))
+  const setResponder = (on: boolean) =>
+    setD((prev) => ({ ...prev, responder: on, flagCount: on ? '1' : prev.flagCount, rows: on ? resizeRows(prev.rows, 1, prev.suffix) : prev.rows }))
   const problems = validate(d, tournament)
   const first = Object.values(problems)[0]
   // Show a field's problem only after it has been touched, so a new form does not open in red.
@@ -423,9 +571,91 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
             </Field>
           </Section>
 
+          {!dfir && (
+          <Section title="Instance" help="Give every player or team their own copy of a service to attack. Turn it off for a plain flag.">
+            <Toggle label="Each player or team starts its own container" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
+            {shown.requiresInstance && <p className="text-sm text-danger">{shown.requiresInstance}</p>}
+            {d.requiresInstance && (
+              <>
+                <Field label="Instance image" error={shown.image} hint={d.responder ? "The artifact name of the lab host's manifest for this image. That manifest must define a verifier." : 'A name the container platform can already run, for example registry.example.org/ctf/web:1.0. On a lab host, the artifact name of its manifest.'}>
+                  <Input value={d.image} onChange={(e) => set('image', e.target.value)} placeholder="registry.example.org/ctf/web-1:1.0" className="font-mono" aria-invalid={shown.image ? true : undefined} />
+                </Field>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+                  <Num label="Port" value={d.port} onChange={(v) => set('port', v)} min={1} error={shown.port} hint="The service's port." />
+                  <Num label="CPU" value={d.cpu} onChange={(v) => set('cpu', v)} min={1} error={shown.cpu} hint="Millicores." />
+                  <Num label="Memory" value={d.memory} onChange={(v) => set('memory', v)} min={1} error={shown.memory} hint="MB." />
+                  <Num label="Processes" value={d.pids} onChange={(v) => set('pids', v)} min={1} error={shown.pids} hint="At most." />
+                  <Num label="Lifetime" value={d.ttl} onChange={(v) => set('ttl', v)} min={1} error={shown.ttl} hint="Seconds." />
+                </div>
+                {!tournament && (
+                  <div className="flex flex-col gap-1">
+                    <Toggle label="Responder: players fix the machine and a Verifier gives the flag" checked={d.responder} onChange={setResponder} disabled={flagsLocked} />
+                    {d.responder && <p className="text-xs text-muted">The machine and the Verifier each get their own address on the player's private network. The flag is held by the lab host and shown by the Verifier only when every check passes. A Responder has exactly one flag.</p>}
+                  </div>
+                )}
+              </>
+            )}
+          </Section>
+          )}
+
+          {!dfir && (
+          <Section title={multi ? 'Flags' : 'Flag'} help="What a player must submit, and the shape that is accepted before it is even compared.">
+            {!tournament && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-[14rem_10rem_1fr] sm:items-start">
+                  <Field label="Flag mode" hint={d.requiresInstance ? undefined : 'Dynamic needs an instance.'}>
+                    <Select value={d.flagMode} onChange={(e) => setFlagMode(e.target.value as Draft['flagMode'])} aria-label="Flag mode" disabled={flagsLocked || (!d.requiresInstance && d.flagMode === 'static')}>
+                      <option value="static">Static</option>
+                      <option value="dynamic">Dynamic</option>
+                    </Select>
+                  </Field>
+                  <Num label="Number of flags" value={d.flagCount} onChange={setFlagCount} min={1} error={shown.flagCount} />
+                  <p className="text-xs text-muted sm:pt-6">
+                    {d.flagMode === 'dynamic'
+                      ? 'Kymo generates a different flag for every instance run: your prefix, a random part, your closing text. A flag from another player never works.'
+                      : multi
+                        ? 'Players find each flag once. Points are split between the flags by weight.'
+                        : 'One flag for everybody.'}
+                  </p>
+                </div>
+                {flagsLocked && <p className="text-xs text-muted">The flags can no longer change once the challenge has a run or a solve, only their labels.</p>}
+              </>
+            )}
+            {rowsMode ? (
+              <FlagRows d={d} set={set} shown={shown.rows} locked={flagsLocked} />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
+                <Field label="Kind">
+                  <Select value={d.flagKind} onChange={(e) => set('flagKind', e.target.value as FlagSpec['kind'])}>
+                    <option value="static">Exact text</option>
+                    <option value="regex">Pattern (regex)</option>
+                    <option value="per_team">Per team</option>
+                  </Select>
+                </Field>
+                <Field label={d.flagKind === 'regex' ? 'Pattern' : 'Flag'} error={shown.flagValue} hint={d.flagKind === 'regex' ? 'Must match the whole submission.' : undefined}>
+                  <Input value={d.flagValue} onChange={(e) => set('flagValue', e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={shown.flagValue ? true : undefined} />
+                </Field>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Accepted prefix">
+                <Input value={d.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="KYMO{" className="font-mono" />
+              </Field>
+              <Field label="Accepted suffix">
+                <Input value={d.suffix} onChange={(e) => set('suffix', e.target.value)} placeholder="}" className="font-mono" />
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Toggle label="Case sensitive" checked={d.caseSensitive} onChange={(v) => set('caseSensitive', v)} />
+              {flagHint(d.prefix, d.suffix) && <span className="text-xs text-muted">Players see the shape: <code className="font-mono text-ink">{flagHint(d.prefix, d.suffix)}</code></span>}
+            </div>
+          </Section>
+          )}
+          {dfir && (challenge ? <DfirItems challenge={challenge} onChanged={refresh} /> : <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">Create the challenge first, then add its questions here. Each question has its own answer, points and attempt limit.</p>)}
+
           <Section title="Points">
             <div className="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-start">
-              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : 'A match score is the points earned.') : undefined}>
+              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : multi ? 'The total, split between the flags by weight.' : 'A match score is the points earned.') : undefined}>
                 <Select value={fixedPoints ? 'static' : d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type" disabled={fixedPoints}>
                   <option value="static">Fixed points</option>
                   <option value="dynamic">Dynamic points</option>
@@ -451,36 +681,6 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
             {!fixedPoints && d.scoring === 'dynamic' && <p className="text-xs text-muted">{dynamicSummary(d)}</p>}
           </Section>
 
-          {!dfir && (
-          <Section title="Flag" help="What a player must submit, and the shape that is accepted before it is even compared.">
-            <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
-              <Field label="Kind">
-                <Select value={d.flagKind} onChange={(e) => set('flagKind', e.target.value as FlagSpec['kind'])}>
-                  <option value="static">Exact text</option>
-                  <option value="regex">Pattern (regex)</option>
-                  <option value="per_team">Per team</option>
-                </Select>
-              </Field>
-              <Field label={d.flagKind === 'regex' ? 'Pattern' : 'Flag'} error={shown.flagValue} hint={d.flagKind === 'regex' ? 'Must match the whole submission.' : undefined}>
-                <Input value={d.flagValue} onChange={(e) => set('flagValue', e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} aria-invalid={shown.flagValue ? true : undefined} />
-              </Field>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Accepted prefix">
-                <Input value={d.prefix} onChange={(e) => set('prefix', e.target.value)} placeholder="KYMO{" className="font-mono" />
-              </Field>
-              <Field label="Accepted suffix">
-                <Input value={d.suffix} onChange={(e) => set('suffix', e.target.value)} placeholder="}" className="font-mono" />
-              </Field>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Toggle label="Case sensitive" checked={d.caseSensitive} onChange={(v) => set('caseSensitive', v)} />
-              {flagHint(d.prefix, d.suffix) && <span className="text-xs text-muted">Players see the shape: <code className="font-mono text-ink">{flagHint(d.prefix, d.suffix)}</code></span>}
-            </div>
-          </Section>
-          )}
-          {dfir && (challenge ? <DfirItems challenge={challenge} onChanged={refresh} /> : <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">Create the challenge first, then add its questions here. Each question has its own answer, points and attempt limit.</p>)}
-
           <Section title="Availability" help="When players can see and solve it, and how many wrong tries they get. Times use your browser's time zone.">
             <div className="grid gap-4 sm:grid-cols-2">
               <When label="Release at" value={d.release} onChange={(v) => set('release', v)} hint="Empty: visible as soon as it is published." />
@@ -491,26 +691,6 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
               <Num label="Order" value={d.position} onChange={(v) => set('position', v)} min={-1000} hint="Lower numbers come first in the category." />
             </div>
           </Section>
-
-          {!dfir && (
-          <Section title="Instance" help="Give every player or team their own copy of a service to attack. Turn it off for a plain flag.">
-            <Toggle label="Each player or team starts its own container" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
-            {d.requiresInstance && (
-              <>
-                <Field label="Container image" error={shown.image} hint="A name the container platform can already run, for example registry.example.org/ctf/web:1.0.">
-                  <Input value={d.image} onChange={(e) => set('image', e.target.value)} placeholder="registry.example.org/ctf/web-1:1.0" className="font-mono" aria-invalid={shown.image ? true : undefined} />
-                </Field>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-                  <Num label="Port" value={d.port} onChange={(v) => set('port', v)} min={1} error={shown.port} hint="The service's port." />
-                  <Num label="CPU" value={d.cpu} onChange={(v) => set('cpu', v)} min={1} error={shown.cpu} hint="Millicores." />
-                  <Num label="Memory" value={d.memory} onChange={(v) => set('memory', v)} min={1} error={shown.memory} hint="MB." />
-                  <Num label="Processes" value={d.pids} onChange={(v) => set('pids', v)} min={1} error={shown.pids} hint="At most." />
-                  <Num label="Lifetime" value={d.ttl} onChange={(v) => set('ttl', v)} min={1} error={shown.ttl} hint="Seconds." />
-                </div>
-              </>
-            )}
-          </Section>
-          )}
 
           {challenge ? (
             <Extras challenge={challenge} tournament={tournament} onChanged={refresh} />

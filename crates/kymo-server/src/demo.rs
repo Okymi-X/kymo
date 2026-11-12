@@ -649,6 +649,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
             let submission = |value: &'static str, verdict: &'static str, t: i64| {
                 jeopardy_store::NewSubmission {
                     item_id: None,
+                    flag_id: None,
                     event_id,
                     challenge_id: *challenge_id,
                     scorer: jeopardy_store::Scorer::User(*user),

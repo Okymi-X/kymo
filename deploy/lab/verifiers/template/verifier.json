@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "title": "My challenge",
+  "min_interval_secs": 20,
+  "target": {
+    "ssh": { "port": 22, "user": "verify", "key": "keys/verify.key", "sudo": true }
+  },
+  "checks": [
+    {
+      "id": "exposed-file",
+      "title": "Hidden in plain view",
+      "language": "bash",
+      "file": "checks.sh",
+      "function": "check_exposed_file",
+      "health": "health_web",
+      "timeout_secs": 10
+    },
+    {
+      "id": "weak-credential",
+      "title": "Past its expiry",
+      "language": "python",
+      "file": "checks.py",
+      "function": "check_weak_credential",
+      "health": "health_login",
+      "timeout_secs": 10
+    }
+  ]
+}

@@ -66,7 +66,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Never publish a build whose tests fail.
       - run: cargo test --workspace --locked
-      - run: cargo build --release --locked -p kymo-server -p kymo-lab
+      - run: cargo build --release --locked -p kymo-server -p kymo-lab -p kymo-verifier
       - name: Package
         run: |
           # The platform, with the lab host and its installer alongside.
@@ -82,8 +82,14 @@ jobs:
           mkdir "$lab"
           cp target/release/kymo-lab "$lab/"
           cp deploy/lab/install-lab.sh deploy/lab/kymo-lab.service deploy/lab/lab.env.example "$lab/"
+          cp deploy/lab/kymo-lab-firewall deploy/lab/kymo-lab-firewall.service "$lab/"
           cp -r deploy/lab/manifests "$lab/manifests"
+          cp -r deploy/lab/verifiers "$lab/verifiers"
           cp -r deploy/vpn-gateway "$lab/vpn-gateway"
+          # The Verifier image: its Dockerfile, the program and the helper libraries.
+          mkdir "$lab/verifier"
+          cp deploy/verifier/Dockerfile target/release/kymo-verifier "$lab/verifier/"
+          cp -r crates/kymo-verifier/lib "$lab/verifier/lib"
           cp README.md LICENSE "$lab/"
           tar czf "$lab.tar.gz" "$lab"
           sha256sum "$lab.tar.gz" > "$lab.tar.gz.sha256"

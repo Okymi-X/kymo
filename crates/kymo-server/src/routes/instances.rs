@@ -239,3 +239,65 @@ pub async fn list(
     let play = crate::submit::play_context(&state, &slug, player.id).await?;
     Ok(Json(instances::list_for(&state, &play).await?))
 }
+
+/// The flags generated for one run, for an organizer checking a machine by hand. Reading them is
+/// audited, like revealing a submitted value.
+pub async fn admin_flags(
+    who: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let row = instance_store::by_id(&state.pool, id).await?;
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT f.name, f.label, i.value FROM instance_flag i JOIN challenge_flag f ON f.id = i.flag_id WHERE i.instance_id = ? ORDER BY f.position, f.id",
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+    let mut flags: Vec<Value> = rows
+        .into_iter()
+        .map(|(name, label, value)| json!({ "name": name, "label": label, "value": value }))
+        .collect();
+    // A static Responder holds the challenge's own flag.
+    let challenge = crate::challenge_store::challenge_by_id(&state.pool, row.challenge_id).await?;
+    if flags.is_empty()
+        && challenge.responder
+        && let kymo_jeopardy::FlagSpec::Static { value } = &challenge.flag
+    {
+        flags.push(json!({ "name": "flag", "label": "", "value": value }));
+    }
+    crate::monitor_store::audit(
+        &state.pool,
+        state.now(),
+        Some(&who.0),
+        "instance_flags_viewed",
+        "instance",
+        id,
+        "",
+    )
+    .await?;
+    Ok(Json(json!({ "flags": flags })))
+}
+
+/// What the Verifier of a run recorded: which check ran, when, and what it said. For organizers
+/// only: players never see check output.
+pub async fn admin_verify_log(
+    _: Require<needs::ManageEvents>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let row = instance_store::by_id(&state.pool, id).await?;
+    let (Some(host), Some(handle)) = (row.lab_host_id, row.handle.clone()) else {
+        return Err(ApiError::NotFound);
+    };
+    let lab = crate::lab_store::get(&state.pool, host).await?;
+    let client = state
+        .labs()
+        .client(&lab)
+        .map_err(|_| ApiError::Unavailable("the lab host cannot be reached".into()))?;
+    let log = client
+        .verify_log(&handle)
+        .await
+        .map_err(|_| ApiError::Unavailable("the Verifier does not answer".into()))?;
+    Ok(Json(json!({ "log": log })))
+}

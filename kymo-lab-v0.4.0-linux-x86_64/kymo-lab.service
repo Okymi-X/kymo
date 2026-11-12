@@ -1,0 +1,35 @@
+# /etc/systemd/system/kymo-lab.service. The installer writes this file.
+[Unit]
+Description=Kymo lab host (runs challenge containers for a Kymo platform)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+User=kymo-lab
+Group=kymo-lab
+# The installer fills in the groups this machine has. Membership of the docker group is equivalent
+# to root, which is why a lab host is a machine of its own that holds nothing but challenges; the
+# kvm group lets virtual machines use hardware acceleration.
+@SUPPLEMENTARY_GROUPS@
+EnvironmentFile=/etc/kymo-lab/lab.env
+WorkingDirectory=/var/lib/kymo-lab
+StateDirectory=kymo-lab
+ExecStart=/usr/local/bin/kymo-lab
+# Only the service is stopped or restarted with the unit; virtual machines it started keep running
+# and are found again when it comes back (their time limits still apply).
+KillMode=process
+Restart=on-failure
+RestartSec=3
+# A virtual machine on a player's lab network is a machine of its own: the service makes it a tap
+# device on the network's bridge (CAP_NET_ADMIN) and answers its DHCP request on a packet socket
+# (CAP_NET_RAW). Nothing else is granted.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/kymo-lab
+
+[Install]
+WantedBy=multi-user.target

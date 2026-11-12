@@ -1,0 +1,9 @@
+{
+  "artifact": "localhost/kymo-lab/page-source:1",
+  "runtime": "docker",
+  "port": 8000,
+  "cpu_millis": 500,
+  "memory_mb": 128,
+  "pids": 64,
+  "max_ttl_secs": 3600
+}

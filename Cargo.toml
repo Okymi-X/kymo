@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/kymo-engine", "crates/kymo-core", "crates/kymo-jeopardy", "crates/kymo-duel", "crates/kymo-instances", "crates/kymo-vpn", "crates/kymo-monitor", "crates/kymo-lab", "crates/kymo-server"]
+members = ["crates/kymo-engine", "crates/kymo-core", "crates/kymo-jeopardy", "crates/kymo-duel", "crates/kymo-instances", "crates/kymo-vpn", "crates/kymo-monitor", "crates/kymo-lab", "crates/kymo-verifier", "crates/kymo-server"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"

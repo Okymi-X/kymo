@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use kymo_instances::{
-    InstanceRuntime, Managed, Placement, RuntimeError, RuntimeStatus, StartRequest, Started,
+    InstanceRuntime, Managed, Placement, RuntimeError, RuntimeStatus, StartExtras, StartOutcome,
+    StartRequest, Started,
 };
 use reqwest::{Method, StatusCode};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -211,6 +212,16 @@ impl RemoteRuntime {
         })
     }
 
+    /// The run log of an instance's Verifier, as the lab host keeps it.
+    pub async fn verify_log(&self, id: &str) -> Result<serde_json::Value, RuntimeError> {
+        self.send(
+            Method::GET,
+            &format!("/v1/instances/{}/verify-log", urlencode(id)),
+            None::<&()>,
+        )
+        .await
+    }
+
     pub async fn health(&self) -> Result<HealthInfo, RuntimeError> {
         self.send(Method::GET, "/v1/health", None::<&()>).await
     }
@@ -282,6 +293,17 @@ fn root_cause(e: &dyn std::error::Error) -> String {
 #[async_trait]
 impl InstanceRuntime for RemoteRuntime {
     async fn start(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
+        Ok(self
+            .start_with(request, &StartExtras::default())
+            .await?
+            .started)
+    }
+
+    async fn start_with(
+        &self,
+        request: &StartRequest,
+        extras: &StartExtras,
+    ) -> Result<StartOutcome, RuntimeError> {
         let lab = match &request.placement {
             Placement::Published => None,
             Placement::Lab {
@@ -294,8 +316,14 @@ impl InstanceRuntime for RemoteRuntime {
                 bind: gateway.clone().ok_or_else(|| {
                     RuntimeError::Failed("a lab placement needs the network's address".into())
                 })?,
+                verifier_ip: extras.verifier_ip.clone(),
             }),
         };
+        if lab.is_none() && extras.verifier_ip.is_some() {
+            return Err(RuntimeError::Failed(
+                "a Verifier needs a private lab network".into(),
+            ));
+        }
         let name = request.name.clone().ok_or_else(|| {
             RuntimeError::Failed("a remote start needs a name built by the platform".into())
         })?;
@@ -305,6 +333,7 @@ impl InstanceRuntime for RemoteRuntime {
             spec: request.spec.clone(),
             meta: request.meta.iter().cloned().collect(),
             lab,
+            flags: extras.flags.clone(),
         };
         let info: InstanceInfo = self
             .send(Method::POST, "/v1/instances", Some(&body))
@@ -316,7 +345,22 @@ impl InstanceRuntime for RemoteRuntime {
         if let Placement::Lab { ip, .. } = &request.placement {
             started.ip = Some(ip.clone());
         }
-        Ok(started)
+        Ok(StartOutcome {
+            started,
+            endpoints: info.endpoints,
+        })
+    }
+
+    async fn ready(&self, handle: &str) -> bool {
+        matches!(
+            self.send::<InstanceInfo>(
+                Method::GET,
+                &format!("/v1/instances/{}", urlencode(handle)),
+                None::<&()>,
+            )
+            .await,
+            Ok(info) if info.status == "running"
+        )
     }
 
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {
@@ -339,7 +383,8 @@ impl InstanceRuntime for RemoteRuntime {
             .await
         {
             Ok(info) => Ok(match info.status.as_str() {
-                "running" => RuntimeStatus::Running,
+                // Still being set up (flags being written): it exists, it is just not ready.
+                "running" | "starting" => RuntimeStatus::Running,
                 "exited" => RuntimeStatus::Exited,
                 _ => RuntimeStatus::Missing,
             }),

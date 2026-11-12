@@ -241,14 +241,42 @@ impl Board {
                 participants.push(Participant { id });
             }
         }
-        let mut challenges: Vec<Challenge> = challenge_store::challenges(pool, event.id)
-            .await?
-            .into_iter()
-            .map(|c| Challenge {
+        let rows_of_event = challenge_store::challenges(pool, event.id).await?;
+        let all_flags = challenge_store::flag_rows_of_event(pool, event.id).await?;
+        let mut challenges: Vec<Challenge> = Vec::new();
+        // The points of each flag of a multi flag challenge, which count like small challenges
+        // of their own (see FLAG_BASE), so partial credit shows on the board.
+        let mut flag_points: BTreeMap<i64, i64> = BTreeMap::new();
+        for c in rows_of_event {
+            if !c.multi_flag {
+                challenges.push(Challenge {
+                    id: c.id as u64,
+                    scoring: c.scoring,
+                });
+                continue;
+            }
+            let own: Vec<&challenge_store::FlagRow> = all_flags
+                .iter()
+                .filter(|f| f.challenge_id == c.id)
+                .collect();
+            let weights: Vec<i64> = own.iter().map(|f| f.weight).collect();
+            let total = kymo_jeopardy::current_value(&c.scoring, 0);
+            for (flag, share) in own
+                .iter()
+                .zip(kymo_jeopardy::dynamic::split_points(total, &weights))
+            {
+                flag_points.insert(flag.id, share);
+                challenges.push(Challenge {
+                    id: crate::flag_set::FLAG_BASE + flag.id as u64,
+                    scoring: kymo_jeopardy::Scoring::Static { points: share },
+                });
+            }
+            // The challenge itself is worth nothing on the board: its flags carry the points.
+            challenges.push(Challenge {
                 id: c.id as u64,
-                scoring: c.scoring,
-            })
-            .collect();
+                scoring: kymo_jeopardy::Scoring::Static { points: 0 },
+            });
+        }
         let questions: Vec<(i64, i64)> = sqlx::query_as(
             "SELECT i.id, i.points FROM dfir_item i JOIN challenge c ON c.id = i.challenge_id WHERE c.event_id = ?",
         )
@@ -277,6 +305,22 @@ impl Board {
             challenge: ITEM_BASE + item as u64,
             at,
             hints_cost: 0,
+        }));
+        let found: Vec<(i64, i64, i64, i64)> = sqlx::query_as(
+            "SELECT flag_id, participant_id, at, points FROM flag_solve WHERE event_id = ? ORDER BY id",
+        )
+        .bind(event.id)
+        .fetch_all(pool)
+        .await?;
+        solves.extend(found.into_iter().map(|(flag, participant, at, points)| {
+            let base = flag_points.get(&flag).copied().unwrap_or(points);
+            Solve {
+                participant: participant as u64,
+                challenge: crate::flag_set::FLAG_BASE + flag as u64,
+                at,
+                // What hint costs took from this flag's share, so the board shows the award.
+                hints_cost: (base - points).max(0),
+            }
         }));
         Ok(Board {
             names,
@@ -383,6 +427,8 @@ pub struct NewSubmission<'a> {
     pub challenge_id: i64,
     /// The DFIR question answered, if this was one.
     pub item_id: Option<i64>,
+    /// The flag of a multi flag challenge this submission matched, if any.
+    pub flag_id: Option<i64>,
     pub scorer: Scorer,
     pub user_id: i64,
     pub ip: &'a str,
@@ -397,11 +443,12 @@ pub async fn insert_submission(
 ) -> Result<(), ApiError> {
     let value: String = s.value.chars().take(MAX_STORED_VALUE).collect();
     sqlx::query(
-        "INSERT INTO submission (event_id, challenge_id, item_id, participant_kind, participant_id, user_id, ip, value, verdict, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO submission (event_id, challenge_id, item_id, flag_id, participant_kind, participant_id, user_id, ip, value, verdict, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(s.event_id)
     .bind(s.challenge_id)
     .bind(s.item_id)
+    .bind(s.flag_id)
     .bind(s.scorer.kind())
     .bind(s.scorer.id())
     .bind(s.user_id)

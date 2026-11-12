@@ -20,11 +20,17 @@ use bollard::query_parameters::{
 };
 
 use crate::error::RuntimeError;
-use crate::runtime::{InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest, Started};
+use crate::hardening::{ALLOWED_CAPS, Hardening};
+use crate::runtime::{
+    InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest, Started, VerifierSpec,
+};
 use crate::spec::InstanceSpec;
 
 const LABEL_MANAGED: &str = "kymo.managed";
 const LABEL_INSTANCE: &str = "kymo.instance";
+/// Marks a Verifier container. It deliberately has no `kymo.managed` label, so the lab host does
+/// not mistake it for an instance to adopt; it is found by this one.
+const LABEL_VERIFIER: &str = "kymo.verifier";
 
 pub struct DockerRuntime {
     docker: Docker,
@@ -35,6 +41,8 @@ pub struct DockerRuntime {
     /// `lab`. Two Kymo components on one Docker daemon then never list, reap or name-clash with
     /// each other's containers and networks.
     scope: String,
+    /// Per image: what the lab host's manifest relaxes. Empty on a platform's own runtime.
+    hardening: std::sync::RwLock<HashMap<String, Hardening>>,
 }
 
 impl DockerRuntime {
@@ -56,7 +64,28 @@ impl DockerRuntime {
             bind_ip: bind_ip.into(),
             podman: tokio::sync::OnceCell::new(),
             scope: scope.to_owned(),
+            hardening: std::sync::RwLock::new(HashMap::new()),
         })
+    }
+
+    /// Sets what each image may relax, by image reference. Called once by the lab host from its
+    /// manifests. An entry that fails `Hardening::check` is ignored, so a bad value can only make
+    /// a container stricter, never looser.
+    pub fn set_hardening(&self, per_image: HashMap<String, Hardening>) {
+        let valid = per_image
+            .into_iter()
+            .filter(|(_, h)| h.check().is_ok())
+            .collect();
+        *self.hardening.write().unwrap_or_else(|e| e.into_inner()) = valid;
+    }
+
+    fn hardening_for(&self, image: &str) -> Hardening {
+        self.hardening
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(image)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Podman needs `isolate` to keep its bridge networks apart; Docker keeps them apart by
@@ -119,14 +148,24 @@ impl DockerRuntime {
 }
 
 /// Limits and hardening shared by every placement.
-fn base_host_config(spec: &InstanceSpec) -> HostConfig {
+fn base_host_config(spec: &InstanceSpec, hardening: &Hardening) -> HostConfig {
+    // Whatever was asked, only the allowed capabilities are ever added back.
+    let add: Vec<String> = hardening
+        .cap_add
+        .iter()
+        .filter(|c| ALLOWED_CAPS.contains(&c.as_str()))
+        .cloned()
+        .collect();
     HostConfig {
         memory: Some(i64::from(spec.memory_mb) * 1024 * 1024),
         memory_swap: Some(i64::from(spec.memory_mb) * 1024 * 1024),
         nano_cpus: Some(i64::from(spec.cpu_millis) * 1_000_000),
         pids_limit: Some(i64::from(spec.pids)),
         cap_drop: Some(vec!["ALL".into()]),
-        security_opt: Some(vec!["no-new-privileges".into()]),
+        cap_add: (!add.is_empty()).then_some(add),
+        security_opt: hardening
+            .no_new_privileges
+            .then(|| vec!["no-new-privileges".to_owned()]),
         readonly_rootfs: Some(spec.read_only),
         privileged: Some(false),
         auto_remove: Some(false),
@@ -170,12 +209,14 @@ impl DockerRuntime {
             ));
         }
         let spec = &request.spec;
-        let mut host_config = base_host_config(spec);
+        let hardening = self.hardening_for(&spec.image);
+        let mut host_config = base_host_config(spec, &hardening);
         host_config.network_mode = Some(network.to_owned());
         let mut labels = self.request_labels(request);
         labels.insert("kymo.lab".to_owned(), network.to_owned());
         let body = ContainerCreateBody {
             image: Some(spec.image.clone()),
+            hostname: hardening.hostname.clone(),
             env: Some(spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect()),
             labels: Some(labels),
             host_config: Some(host_config),
@@ -214,6 +255,88 @@ impl DockerRuntime {
         Ok(Started::new(created.id, spec.port, Some(ip.to_owned())))
     }
 
+    /// A Verifier next to an instance: no capabilities, read-only root, a small scratch space,
+    /// the organizer's definition mounted read-only, and nothing but the lab network. The run
+    /// description is handed over in the environment, which only the host's root can read.
+    async fn start_verifier_container(&self, spec: &VerifierSpec) -> Result<String, RuntimeError> {
+        if !valid_network_name(&spec.network)
+            || !valid_network_name(&spec.name)
+            || spec.ip.parse::<std::net::Ipv4Addr>().is_err()
+        {
+            return Err(RuntimeError::Failed(
+                "the Verifier's network, name or address is not valid".into(),
+            ));
+        }
+        let host_config = HostConfig {
+            memory: Some(i64::from(spec.memory_mb) * 1024 * 1024),
+            memory_swap: Some(i64::from(spec.memory_mb) * 1024 * 1024),
+            nano_cpus: Some(i64::from(spec.cpu_millis) * 1_000_000),
+            pids_limit: Some(128),
+            cap_drop: Some(vec!["ALL".into()]),
+            security_opt: Some(vec!["no-new-privileges".into()]),
+            readonly_rootfs: Some(true),
+            privileged: Some(false),
+            auto_remove: Some(false),
+            network_mode: Some(spec.network.clone()),
+            binds: Some(vec![format!("{}:/verifier:ro", spec.definition_dir)]),
+            tmpfs: Some(HashMap::from([(
+                "/tmp".to_owned(),
+                "rw,nosuid,size=64m".to_owned(),
+            )])),
+            ..Default::default()
+        };
+        let labels = HashMap::from([
+            (LABEL_VERIFIER.to_owned(), self.scope.clone()),
+            (
+                LABEL_INSTANCE.to_owned(),
+                format!("{}-verifier", spec.instance_id),
+            ),
+            ("kymo.verifier-of".to_owned(), spec.instance_id.clone()),
+        ]);
+        let body = ContainerCreateBody {
+            image: Some(spec.image.clone()),
+            env: Some(vec![
+                format!("KYMO_VERIFIER_ADDR=0.0.0.0:{}", spec.port),
+                format!("KYMO_VERIFIER_RUN_JSON={}", spec.run_json),
+            ]),
+            labels: Some(labels),
+            host_config: Some(host_config),
+            networking_config: Some(NetworkingConfig {
+                endpoints_config: Some(HashMap::from([(
+                    spec.network.clone(),
+                    EndpointSettings {
+                        ipam_config: Some(EndpointIpamConfig {
+                            ipv4_address: Some(spec.ip.clone()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )])),
+            }),
+            ..Default::default()
+        };
+        let options = CreateContainerOptionsBuilder::new()
+            .name(&spec.name)
+            .build();
+        let created = self
+            .docker
+            .create_container(Some(options), body)
+            .await
+            .map_err(failed)?;
+        if let Err(e) = self
+            .docker
+            .start_container(
+                &created.id,
+                None::<bollard::query_parameters::StartContainerOptions>,
+            )
+            .await
+        {
+            let _ = self.stop(&created.id).await;
+            return Err(failed(e));
+        }
+        Ok(created.id)
+    }
+
     async fn start_published(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
         let spec = &request.spec;
         let id = &request.instance_id;
@@ -229,7 +352,8 @@ impl DockerRuntime {
             .map_err(failed)?;
 
         let port_key = format!("{}/tcp", spec.port);
-        let mut host_config = base_host_config(spec);
+        let hardening = self.hardening_for(&spec.image);
+        let mut host_config = base_host_config(spec, &hardening);
         host_config.network_mode = Some(network.clone());
         host_config.port_bindings = Some(HashMap::from([(
             port_key.clone(),
@@ -240,6 +364,7 @@ impl DockerRuntime {
         )]));
         let body = ContainerCreateBody {
             image: Some(spec.image.clone()),
+            hostname: hardening.hostname.clone(),
             env: Some(spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect()),
             exposed_ports: Some(HashMap::from([(port_key.clone(), HashMap::new())])),
             labels: Some(self.request_labels(request)),
@@ -299,6 +424,37 @@ impl InstanceRuntime for DockerRuntime {
             Placement::Published => self.start_published(request).await,
             Placement::Lab { network, ip, .. } => self.start_lab(request, network, ip).await,
         }
+    }
+
+    async fn start_verifier(&self, spec: &VerifierSpec) -> Result<String, RuntimeError> {
+        self.start_verifier_container(spec).await
+    }
+
+    async fn list_verifiers(&self) -> Result<Vec<Managed>, RuntimeError> {
+        let filters = HashMap::from([(
+            "label".to_owned(),
+            vec![format!("{LABEL_VERIFIER}={}", self.scope)],
+        )]);
+        let options = ListContainersOptionsBuilder::new()
+            .all(true)
+            .filters(&filters)
+            .build();
+        let list = self
+            .docker
+            .list_containers(Some(options))
+            .await
+            .map_err(failed)?;
+        Ok(list
+            .into_iter()
+            .filter_map(|c| {
+                let id = c.id?;
+                let of = c.labels?.get("kymo.verifier-of").cloned()?;
+                Some(Managed {
+                    handle: id,
+                    instance_id: of,
+                })
+            })
+            .collect())
     }
 
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError> {
@@ -470,5 +626,91 @@ impl InstanceRuntime for DockerRuntime {
             tokio::time::timeout(std::time::Duration::from_secs(2), connect).await,
             Ok(Ok(_))
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec() -> InstanceSpec {
+        InstanceSpec {
+            image: "lab/box:1".into(),
+            port: 22,
+            cpu_millis: 500,
+            memory_mb: 256,
+            pids: 128,
+            ttl_secs: 600,
+            env: vec![],
+            read_only: true,
+        }
+    }
+
+    #[test]
+    fn the_default_drops_every_capability_and_blocks_new_privileges() {
+        let host = base_host_config(&spec(), &Hardening::default());
+        assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
+        assert_eq!(host.cap_add, None);
+        assert_eq!(
+            host.security_opt,
+            Some(vec!["no-new-privileges".to_owned()])
+        );
+        assert_eq!(host.privileged, Some(false));
+        assert_eq!(host.readonly_rootfs, Some(true));
+    }
+
+    #[test]
+    fn a_manifest_can_add_allowed_capabilities_back_and_allow_setuid() {
+        let relaxed = Hardening {
+            cap_add: vec!["SETUID".into(), "SETGID".into(), "SYS_CHROOT".into()],
+            no_new_privileges: false,
+            hostname: None,
+        };
+        assert!(relaxed.check().is_ok());
+        assert!(relaxed.is_relaxed());
+        let host = base_host_config(&spec(), &relaxed);
+        // Everything is still dropped first; the allowed few are added back.
+        assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
+        assert_eq!(host.cap_add.as_ref().map(Vec::len), Some(3));
+        assert_eq!(host.security_opt, None);
+        // Limits, the read-only root and the unprivileged flag are untouched.
+        assert_eq!(host.pids_limit, Some(128));
+        assert_eq!(host.privileged, Some(false));
+        assert_eq!(host.readonly_rootfs, Some(true));
+    }
+
+    #[test]
+    fn dangerous_capabilities_are_refused_and_never_reach_the_container() {
+        for cap in [
+            "SYS_ADMIN",
+            "NET_ADMIN",
+            "SYS_PTRACE",
+            "SYS_MODULE",
+            "DAC_READ_SEARCH",
+            "SYS_RAWIO",
+            "SYS_TIME",
+            "ALL",
+            "CAP_CHOWN",
+            "chown",
+        ] {
+            let h = Hardening {
+                cap_add: vec![cap.into()],
+                no_new_privileges: true,
+                hostname: None,
+            };
+            assert!(h.check().is_err(), "{cap} must be refused");
+            // Even if a bad value got this far, the container would not get it.
+            assert_eq!(base_host_config(&spec(), &h).cap_add, None, "{cap}");
+        }
+    }
+
+    #[test]
+    fn the_allowlist_is_dockers_default_set_and_holds_nothing_that_reads_the_host() {
+        for cap in ALLOWED_CAPS {
+            assert!(
+                !cap.starts_with("SYS_ADMIN") && *cap != "SYS_PTRACE" && *cap != "DAC_READ_SEARCH"
+            );
+        }
+        assert!(ALLOWED_CAPS.contains(&"SETUID") && ALLOWED_CAPS.contains(&"SYS_CHROOT"));
     }
 }

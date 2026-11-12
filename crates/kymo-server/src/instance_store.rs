@@ -30,6 +30,10 @@ pub struct InstanceRow {
     pub extra_ports: Option<String>,
     /// How long this run may take to answer; empty means the usual minute.
     pub ready_secs: Option<i64>,
+    /// What the lab host reported for the run (machine, Verifier), as JSON.
+    pub endpoints: Option<String>,
+    /// The lab address allocated for the run's Verifier.
+    pub verifier_ip: Option<String>,
     pub state: String,
     pub started_at: i64,
     pub expires_at: i64,
@@ -114,11 +118,13 @@ pub struct NewRun<'a> {
     pub lab_host_id: Option<i64>,
     pub name: &'a str,
     pub public_host: &'a str,
+    /// The address allocated for the run's Verifier, for a Responder.
+    pub verifier_ip: Option<&'a str>,
 }
 
 pub async fn insert(pool: &SqlitePool, run: &NewRun<'_>) -> Result<i64, ApiError> {
     let done = sqlx::query(
-        "INSERT INTO instance (event_id, challenge_id, scorer_kind, scorer_id, user_id, state, started_at, expires_at, lab_ip, lab_host_id, name, public_host) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO instance (event_id, challenge_id, scorer_kind, scorer_id, user_id, state, started_at, expires_at, lab_ip, lab_host_id, name, public_host, verifier_ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(run.event_id)
     .bind(run.challenge_id)
@@ -132,6 +138,7 @@ pub async fn insert(pool: &SqlitePool, run: &NewRun<'_>) -> Result<i64, ApiError
     .bind(run.lab_host_id)
     .bind(run.name)
     .bind(run.public_host)
+    .bind(run.verifier_ip)
     .execute(pool)
     .await?;
     Ok(done.last_insert_rowid())
@@ -264,4 +271,22 @@ pub async fn live_of(
 pub fn extra_services(json: Option<&str>) -> Vec<kymo_instances::ExtraPort> {
     json.and_then(|j| serde_json::from_str(j).ok())
         .unwrap_or_default()
+}
+
+/// Remembers the endpoints the lab host reported for a run.
+pub async fn set_endpoints(
+    pool: &SqlitePool,
+    id: i64,
+    endpoints: &[kymo_instances::Endpoint],
+) -> Result<(), ApiError> {
+    if endpoints.is_empty() {
+        return Ok(());
+    }
+    let json = serde_json::to_string(endpoints).map_err(|_| ApiError::Internal)?;
+    sqlx::query("UPDATE instance SET endpoints = ? WHERE id = ?")
+        .bind(json)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }

@@ -1,0 +1,11 @@
+{
+  "artifact": "localhost/kymo-lab/flag-server:1",
+  "runtime": "docker",
+  "port": 8000,
+  "env": {},
+  "env_allow": [],
+  "cpu_millis": 500,
+  "memory_mb": 128,
+  "pids": 64,
+  "max_ttl_secs": 3600
+}

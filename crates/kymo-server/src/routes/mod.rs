@@ -159,6 +159,11 @@ pub fn router(state: AppState) -> Router {
         .route("/events/{slug}/instances", get(instances::list))
         .route("/admin/events/{id}/instances", get(instances::admin_list))
         .route("/admin/instances/{id}", delete(instances::admin_stop))
+        .route("/admin/instances/{id}/flags", get(instances::admin_flags))
+        .route(
+            "/admin/instances/{id}/verify-log",
+            get(instances::admin_verify_log),
+        )
         .route("/admin/instances/reap", post(instances::admin_reap))
         .route("/vpn", get(vpn::status))
         .route("/vpn/profile", post(vpn::profile))

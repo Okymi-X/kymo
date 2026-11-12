@@ -4,6 +4,7 @@ import type {
   AdminChallenge,
   AdminVpn,
   AdminInstance,
+  VerifyLogEntry,
   AuditPage,
   Ban,
   BackupFile,
@@ -198,6 +199,8 @@ export const platform = {
     request<Page<SubmissionLine>>('GET', `/admin/events/${id}/submissions${query({ per_page: 25, ...params })}`),
   adminInstances: (id: number) => request<{ instances: AdminInstance[] }>('GET', `/admin/events/${id}/instances`),
   stopAdminInstance: (id: number) => request<unknown>('DELETE', `/admin/instances/${id}`),
+  adminInstanceFlags: (id: number) => request<{ flags: { name: string; label: string; value: string }[] }>('GET', `/admin/instances/${id}/flags`),
+  adminVerifyLog: (id: number) => request<{ log: VerifyLogEntry[] }>('GET', `/admin/instances/${id}/verify-log`),
   exportScoreboard: (id: number, slug: string) => downloadFile(`/admin/events/${id}/scoreboard.csv`, `${slug}-scoreboard.csv`),
   exportEvent: (id: number, slug: string) => downloadFile(`/admin/events/${id}/export`, `${slug}.kymo-event.json`),
   importEvent: (bundle: string, keepTimes: boolean, keepState: boolean) =>

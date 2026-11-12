@@ -1,0 +1,9 @@
+{
+  "artifact": "gaara",
+  "runtime": "vm",
+  "file": "Gaara.ova",
+  "memory_mb": 1024,
+  "cpu_millis": 2000,
+  "boot_timeout_secs": 240,
+  "max_ttl_secs": 3600
+}

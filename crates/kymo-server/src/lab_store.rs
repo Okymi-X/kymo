@@ -290,10 +290,20 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
             "instances are still running here: stop them first".into(),
         ));
     }
+    // Its VPN state goes with it: labs, player profiles and revocations that live on this host.
+    // Left behind, they would point at a host that no longer exists.
+    let mut tx = pool.begin().await?;
+    for table in ["vpn_lab", "vpn_client", "vpn_revoked"] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE lab_host_id = ?"))
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query("DELETE FROM lab_host WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

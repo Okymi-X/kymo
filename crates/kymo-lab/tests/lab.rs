@@ -496,6 +496,7 @@ async fn the_wire_format_is_the_documented_one() {
         spec: spec(),
         meta: BTreeMap::new(),
         lab: None,
+        flags: Vec::new(),
     };
     let response = http()
         .post(format!("{}/v1/instances", f.url))
