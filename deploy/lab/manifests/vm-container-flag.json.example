@@ -1,0 +1,33 @@
+{
+  "_comment": "A virtual machine (an .ova) that runs a Docker container, with the flags put inside that container. The lab host connects over SSH after boot and works in this order: the 'before' commands, each flag (a file, or a command that receives the flag on its standard input), the 'after' commands, and last it deletes every file marked 'remove', even if a step failed. A flag is never in a command line. If any step fails the instance is removed, so no player gets a machine without its flag.",
+  "artifact": "web-in-a-box",
+  "runtime": "vm",
+  "file": "web-in-a-box.ova",
+  "ports": [ { "name": "web", "port": 8080 } ],
+  "display": "machine",
+  "memory_mb": 2048,
+  "cpu_millis": 2000,
+  "boot_timeout_secs": 240,
+  "max_ttl_secs": 7200,
+  "inject": {
+    "user": "ctf",
+    "ssh_key": "/etc/kymo-lab/keys/web-in-a-box.key",
+    "sudo": true,
+    "_comment_before": "Run first, in order. For example make sure the container is up. At most 8 commands, one line each.",
+    "before": [ "docker start web" ],
+    "flags": [
+      {
+        "_comment": "Written to a file on the VM, copied into the container by the 'after' command, then deleted ('remove': true).",
+        "name": "user",
+        "path": "/srv/flags/user.txt",
+        "remove": true
+      },
+      {
+        "_comment": "Never written to the VM's disk: the flag arrives on this command's standard input.",
+        "name": "root",
+        "command": "docker exec -i web sh -c 'cat > /root/root.txt && chmod 600 /root/root.txt'"
+      }
+    ],
+    "after": [ "docker cp /srv/flags/user.txt web:/home/ctf/user.txt" ]
+  }
+}
