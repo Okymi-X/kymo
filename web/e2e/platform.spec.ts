@@ -5,7 +5,7 @@ async function organizer(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Tournaments' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
 }
 
 test('a player registers, solves a challenge and reaches the scoreboard', async ({ page, browser }) => {

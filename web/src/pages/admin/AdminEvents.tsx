@@ -7,6 +7,7 @@ import { Gate, Loading, Panel, Pill, StatePill, Toggle } from '../../components/
 // import { EventCountdown } from '../../components/platform/EventCountdown'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../../components/ui'
 import { labLabel } from '../../lib/platform'
+import { DemoButton, TournamentCreate } from '../../components/TournamentCreate'
 import { usePageTitle } from '../../lib/usePageTitle'
 
 function CreateEvent() {
@@ -141,6 +142,7 @@ function Body() {
   return (
     <div className="flex flex-col gap-6">
       <CreateEvent />
+      <TournamentCreate />
       <ul className="grid gap-3 sm:grid-cols-2">
         {(q.data ?? []).map((e) => (
           <li key={e.id}>
@@ -159,6 +161,7 @@ function Body() {
           </li>
         ))}
       </ul>
+      {(q.data ?? []).length === 0 && <DemoButton />}
       <ImportBundle />
     </div>
   )

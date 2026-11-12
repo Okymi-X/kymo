@@ -19,6 +19,7 @@ import { TournamentAdmin } from '../../components/TournamentAdmin'
 import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
 import { InstanceDetails } from './InstanceDetails'
+import { RulesEditor } from '../../components/platform/RulesEditor'
 import { TournamentChallengeSettings } from './TournamentChallenges'
 
 type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
@@ -151,7 +152,7 @@ function Overview({ event }: { event: EventInfo }) {
               </Select>
             </Field>
           </div>
-          <Field label="Description and rules">
+          <Field label="Description">
             <Textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={2000} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -213,6 +214,8 @@ function Overview({ event }: { event: EventInfo }) {
         />
         <ErrorText error={board.error} />
       </Panel>
+
+      <RulesEditor eventId={event.id} slug={event.slug} />
 
       {event.kind === 'tournament' && <TournamentChallengeSettings event={event} />}
 

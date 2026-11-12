@@ -9,6 +9,7 @@ import type { EventInfo } from '../api/platformTypes'
 import { ChallengeBoard } from '../components/platform/ChallengeBoard'
 import { Empty, Loading, Panel, Pill, StatePill } from '../components/platform/bits'
 import { MyProgress } from '../components/platform/MyProgress'
+import { RulesButton } from '../components/platform/RulesButton'
 import { MyInstances } from '../components/platform/MyInstances'
 import { VpnPanel } from '../components/platform/VpnPanel'
 import { Scoreboard } from '../components/platform/Scoreboard'
@@ -167,6 +168,7 @@ export function EventPage() {
           <PageTitle>{event.name}</PageTitle>
           <StatePill state={live} />
           <Pill>{event.mode === 'team' ? 'Teams' : 'Solo'}</Pill>
+          <RulesButton slug={event.slug} />
         </div>
         <EventCountdown event={event} />
         {event.description && <p className="max-w-2xl whitespace-pre-wrap text-muted">{event.description}</p>}

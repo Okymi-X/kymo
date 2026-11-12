@@ -317,8 +317,9 @@ async fn a_server_without_the_vpn_says_so_and_refuses_vpn_events() {
     );
     let (s, b) = lab.network("vpn").await;
     assert_eq!(s, StatusCode::CONFLICT, "{b}");
+    let admin = lab.admin.clone();
     let (_, event) = lab
-        .call("GET", &format!("/events/{}", lab.slug), None, None)
+        .call("GET", &format!("/events/{}", lab.slug), Some(&admin), None)
         .await;
     assert_eq!(event["network_mode"], "published");
     let (_, admin) = lab.admin("GET", "/admin/vpn", None).await;

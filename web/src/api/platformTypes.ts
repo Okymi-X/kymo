@@ -603,6 +603,42 @@ export interface CleanupReport {
 
 // ---------- VPN ----------
 
+/** What the home page shows. In custom mode the organizer's own sanitized HTML and CSS replace the default page. */
+export interface HomeContent {
+  mode: 'default' | 'custom'
+  headline: string
+  subheadline: string
+  signin_label: string
+  signup_label: string
+  welcome: string
+  continue_label: string
+  banner: string
+  about_title: string
+  about_text: string
+  show_events: boolean
+  show_scoreboards: boolean
+  footer: string
+  custom_html: string
+  custom_css: string
+}
+
+/** An event whose scoreboard anyone may read. */
+export interface PublicEvent {
+  name: string
+  slug: string
+  kind: 'jeopardy' | 'tournament'
+  mode?: 'solo' | 'team'
+  effective_state: string
+  starts_at: number | null
+  ends_at: number | null
+  scoreboard_public?: boolean
+}
+
+export interface EventRules {
+  title: string
+  body: string
+}
+
 /** Whether the player's tunnel is up right now. `has_profile` is false until they download one. */
 export interface VpnConnection {
   has_profile: boolean

@@ -320,7 +320,14 @@ async fn challenges_decide_a_solo_match() {
     // Bob answers one flag question wrongly; the match is not over yet.
     let (_, r) = send(submit(&bob, flag_id, "nope", None)).await;
     assert_eq!(r["correct"], false);
-    let (_, t) = call(&app, "GET", &format!("/tournaments/{slug}"), None, None).await;
+    let (_, t) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}"),
+        Some(&admin),
+        None,
+    )
+    .await;
     assert!(t["bracket"]["matches"][0]["score"].is_null());
 
     // An organizer closes it with what was earned: 20 to 0, alice advances, the series is won.
@@ -334,7 +341,14 @@ async fn challenges_decide_a_solo_match() {
     .await;
     assert_eq!(status, StatusCode::OK, "{done}");
     assert_eq!(done["status"], "final");
-    let (_, t) = call(&app, "GET", &format!("/tournaments/{slug}"), None, None).await;
+    let (_, t) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}"),
+        Some(&admin),
+        None,
+    )
+    .await;
     assert_eq!(t["bracket"]["matches"][0]["score"], json!([20, 0]));
     assert_eq!(t["bracket"]["matches"][0]["winner"], "A");
     assert_eq!(t["status"], "done");

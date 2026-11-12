@@ -10,13 +10,33 @@ use kymo_server::{AppState, db, demo, router};
 use serde_json::Value;
 use tower::ServiceExt;
 
+/// Reads as the organizer: everything but the sign in pages needs a session.
 async fn get(app: &axum::Router, uri: &str) -> (u16, Value) {
     let addr: SocketAddr = "10.0.0.1:4000".parse().unwrap();
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .extension(ConnectInfo(addr))
+                .body(Body::from(r#"{"password":"correct horse battery"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = login.into_body().collect().await.unwrap().to_bytes();
+    let token = serde_json::from_slice::<Value>(&bytes).unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let res = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/api/v1{uri}"))
+                .header("authorization", format!("Bearer {token}"))
                 .extension(ConnectInfo(addr))
                 .body(Body::empty())
                 .unwrap(),
@@ -136,7 +156,7 @@ async fn the_platform_seed_fills_every_feature_and_hands_out_one_password() {
     assert_eq!(me["role"], "admin");
 
     // The lifecycle states are all there.
-    let (_, events) = send(&app, "GET", "/events", None, None).await;
+    let (_, events) = send(&app, "GET", "/events", Some(&ada), None).await;
     let state_of = |slug: &str| {
         events
             .as_array()
@@ -231,7 +251,7 @@ async fn the_platform_seed_fills_every_feature_and_hands_out_one_password() {
     );
 
     // Tournaments decided by challenges: a decided match, a tied one broken by time, one in play.
-    let (_, duel) = send(&app, "GET", "/tournaments/duel-cup", None, None).await;
+    let (_, duel) = send(&app, "GET", "/tournaments/duel-cup", Some(&ada), None).await;
     assert_eq!(duel["challenges"]["assignment"], "per_match");
     assert!(
         duel["schedule"]["ends_at"].is_i64(),
@@ -255,14 +275,21 @@ async fn the_platform_seed_fills_every_feature_and_hands_out_one_password() {
         matches[2]["score"].is_null(),
         "the third is still being played"
     );
-    let (_, team_duel) = send(&app, "GET", "/tournaments/team-duel-cup", None, None).await;
+    let (_, team_duel) = send(&app, "GET", "/tournaments/team-duel-cup", Some(&ada), None).await;
     assert_eq!(team_duel["challenges"]["assignment"], "per_round");
     assert!(team_duel["teams"][0]["player_team_id"].is_i64());
-    let (_, league) = send(&app, "GET", "/tournaments/challenge-league", None, None).await;
+    let (_, league) = send(
+        &app,
+        "GET",
+        "/tournaments/challenge-league",
+        Some(&ada),
+        None,
+    )
+    .await;
     assert_eq!(league["challenges"]["assignment"], "manual");
 
     // The ladder has a dated history and the audit log shows the organizer's work.
-    let (_, ladder) = send(&app, "GET", "/ladder/timeline", None, None).await;
+    let (_, ladder) = send(&app, "GET", "/ladder/timeline", Some(&ada), None).await;
     assert!(!ladder.as_array().unwrap().is_empty());
     let (_, audit) = send(
         &app,

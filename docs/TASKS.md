@@ -153,3 +153,11 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] Sample data seed command (`seed-demo`): tournaments and Jeopardy events with challenges, hints, players and solves, idempotent
 - [x] Public event cards use two columns on desktop and have more padding and larger titles
 - [ ] README with quickstart
+
+## Front page, sign in rule, public scoreboards and rules (2026-11-12)
+- [x] `/` is the home page: a default page built from editable texts, or the organizer's own sanitized HTML and CSS (shadow root, no scripts, forms, frames, handlers or outside loads). Signed in players see a greeting, their running instance and their events. Admin editor on the Appearance page (`GET /home`, `PUT` and `DELETE /admin/home`)
+- [x] Sign in is required for the whole API and every page except the allow list in `gate.rs` (sign in and up, `/settings`, `/home`, `/public/scoreboards`, team score reports, update pings, and the read only views of events with a public scoreboard). Anonymous answers are reused for 5 s
+- [x] `/s/<event>` public scoreboard page; `GET /public/events/{slug}`; tournaments with a public scoreboard stay readable for embed, stage and calendar
+- [x] Per event rules (`event_rules`, `GET /events/{slug}/rules`, `PUT /admin/events/{id}/rules`) in a dialog on the event page
+- [x] Header and links: Tournaments entry removed, back links go to Events, tournament creation and samples moved to Manage events
+- [ ] Playwright specs still assume the old home page (tournament list and create form at `/`) and were not rerun; update them when e2e can run

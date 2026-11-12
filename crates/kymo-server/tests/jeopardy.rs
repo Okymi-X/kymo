@@ -1039,7 +1039,11 @@ async fn scoreboard_is_hidden_until_published() {
     c.set_state("live").await;
     c.submit(&alice, id, FLAG).await;
 
-    assert_eq!(c.board(None).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        c.board(None).await.0,
+        StatusCode::UNAUTHORIZED,
+        "visitors must sign in"
+    );
     assert_eq!(c.board(Some(&eve)).await.0, StatusCode::FORBIDDEN);
     let (status, own) = c.board(Some(&alice)).await;
     assert_eq!(status, StatusCode::OK, "registered participants see it");
@@ -1487,6 +1491,11 @@ async fn the_score_timeline_ends_on_the_board_totals_and_follows_the_same_visibi
     // Not public yet: the chart is as hidden as the table.
     assert_eq!(
         call(&c.w.app, "GET", &uri, None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (eve, _) = player(&c.w.app, "eve").await;
+    assert_eq!(
+        call(&c.w.app, "GET", &uri, Some(&eve), None).await.0,
         StatusCode::FORBIDDEN
     );
     let (status, own) = call(&c.w.app, "GET", &uri, Some(&alice), None).await;

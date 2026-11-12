@@ -20,18 +20,17 @@ const variants: Record<Variant, string> = {
   ghost: 'bg-transparent text-muted border-transparent hover:text-ink',
 }
 
+/** The look of a button, for a link that should read as one. */
+export function buttonClass(variant: Variant = 'secondary', className = ''): string {
+  return `inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-control border px-3.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`
+}
+
 export function Button({
   variant = 'secondary',
   className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
-  return (
-    <button
-      type="button"
-      {...props}
-      className={`inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-control border px-3.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
-    />
-  )
+  return <button type="button" {...props} className={buttonClass(variant, className)} />
 }
 
 export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {

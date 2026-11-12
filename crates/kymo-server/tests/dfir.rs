@@ -202,7 +202,7 @@ async fn dfir_questions_score_on_a_jeopardy_board() {
         &app,
         "GET",
         &format!("/events/{slug}/scoreboard"),
-        None,
+        Some(&alice),
         None,
     )
     .await;
@@ -213,7 +213,7 @@ async fn dfir_questions_score_on_a_jeopardy_board() {
         &app,
         "GET",
         &format!("/events/{slug}/scoreboard"),
-        None,
+        Some(&alice),
         None,
     )
     .await;

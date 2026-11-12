@@ -4,8 +4,7 @@ import { usePageTitle } from '../lib/usePageTitle'
 
 /** Where "back" should lead from an address that does not exist, judged by what it started like. */
 export function notFoundBack(pathname: string): { to: string; label: string } {
-  if (pathname.startsWith('/e/') || pathname.startsWith('/events')) return { to: '/events', label: 'Browse events' }
-  if (pathname.startsWith('/t/')) return { to: '/', label: 'Browse tournaments' }
+  if (pathname.startsWith('/e/') || pathname.startsWith('/events') || pathname.startsWith('/t/')) return { to: '/events', label: 'Browse events' }
   if (pathname.startsWith('/admin') || pathname.startsWith('/monitor')) return { to: '/admin/events', label: 'Go to administration' }
   return { to: '/events', label: 'Browse events' }
 }

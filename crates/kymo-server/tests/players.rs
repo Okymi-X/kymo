@@ -183,7 +183,8 @@ async fn backfill_creates_an_event_per_existing_tournament() {
     );
 
     let w = with_pool(pool);
-    let (status, list) = call(&w.app, "GET", "/api/v1/events", None, None).await;
+    let (viewer, _) = player(&w.app, "viewer").await;
+    let (status, list) = call(&w.app, "GET", "/api/v1/events", Some(&viewer), None).await;
     assert_eq!(status, StatusCode::OK);
     let slugs: Vec<_> = list
         .as_array()
@@ -192,7 +193,14 @@ async fn backfill_creates_an_event_per_existing_tournament() {
         .map(|e| e["slug"].as_str().unwrap())
         .collect();
     assert_eq!(slugs, ["old-done", "old-live"], "drafts stay hidden");
-    let (_, tournament) = call(&w.app, "GET", "/api/v1/tournaments/old-live", None, None).await;
+    let (_, tournament) = call(
+        &w.app,
+        "GET",
+        "/api/v1/tournaments/old-live",
+        Some(&viewer),
+        None,
+    )
+    .await;
     assert!(tournament["event_id"].is_i64());
 }
 
@@ -525,8 +533,18 @@ async fn event_states_follow_the_state_machine() {
     let id = event["id"].as_i64().unwrap();
     assert_eq!(event["state"], "draft");
 
-    // Drafts are hidden from the public.
+    // Drafts are hidden from the public, and a visitor has to sign in to ask at all.
     let (status, _) = call(&w.app, "GET", "/api/v1/events/spring-ctf", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (viewer, _) = player(&w.app, "viewer").await;
+    let (status, _) = call(
+        &w.app,
+        "GET",
+        "/api/v1/events/spring-ctf",
+        Some(&viewer),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     let (status, body) = set_state(&w.app, &admin, id, "ended").await;
@@ -545,9 +563,16 @@ async fn event_states_follow_the_state_machine() {
     let (status, _) = call(&w.app, "DELETE", &uri, Some(&admin), None).await;
     assert_eq!(status, StatusCode::CONFLICT);
     set_state(&w.app, &admin, id, "archived").await;
-    let (status, _) = call(&w.app, "GET", "/api/v1/events/spring-ctf", None, None).await;
+    let (status, _) = call(
+        &w.app,
+        "GET",
+        "/api/v1/events/spring-ctf",
+        Some(&viewer),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
-    let (_, public) = call(&w.app, "GET", "/api/v1/events", None, None).await;
+    let (_, public) = call(&w.app, "GET", "/api/v1/events", Some(&viewer), None).await;
     assert_eq!(
         public.as_array().unwrap().len(),
         0,
@@ -569,12 +594,21 @@ async fn effective_state_follows_the_clock() {
     .await;
     let id = event["id"].as_i64().unwrap();
     set_state(&w.app, &admin, id, "registration_open").await;
+    let (viewer, _) = player(&w.app, "viewer").await;
 
     let effective = |at: i64| {
         let w = &w;
+        let viewer = viewer.clone();
         async move {
             w.set_time(at);
-            let (_, e) = call(&w.app, "GET", "/api/v1/events/spring-ctf", None, None).await;
+            let (_, e) = call(
+                &w.app,
+                "GET",
+                "/api/v1/events/spring-ctf",
+                Some(&viewer),
+                None,
+            )
+            .await;
             assert_eq!(e["state"], "registration_open", "stored state is untouched");
             e["effective_state"].as_str().unwrap().to_owned()
         }
@@ -945,9 +979,9 @@ async fn the_event_page_says_whether_the_caller_is_registered() {
     let (other, _) = player(&w.app, "other").await;
     let uri = "/api/v1/events/spring-ctf";
 
-    let (status, anon) = call(&w.app, "GET", uri, None, None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(anon["registered"], false, "visitors are not registered");
+    // A visitor has to sign in to open the event at all.
+    let (status, _) = call(&w.app, "GET", uri, None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (_, before) = call(&w.app, "GET", uri, Some(&token), None).await;
     assert_eq!(before["registered"], false);
 

@@ -7,6 +7,7 @@ import { api, useIsAdmin } from '../api/client'
 import type { Appearance, Density, FontChoice, LineStyle, Match, Scheme, Slot, Tint } from '../api/types'
 import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
+import { HomeEditor } from '../components/home/HomeEditor'
 import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Segmented, StatusPill } from '../components/ui'
 import { AA, DEFAULT_APPEARANCE, FONT_LABELS, LOGO_TYPES, PAGE_BACKGROUND, PRESETS, contrastRatio, isHex, matchingPreset, readLogo } from '../lib/theme'
@@ -207,9 +208,10 @@ export function Settings() {
   }
 
   return (
+    <div className="flex flex-col gap-14">
     <form onSubmit={submit} className="flex flex-col gap-10">
       <div className="flex flex-col gap-2">
-        <BackLink>Tournaments</BackLink>
+        <BackLink>Home</BackLink>
         <PageTitle>Appearance</PageTitle>
         <p className="max-w-xl text-lg text-muted">Pick a look for this instance. Changes preview on this page and apply to everyone once saved.</p>
       </div>
@@ -314,5 +316,7 @@ export function Settings() {
         </Button>
       </div>
     </form>
+    <HomeEditor />
+    </div>
   )
 }

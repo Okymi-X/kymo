@@ -42,6 +42,7 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 
 - **Jeopardy CTFs, solo or in teams:** categories, static or dynamic points, hints with a point cost, attachments, flag formats and regex flags, attempt limits, a scoreboard that stays hidden until you publish it, and per teammate progress. Players sign up, form teams with invite codes, register for an event and play in the browser.
 - **Challenge instances:** a challenge can start a private Docker container per player or team, with CPU, memory, process and lifetime limits, an expiry reaper and cleanup of orphaned containers.
+- **A front page you shape:** `/` is a home page with sign in and sign up. The default page is built from texts the organizer edits (headline, buttons, banner, about, footer); the organizer can instead write their own HTML and CSS. Signed in players see a greeting, their running instance and their events on top. See "Home page, sign in and public scoreboards".
 - **Roles and safety:** visitors, players, referees, monitors and admins; per endpoint rate limits with automatic and manual bans, a request log, a moderation audit trail, health and backup tools, and event bundles you can export and import.
 - **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss. Any of them can be best of 1, 3, 5 or 7, entered game by game.
 - **Organizer tools:** enter and correct scores, forfeits, undo the newest result, schedule matches with a place, drag teams into seeding order, seed by qualifier score or at random, decide ties by hand, rename, duplicate, back up as JSON, import a setup file.
@@ -171,7 +172,17 @@ curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -X POST http://127.0.0.1:8787/api/v1/admin/import --data @docs/examples/spring-cup.json
 ```
 
-Reads are public: `GET /api/v1/tournaments` and `GET /api/v1/tournaments/{slug}`. An API token cannot create other tokens.
+Everything needs a session (an API token counts) except the sign in pages and the public views of events whose scoreboard is public (see "Home page, sign in and public scoreboards"). An API token cannot create other tokens.
+
+## Home page, sign in and public scoreboards
+
+**Sign in is required.** Every page and API call needs a session, except: the front page, signing in and up, the appearance and home page content, a team's score report (its code is its key), and the read only views of events whose scoreboard is public. The rule lives in one place (`crates/kymo-server/src/gate.rs`), so a new route is closed by default. A stale session is refused, so an expired one reads as signed out.
+
+**Public scoreboards.** An event's *Anyone can see the scoreboard* switch is the only exception. It opens `/s/<event>` (a read only scoreboard with a Sign in button) and, for a tournament, its bracket for the embed, stage and calendar views. Nothing else about the event is open: not its challenges, players or rules. Answers to visitors are reused for 5 seconds, so a crowd costs one computation per event every few seconds. The event update streams send only a "something changed" ping and stay open, because a browser cannot send the session header on them.
+
+**The home page** (Appearance, Home page). In the default page the organizer edits the headline, text, button labels, announcement banner, about section and footer, and switches the events and public scoreboards sections on or off. In custom mode they write HTML and CSS. The HTML is cleaned when saved and again in the browser (no scripts, forms, frames, event handlers or inline styles), shown inside a shadow root so its CSS cannot touch the app, and the CSS cannot load anything from outside (`@import`, outside `url()`), use `position: fixed` or backslash escapes. Links to `/signin`, `/signin?mode=register` and `/events` work as normal links; the sign in forms themselves stay ours. Signed in players see the page with a greeting, their running instance and their live and upcoming events.
+
+**Rules.** Each event can have its own rules (Manage events, the event, Rules): a title and a text. Players open them from a button on the event page. A line starting with `#` is a heading, `-` a list item, and a blank line a new paragraph; nothing is treated as HTML.
 
 ## Formats
 

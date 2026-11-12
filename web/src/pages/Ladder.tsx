@@ -25,7 +25,7 @@ export function Ladder() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <BackLink>Tournaments</BackLink>
+        <BackLink>Home</BackLink>
         <PageTitle>Ladder</PageTitle>
         <p className="mt-2 max-w-prose text-muted">Points across every tournament here: 3 for a win, 1 for a draw and 10 for winning a tournament. Teams with the same name count as one team.</p>
       </div>

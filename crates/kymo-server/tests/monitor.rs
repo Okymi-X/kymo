@@ -173,7 +173,7 @@ async fn requests_are_logged_without_secrets_and_monitor_calls_are_not() {
     assert_eq!(r.status, StatusCode::OK);
     w.call(
         "GET",
-        "/ladder?secret=hunter2",
+        "/settings?secret=hunter2",
         None,
         Some("10.0.0.6"),
         None,
@@ -215,7 +215,7 @@ async fn requests_are_logged_without_secrets_and_monitor_calls_are_not() {
         !text.contains("/admin/monitor"),
         "monitor reads are not logged"
     );
-    assert!(text.contains("\"route\":\"/api/v1/ladder\""));
+    assert!(text.contains("\"route\":\"/api/v1/settings\""));
 
     let by_user = w
         .call(
@@ -303,13 +303,13 @@ async fn a_rate_rule_throttles_one_address_and_can_be_removed() {
             "/admin/monitor/rules",
             Some(&admin),
             None,
-            Some(rule("GET /api/v1/ladder", 2, None, 0)),
+            Some(rule("GET /api/v1/settings", 2, None, 0)),
         )
         .await;
     assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
     let id = made.body["id"].as_i64().unwrap();
 
-    let hit = |ip: &'static str| w.call("GET", "/ladder", None, Some(ip), None);
+    let hit = |ip: &'static str| w.call("GET", "/settings", None, Some(ip), None);
     assert_eq!(hit("10.0.0.1").await.status, StatusCode::OK);
     assert_eq!(hit("10.0.0.1").await.status, StatusCode::OK);
     let third = hit("10.0.0.1").await;
@@ -352,10 +352,10 @@ async fn repeated_denials_ban_the_address_until_the_ban_expires() {
         "/admin/monitor/rules",
         Some(&admin),
         None,
-        Some(rule("GET /api/v1/ladder", 1, Some(2), 100)),
+        Some(rule("GET /api/v1/settings", 1, Some(2), 100)),
     )
     .await;
-    let hit = || w.call("GET", "/ladder", None, Some("10.0.0.7"), None);
+    let hit = || w.call("GET", "/settings", None, Some("10.0.0.7"), None);
     assert_eq!(hit().await.status, StatusCode::OK);
     assert_eq!(hit().await.status, StatusCode::TOO_MANY_REQUESTS);
     let banned = hit().await;
@@ -381,7 +381,7 @@ async fn repeated_denials_ban_the_address_until_the_ban_expires() {
         ban["reason"]
             .as_str()
             .unwrap()
-            .contains("GET /api/v1/ladder")
+            .contains("GET /api/v1/settings")
     );
 
     let audit = w
@@ -414,15 +414,15 @@ async fn an_unknown_address_is_throttled_but_never_banned() {
         "/admin/monitor/rules",
         Some(&admin),
         None,
-        Some(rule("GET /api/v1/ladder", 1, Some(1), 0)),
+        Some(rule("GET /api/v1/settings", 1, Some(1), 0)),
     )
     .await;
     assert_eq!(
-        w.call("GET", "/ladder", None, None, None).await.status,
+        w.call("GET", "/settings", None, None, None).await.status,
         StatusCode::OK
     );
     for _ in 0..3 {
-        let r = w.call("GET", "/ladder", None, None, None).await;
+        let r = w.call("GET", "/settings", None, None, None).await;
         assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
     }
     let bans = w
@@ -448,7 +448,7 @@ async fn manual_ip_bans_block_everyone_but_staff_and_are_audited() {
     let id = made.body["id"].as_i64().unwrap();
 
     assert_eq!(
-        w.call("GET", "/ladder", None, Some("10.0.0.9"), None)
+        w.call("GET", "/settings", None, Some("10.0.0.9"), None)
             .await
             .status,
         StatusCode::FORBIDDEN
@@ -491,7 +491,7 @@ async fn manual_ip_bans_block_everyone_but_staff_and_are_audited() {
     assert_eq!(lifted.status, StatusCode::OK, "{}", lifted.body);
     assert!(lifted.body["lifted_at"].is_number());
     assert_eq!(
-        w.call("GET", "/ladder", None, Some("10.0.0.9"), None)
+        w.call("GET", "/settings", None, Some("10.0.0.9"), None)
             .await
             .status,
         StatusCode::OK
@@ -721,7 +721,8 @@ async fn summary_counts_traffic_and_monitors_read_submission_history() {
     let (mon, _) = w.staff(&admin, "mona", "monitor").await;
     let (player, _) = w.player("pat").await;
     for _ in 0..3 {
-        w.call("GET", "/ladder", None, Some("10.0.0.3"), None).await;
+        w.call("GET", "/settings", None, Some("10.0.0.3"), None)
+            .await;
     }
     w.call("GET", "/me", None, Some("10.0.0.3"), None).await;
 
@@ -737,7 +738,7 @@ async fn summary_counts_traffic_and_monitors_read_submission_history() {
     assert_eq!(s.status, StatusCode::OK, "{}", s.body);
     assert!(s.body["total"].as_i64().unwrap() >= 4);
     assert_eq!(s.body["top_ips"][0]["key"], "10.0.0.3");
-    assert_eq!(s.body["top_routes"][0]["key"], "/api/v1/ladder");
+    assert_eq!(s.body["top_routes"][0]["key"], "/api/v1/settings");
     assert!(s.body["forbidden"].is_number() && s.body["throttled"].is_number());
 
     let ev = w
@@ -769,7 +770,7 @@ async fn the_forwarded_address_is_used_only_behind_a_trusted_proxy() {
         let r = w
             .send(
                 "GET",
-                "/api/v1/ladder",
+                "/api/v1/settings",
                 None,
                 Some("10.0.0.4"),
                 &[("x-forwarded-for", "1.1.1.1, 9.9.9.9")],
@@ -780,7 +781,7 @@ async fn the_forwarded_address_is_used_only_behind_a_trusted_proxy() {
         let log = w
             .call(
                 "GET",
-                "/admin/monitor/requests?route=/api/v1/ladder",
+                "/admin/monitor/requests?route=/api/v1/settings",
                 Some(&admin),
                 None,
                 None,
@@ -796,7 +797,7 @@ async fn a_burst_of_requests_is_logged_completely_by_the_background_writer() {
     let admin = w.admin().await;
     for _ in 0..250 {
         let r = w
-            .call("GET", "/ladder", None, Some("10.0.0.60"), None)
+            .call("GET", "/settings", None, Some("10.0.0.60"), None)
             .await;
         assert_eq!(r.status, StatusCode::OK);
     }
@@ -825,7 +826,7 @@ async fn a_burst_of_requests_is_logged_completely_by_the_background_writer() {
     assert!(
         busiest
             .iter()
-            .any(|r| r["key"] == "/api/v1/ladder" && r["count"] == 250),
+            .any(|r| r["key"] == "/api/v1/settings" && r["count"] == 250),
         "{busiest:?}"
     );
     // The health report is current too, and cleanup counts the rows that were queued.

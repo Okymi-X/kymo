@@ -82,7 +82,7 @@ export function Tokens() {
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div>
-        <BackLink>Tournaments</BackLink>
+        <BackLink>Home</BackLink>
         <PageTitle>API tokens</PageTitle>
         <p className="mt-2 text-muted">Use a token as a Bearer header to manage tournaments from scripts.</p>
       </div>
