@@ -1,9 +1,0 @@
-{
-  "artifact": "localhost/kymo-lab/tcp-banner:1",
-  "runtime": "docker",
-  "port": 9000,
-  "cpu_millis": 250,
-  "memory_mb": 64,
-  "pids": 32,
-  "max_ttl_secs": 1800
-}
