@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react'
-import type { ApiToken, LadderLine, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
+import type { ApiToken, LadderLine, LadderSeries, PendingReport, ReportInfo, Webhook, Appearance, LogEvent, Format, Seeding, Side, Tournament } from './types'
 
 const BASE = '/api/v1'
 const TOKEN_KEY = 'kymo.token'
@@ -198,7 +198,7 @@ export const api = {
   logout: () => request<void>('POST', '/auth/logout'),
   list: () => request<Tournament[]>('GET', '/tournaments'),
   get: (slug: string) => request<Tournament>('GET', `/tournaments/${encodeURIComponent(slug)}`),
-  loadDemo: () => request<{ added: number }>('POST', '/admin/demo'),
+  loadDemo: () => request<{ added: number; password: string; accounts: { username: string; role: string; about: string }[] }>('POST', '/admin/demo'),
   activity: (slug: string) => request<LogEvent[]>('GET', `/tournaments/${encodeURIComponent(slug)}/activity`),
   create: (name: string, format: Format, options: { thirdPlace: boolean; groups: number; advance: number; rounds: number; bestOf: number }) =>
     request<Tournament>('POST', '/tournaments', {
@@ -227,6 +227,7 @@ export const api = {
   approveReport: (id: number) => request<Tournament>('POST', `/admin/reports/${id}/approve`),
   rejectReport: (id: number) => request<void>('POST', `/admin/reports/${id}/reject`),
   ladder: () => request<LadderLine[]>('GET', '/ladder'),
+  ladderTimeline: () => request<LadderSeries[]>('GET', '/ladder/timeline'),
   importSetup: (setup: unknown) => request<Tournament>('POST', '/admin/import', setup),
   setAccent: (id: number, accent: string | null) => request<Tournament>('PUT', `${admin(id)}/accent`, { accent }),
   setTiebreak: (id: number, order: number[]) => request<Tournament>('PUT', `${admin(id)}/tiebreak`, { order }),

@@ -10,6 +10,7 @@ kymo-engine = { path = "../kymo-engine" }
 kymo-core = { path = "../kymo-core" }
 kymo-instances = { path = "../kymo-instances", features = ["docker"] }
 kymo-jeopardy = { path = "../kymo-jeopardy" }
+kymo-duel = { path = "../kymo-duel" }
 kymo-monitor = { path = "../kymo-monitor" }
 kymo-lab = { path = "../kymo-lab", default-features = false }
 kymo-vpn = { path = "../kymo-vpn", features = ["docker"] }

@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSignedIn, useWho } from './client'
+import { session, useSignedIn, useWho } from './client'
 import { platform } from './platform'
+import type { Permission } from './platformTypes'
 
 export const useEvents = () => useQuery({ queryKey: ['events'], queryFn: platform.events, refetchInterval: 30_000 })
 
@@ -46,4 +47,16 @@ export function useEventStream(slug: string, enabled: boolean) {
     })
     return () => source.close()
   }, [slug, enabled, client])
+}
+
+/** What the signed in caller may do, from the server. Anonymous visitors get the visitor's list.
+ *  The server still checks every request; this only decides what is worth showing. */
+export const useMyPermissions = () => {
+  const token = useSyncExternalStore(session.subscribe, session.token)
+  return useQuery({ queryKey: ['permissions', 'mine', token], queryFn: platform.myPermissions, staleTime: 30_000 })
+}
+
+export function useCan(permission: Permission): boolean {
+  const q = useMyPermissions()
+  return q.data?.permissions.includes(permission) ?? false
 }

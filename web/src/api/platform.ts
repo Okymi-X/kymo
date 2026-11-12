@@ -1,4 +1,5 @@
 import { ApiError, request, session } from './client'
+import type { ChallengeSettings, Tournament } from './types'
 import type {
   AdminChallenge,
   AdminVpn,
@@ -42,6 +43,14 @@ import type {
   Verdict,
   VpnStatus,
   VpnSyncReport,
+  MyPermissions,
+  Permission,
+  PermissionMatrix,
+  AnswerResult,
+  DfirItem,
+  DfirItemBody,
+  MatchView,
+  Candidate,
 } from './platformTypes'
 
 const BASE = '/api/v1'
@@ -108,6 +117,7 @@ export const platform = {
 
   // playing
   challenges: (slug: string) => request<ChallengeList>('GET', `${ev(slug)}/challenges`),
+  submitItem: (slug: string, id: number, item: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/items/${item}/submit`, { flag }),
   submit: (slug: string, id: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/submit`, { flag }),
   unlockHint: (slug: string, id: number, hint: number) => request<HintUnlock>('POST', `${ch(slug, id)}/hints/${hint}/unlock`),
   download: (slug: string, id: number, attachment: number, name: string) =>
@@ -191,16 +201,39 @@ export const platform = {
     request<Page<SubmissionLine>>('GET', `/admin/events/${id}/submissions${query({ per_page: 25, ...params })}`),
   adminInstances: (id: number) => request<{ instances: AdminInstance[] }>('GET', `/admin/events/${id}/instances`),
   stopAdminInstance: (id: number) => request<unknown>('DELETE', `/admin/instances/${id}`),
+  exportScoreboard: (id: number, slug: string) => downloadFile(`/admin/events/${id}/scoreboard.csv`, `${slug}-scoreboard.csv`),
   exportEvent: (id: number, slug: string) => downloadFile(`/admin/events/${id}/export`, `${slug}.kymo-event.json`),
   importEvent: (bundle: string, keepTimes: boolean, keepState: boolean) =>
     request<EventInfo>('POST', `/admin/events/import${query({ keep_times: keepTimes || undefined, keep_state: keepState || undefined })}`, JSON.parse(bundle)),
 
   users: (params: { q?: string; page?: number }) => request<Page<User>>('GET', `/admin/users${query({ per_page: 25, ...params })}`),
-  updateUser: (id: number, body: { role?: Role; banned?: boolean }) => request<User>('PUT', `/admin/users/${id}`, body),
+  updateUser: (id: number, body: { role?: Role; banned?: boolean; display_name?: string; bio?: string; email?: string; new_password?: string }) => request<User>('PUT', `/admin/users/${id}`, body),
   registrationOpen: () => request<{ open: boolean }>('GET', '/admin/registration'),
   revealSubmission: (eventId: number, id: number) => request<{ value: string }>('GET', `/admin/events/${eventId}/submissions/${id}/value`),
   createUser: (body: { username: string; email?: string; role?: Role; password?: string }) =>
     request<{ user: User; temporary_password: string | null }>('POST', '/admin/users', body),
+  dfirItems: (challenge: number) => request<DfirItem[]>('GET', `/admin/challenges/${challenge}/items`),
+  saveDfirItems: (challenge: number, items: DfirItemBody[]) => request<DfirItem[]>('PUT', `/admin/challenges/${challenge}/items`, { items }),
+  saveChallengeSettings: (tournament: number, body: ChallengeSettings) => request<Tournament>('PUT', `/admin/tournaments/${tournament}/challenge-settings`, body),
+  fillRoster: (tournament: number) => request<Tournament>('POST', `/admin/tournaments/${tournament}/roster/from-registrations`),
+  staffMatch: (tournament: number, match: number) => request<MatchView>('GET', `/admin/tournaments/${tournament}/matches/${match}/duel`),
+  assignMatch: (tournament: number, match: number, challengeIds: number[]) =>
+    request<MatchView>('PUT', `/admin/tournaments/${tournament}/matches/${match}/challenges`, { challenge_ids: challengeIds }),
+  finalizeMatch: (tournament: number, match: number, winner?: 'a' | 'b') =>
+    request<MatchView>('POST', `/admin/tournaments/${tournament}/matches/${match}/finalize`, winner ? { winner } : {}),
+  restartMatch: (tournament: number, match: number) => request<void>('POST', `/admin/tournaments/${tournament}/matches/${match}/restart`),
+  myMatches: (slug: string) => request<{ matches: number[] }>('GET', `/tournaments/${encodeURIComponent(slug)}/play/mine`),
+  playMatch: (slug: string, match: number) => request<MatchView>('GET', `/tournaments/${encodeURIComponent(slug)}/matches/${match}/play`),
+  answerMatch: (slug: string, match: number, challenge: number, value: string, itemId?: number) =>
+    request<AnswerResult>('POST', `/tournaments/${encodeURIComponent(slug)}/matches/${match}/challenges/${challenge}/submit`, { value, item_id: itemId }),
+  candidates: (event: number, q: string) => request<Candidate[]>('GET', `/admin/events/${event}/candidates${query({ q })}`),
+  addParticipant: (event: number, body: { user_id?: number; team_id?: number }) => request<Participant[]>('POST', `/admin/events/${event}/participants`, body),
+  removeParticipant: (event: number, participant: number) => request<Participant[]>('DELETE', `/admin/events/${event}/participants/${participant}`),
+  setRegistrationClosed: (id: number, closed: boolean) => request<EventInfo>('PUT', `/admin/events/${id}/registration`, { closed }),
+  permissionMatrix: () => request<PermissionMatrix>('GET', '/admin/permissions'),
+  savePermissions: (roles: Partial<Record<Role, Permission[]>>) => request<PermissionMatrix>('PUT', '/admin/permissions', { roles }),
+  resetPermissions: () => request<PermissionMatrix>('POST', '/admin/permissions/reset'),
+  myPermissions: () => request<MyPermissions>('GET', '/permissions/mine'),
   contact: () => request<{ contact: string }>('GET', '/admin/contact'),
   setContact: (contact: string) => request<{ contact: string }>('PUT', '/admin/contact', { contact }),
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),

@@ -52,6 +52,8 @@ pub struct ChallengeRow {
     pub position: i64,
     pub requires_instance: bool,
     pub instance_config: Option<String>,
+    /// `flag` (also instance backed) or `dfir` (question items, tournament events only).
+    pub kind: String,
     pub created_at: i64,
     /// Where this challenge's instances run when it is not the event's lab host; none follows the event.
     pub lab_host_id: Option<i64>,
@@ -121,6 +123,7 @@ pub struct ChallengeFields {
     pub position: i64,
     pub requires_instance: bool,
     pub instance_config: Option<Value>,
+    pub kind: String,
 }
 
 impl From<&ChallengeRow> for ChallengeFields {
@@ -143,6 +146,7 @@ impl From<&ChallengeRow> for ChallengeFields {
                 .instance_config
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok()),
+            kind: row.kind.clone(),
         }
     }
 }
@@ -361,7 +365,7 @@ pub async fn challenge_insert(
 ) -> Result<i64, ApiError> {
     check_category(pool, event_id, fields.category_id).await?;
     let done = sqlx::query(
-        "INSERT INTO challenge (event_id, category_id, title, description, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, release_at, retire_at, position, requires_instance, instance_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO challenge (event_id, category_id, title, description, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(event_id)
     .bind(fields.category_id)
@@ -378,6 +382,7 @@ pub async fn challenge_insert(
     .bind(fields.position)
     .bind(fields.requires_instance)
     .bind(fields.instance_config.as_ref().map(Value::to_string))
+    .bind(&fields.kind)
     .bind(now)
     .execute(pool)
     .await?;

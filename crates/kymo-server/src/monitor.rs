@@ -315,7 +315,10 @@ async fn identify(state: &AppState, secret: Option<String>) -> (Option<i64>, boo
     match tokens::access(&state.pool, &secret).await {
         Ok(Some(access)) => (
             access.user.map(|u| u.id),
-            access.role().can(Permission::Monitor),
+            state
+                .can(access.role(), Permission::Monitor)
+                .await
+                .unwrap_or(false),
         ),
         _ => (None, false),
     }

@@ -46,6 +46,21 @@ export interface Team {
   name: string
   seed: number
   score: number
+  /** The account that plays for this team in a solo event. */
+  user_id?: number | null
+  /** The player team that plays for this team in a team event. */
+  player_team_id?: number | null
+}
+
+export type ChallengeAssignment = 'none' | 'manual' | 'per_match' | 'per_round'
+
+/** How the tournament decides its matches with challenges. */
+export interface ChallengeSettings {
+  assignment: ChallengeAssignment
+  solo: number
+  team: number
+  seed: number
+  time_limit: number | null
 }
 
 export interface Tournament {
@@ -60,10 +75,17 @@ export interface Tournament {
   rounds: number
   /** Games per match: 1, 3, 5 or 7. */
   best_of: number
+  challenges: ChallengeSettings
+  /** True while the organizer has paused the event, so no page shows it as live. */
+  paused: boolean
+  /** When the tournament's event starts and ends, for the countdown. */
+  schedule: { starts_at: number | null; ends_at: number | null; ended_at: number | null; effective_state: 'draft' | 'registration_open' | 'live' | 'paused' | 'ended' | 'archived' }
   /** Rules or notes from the organizer, shown under the title. */
   description: string
   /** Optional #rrggbb accent for this tournament's pages. */
   accent: string | null
+  /** The platform event this tournament belongs to. */
+  event_id: number | null
   status: Status
   created_at: string
   teams: Team[]
@@ -166,4 +188,11 @@ export interface LogEvent {
     scheduled_at?: number | null
     venue?: string | null
   }
+}
+
+/** One team's cumulative ladder points over time. */
+export interface LadderSeries {
+  name: string
+  points: number
+  steps: { at: number; total: number }[]
 }

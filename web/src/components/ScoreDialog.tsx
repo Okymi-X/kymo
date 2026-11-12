@@ -6,6 +6,7 @@ import type { Match, Side, Tournament } from '../api/types'
 import { fromLocalInput, toLocalInput } from '../lib/schedule'
 import { Modal, ModalBody, ModalFooter, ModalHeader, modalForm } from './Modal'
 import { Button, ErrorText, Field, Input } from './ui'
+import { MatchChallengesAdmin } from './platform/MatchChallengesAdmin'
 
 interface Props {
   tournament: Tournament
@@ -166,6 +167,7 @@ export function ScoreDialog({ tournament, match, names, onClose }: Props) {
             </Button>
           </div>
         )}
+        {tournament.challenges.assignment !== 'none' && <MatchChallengesAdmin tournament={tournament} match={match} names={names} />}
         <Section title="No game played" hint="One side advances without a score">
           <div className="flex flex-col gap-2">
             <Button onClick={() => forfeit.mutate('A')} disabled={forfeit.isPending} className="justify-start">

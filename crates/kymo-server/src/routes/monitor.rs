@@ -272,7 +272,7 @@ pub async fn create_ban(
             }
             let target = users::by_id(&state.pool, id).await?;
             let role = kymo_core::Role::from_str(&target.role).map_err(|_| ApiError::Internal)?;
-            if role.can(Permission::Monitor) {
+            if state.can(role, Permission::Monitor).await? {
                 return Err(ApiError::Denied(
                     "staff accounts cannot be banned here; change their role under Users first"
                         .into(),

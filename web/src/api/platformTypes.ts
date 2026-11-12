@@ -2,6 +2,46 @@
 // Mirrored by hand from the server, like types.ts.
 
 export type Role = 'visitor' | 'player' | 'referee' | 'monitor' | 'admin'
+export type Permission =
+  | 'view_public'
+  | 'view_scoreboard_public'
+  | 'play_event'
+  | 'manage_team'
+  | 'submit_flag'
+  | 'start_instance'
+  | 'referee'
+  | 'manage_events'
+  | 'manage_challenges'
+  | 'manage_users'
+  | 'manage_settings'
+  | 'preview_as_player'
+  | 'monitor'
+  | 'moderate_bans'
+  | 'view_audit'
+  | 'view_hidden_scoreboard'
+  | 'manage_permissions'
+
+/** One role's row in the permission matrix. A locked role cannot be edited; forced permissions
+ *  cannot be switched off for it. */
+export interface RolePermissions {
+  role: Role
+  locked: boolean
+  granted: Permission[]
+  defaults: Permission[]
+  forced: Permission[]
+}
+
+export interface PermissionMatrix {
+  permissions: Permission[]
+  roles: RolePermissions[]
+}
+
+export interface MyPermissions {
+  role: Role
+  permissions: Permission[]
+}
+
+export type RegistrationPolicy = 'at_start' | 'at_time' | 'manual'
 export type EventState = 'draft' | 'registration_open' | 'live' | 'paused' | 'ended' | 'archived'
 export type Verdict = 'correct' | 'incorrect' | 'bad_format'
 
@@ -44,6 +84,17 @@ export interface EventInfo {
   team_max: number
   allow_invites: boolean
   roster_locked: boolean
+  /** When registration stops: with the start, at a closing time, or when an organizer closes it. */
+  registration_policy: RegistrationPolicy
+  /** The organizer's own switch: true ends registration under every policy. */
+  registration_closed: boolean
+  /** The server's answer, by the same rule the join button uses. */
+  registration_open: boolean
+  registration_note: string | null
+  /** When the event actually went live. */
+  started_at: number | null
+  /** True when an organizer started it before its scheduled start. */
+  started_early: boolean
   /** Where instances are reached: a published host port, or a private lab through the player's VPN. */
   network_mode: 'published' | 'vpn'
   /** The lab host running this event's instances; null is this server's own runtime. */
@@ -94,6 +145,9 @@ export interface PlayerChallenge {
   requires_instance: boolean
   /** Where its instance runs: which VPN profile it needs. */
   lab_host_id: number | null
+  /** `flag` (also instance backed) or `dfir`, answered question by question. */
+  kind: 'flag' | 'dfir'
+  items: { id: number; question: string; points: number; solved: boolean; attempts_remaining: number | null }[]
   hints: PlayerHint[]
   attachments: PlayerAttachment[]
 }
@@ -159,6 +213,8 @@ export interface Scoreboard {
   public: boolean
   rows: BoardRow[]
   challenges?: { id: number; title: string; category_id: number }[] | null
+  /** Set while the board is frozen: the moment it shows. */
+  frozen_at?: number | null
 }
 
 export interface SolveLine {
@@ -264,6 +320,8 @@ export interface AdminChallenge {
   position: number
   requires_instance: boolean
   instance_config: InstanceConfig | null
+  /** `flag` (also instance backed) or `dfir` (question items, tournament events only). */
+  kind: 'flag' | 'dfir'
   created_at: number
   lab_host_id: number | null
   solves: number
@@ -271,13 +329,15 @@ export interface AdminChallenge {
   attachments: AdminAttachment[]
 }
 
-export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state'>
+export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state' | 'kind' | 'flag'> & { flag?: FlagSpec; kind?: 'flag' | 'dfir' }
 
 export interface JeopardySettings {
   tie_breaks: ('earliest_last_solve' | 'most_solves' | 'first_blood')[]
   rate_max_attempts: number
   rate_window_secs: number
   rate_lockout_secs: number
+  /** From this moment the public scoreboard stops moving until the event ends; null means no freeze. */
+  freeze_at: number | null
 }
 
 export interface EventBody {
@@ -294,6 +354,7 @@ export interface EventBody {
   team_max?: number
   allow_invites?: boolean
   roster_locked?: boolean
+  registration_policy?: RegistrationPolicy
 }
 
 export interface Participant {
@@ -647,4 +708,79 @@ export interface LabBody {
   fingerprint?: string
   public_host?: string
   enabled?: boolean
+}
+
+/** One question of a DFIR challenge. */
+export interface DfirItem {
+  id: number
+  question: string
+  answer: FlagSpec
+  case_sensitive: boolean
+  points: number
+  max_attempts: number | null
+}
+
+export type DfirItemBody = Omit<DfirItem, 'id'>
+
+export interface DuelItem {
+  id: number
+  question: string
+  points: number
+  solved: boolean
+  attempts_left: number | null
+}
+
+export interface DuelChallenge {
+  id: number
+  title: string
+  category: string
+  description: string
+  /** The accepted shape of a flag; none for DFIR questions. */
+  flag_format: { prefix: string; suffix: string } | null
+  attachments: { id: number; name: string; size: number }[]
+  kind: 'flag' | 'instance' | 'dfir'
+  points: number
+  /** Points each side has earned on this challenge. */
+  earned: [number, number]
+  solved: boolean
+  attempts_left: number | null
+  items: DuelItem[]
+}
+
+export interface DuelAnswer {
+  id: number
+  challenge_id: number
+  item_id: number | null
+  side_team_id: number
+  user_id: number
+  verdict: 'correct' | 'incorrect'
+  points: number
+  value: string
+  ip: string
+  at: number
+}
+
+/** A match decided by challenges, as a player or an organizer sees it. */
+export interface MatchView {
+  match_id: number
+  status: 'waiting' | 'open' | 'needs_decision' | 'final'
+  closes_at: number | null
+  you: 0 | 1 | null
+  sides: [{ id: number; name: string; score: number }, { id: number; name: string; score: number }]
+  challenges: DuelChallenge[]
+  answers?: DuelAnswer[]
+}
+
+export interface AnswerResult {
+  correct: boolean
+  points: number
+  attempts_left: number | null
+  finished: boolean
+}
+
+/** Someone an organizer can add to an event: an account in a solo event, a team otherwise. */
+export interface Candidate {
+  id: number
+  name: string
+  detail: string
 }

@@ -73,30 +73,78 @@ fn closed_reason(state: EventState) -> Denied {
     }
 }
 
-/// Registration is allowed while the effective state is RegistrationOpen and
-/// the registration window holds. A Live event accepts late registration only
-/// when `registration_closes` is set and not yet reached.
-pub fn can_register(stored: EventState, schedule: &EventSchedule, now: i64) -> Result<(), Denied> {
-    let state = effective_state(stored, schedule, now);
-    match state {
-        EventState::RegistrationOpen => {
-            if schedule.registration_opens.is_some_and(|o| now < o) {
-                return Err(Denied::RegistrationNotOpen);
-            }
-            if schedule.registration_closes.is_some_and(|c| now >= c) {
-                return Err(Denied::RegistrationClosed);
-            }
-            Ok(())
+/// When registration stops, whatever the event state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationPolicy {
+    /// Registration closes when the event starts (on schedule, or when an organizer starts it).
+    #[default]
+    AtStart,
+    /// Registration closes at `registration_closes`, even after the event has started.
+    AtTime,
+    /// Registration stays open until an organizer closes it.
+    Manual,
+}
+
+impl RegistrationPolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RegistrationPolicy::AtStart => "at_start",
+            RegistrationPolicy::AtTime => "at_time",
+            RegistrationPolicy::Manual => "manual",
         }
-        EventState::Live => {
-            if schedule.registration_closes.is_some_and(|c| now < c) {
-                Ok(())
-            } else {
-                Err(Denied::RegistrationClosed)
-            }
-        }
-        other => Err(closed_reason(other)),
     }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::AtStart, Self::AtTime, Self::Manual]
+            .into_iter()
+            .find(|p| p.as_str() == s)
+    }
+}
+
+/// Registration under an explicit policy. `closed_by_organizer` is the organizer's own switch
+/// and ends registration under every policy. The event must not be draft, paused, ended or
+/// archived; while it is only registering the opening time holds, and once it is live the
+/// policy decides.
+pub fn can_register_under(
+    stored: EventState,
+    schedule: &EventSchedule,
+    policy: RegistrationPolicy,
+    closed_by_organizer: bool,
+    now: i64,
+) -> Result<(), Denied> {
+    let state = effective_state(stored, schedule, now);
+    if !matches!(state, EventState::RegistrationOpen | EventState::Live) {
+        return Err(closed_reason(state));
+    }
+    if closed_by_organizer {
+        return Err(Denied::RegistrationClosed);
+    }
+    if state == EventState::RegistrationOpen && schedule.registration_opens.is_some_and(|o| now < o)
+    {
+        return Err(Denied::RegistrationNotOpen);
+    }
+    let timed_out = policy == RegistrationPolicy::AtTime
+        && schedule.registration_closes.is_some_and(|c| now >= c);
+    let started = policy == RegistrationPolicy::AtStart && state == EventState::Live;
+    let at_time_unset = policy == RegistrationPolicy::AtTime
+        && state == EventState::Live
+        && schedule.registration_closes.is_none();
+    if timed_out || started || at_time_unset {
+        return Err(Denied::RegistrationClosed);
+    }
+    Ok(())
+}
+
+/// Registration as it worked before policies: a closing time means "at that time", none means
+/// "at the start". Kept for callers that have no policy.
+pub fn can_register(stored: EventState, schedule: &EventSchedule, now: i64) -> Result<(), Denied> {
+    let policy = if schedule.registration_closes.is_some() {
+        RegistrationPolicy::AtTime
+    } else {
+        RegistrationPolicy::AtStart
+    };
+    can_register_under(stored, schedule, policy, false, now)
 }
 
 /// Challenges are visible while Live, Paused or Ended.
@@ -227,6 +275,48 @@ mod tests {
             can_register(RegistrationOpen, &s, 20),
             Err(Denied::RegistrationClosed)
         );
+    }
+
+    #[test]
+    fn registration_policies_decide_when_it_stops() {
+        use RegistrationPolicy::*;
+        let s = EventSchedule {
+            registration_opens: Some(10),
+            registration_closes: Some(40),
+            starts: Some(30),
+            ends: Some(100),
+        };
+        let go = |state, policy, closed, now| can_register_under(state, &s, policy, closed, now);
+        // Before the opening time nobody registers, whatever the policy.
+        assert_eq!(
+            go(RegistrationOpen, AtStart, false, 9),
+            Err(Denied::RegistrationNotOpen)
+        );
+        // At start: closes when the schedule starts the event.
+        assert_eq!(go(RegistrationOpen, AtStart, false, 29), Ok(()));
+        assert_eq!(
+            go(RegistrationOpen, AtStart, false, 30),
+            Err(Denied::RegistrationClosed)
+        );
+        assert_eq!(
+            go(Live, AtStart, false, 35),
+            Err(Denied::RegistrationClosed)
+        );
+        // At a time: carries on after the start until the closing time.
+        assert_eq!(go(RegistrationOpen, AtTime, false, 35), Ok(()));
+        assert_eq!(go(Live, AtTime, false, 39), Ok(()));
+        assert_eq!(go(Live, AtTime, false, 40), Err(Denied::RegistrationClosed));
+        // Manual: open while the event runs until the organizer closes it.
+        assert_eq!(go(Live, Manual, false, 90), Ok(()));
+        assert_eq!(go(Live, Manual, true, 90), Err(Denied::RegistrationClosed));
+        assert_eq!(
+            go(RegistrationOpen, AtStart, true, 11),
+            Err(Denied::RegistrationClosed)
+        );
+        // Paused, ended and archived events never take registrations.
+        assert_eq!(go(Paused, Manual, false, 50), Err(Denied::Paused));
+        assert_eq!(go(Live, Manual, false, 100), Err(Denied::Ended));
+        assert_eq!(go(Archived, Manual, false, 50), Err(Denied::Archived));
     }
 
     #[test]

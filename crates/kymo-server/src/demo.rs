@@ -198,7 +198,7 @@ const PLANS: [Plan; 9] = [
     },
 ];
 
-fn slugify(name: &str) -> String {
+pub(crate) fn slugify(name: &str) -> String {
     name.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|part| !part.is_empty())
@@ -276,6 +276,7 @@ async fn create_one(pool: &SqlitePool, plan: &Plan) -> Result<(), ApiError> {
         .map(|i| NewTeam {
             name: team_name(i),
             score: (4000 - 37 * i as i64).max(0),
+            ..Default::default()
         })
         .collect();
     db::replace_teams(pool, id, &roster).await?;
@@ -516,7 +517,7 @@ const CHALLENGES: [Challenge; 15] = [
 
 const CATEGORIES: [&str; 5] = ["Web", "Crypto", "Forensics", "Pwn", "Misc"];
 
-const PLAYERS: [&str; 16] = [
+pub(crate) const PLAYERS: [&str; 16] = [
     "ada", "linus", "grace", "dennis", "ken", "margaret", "alan", "barbara", "tim", "radia",
     "vint", "shafi", "bruce", "whit", "adi", "ron",
 ];
@@ -574,6 +575,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
         team_max: 4,
         allow_invites: true,
         roster_locked: true,
+        registration_policy: kymo_core::RegistrationPolicy::AtStart,
     };
     let mut tx = db::begin_write(pool).await?;
     let event_id = event_store::insert(&mut tx, &fields, &slugify(plan.name), at).await?;
@@ -605,6 +607,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
                 position: position as i64,
                 requires_instance: false,
                 instance_config: None,
+                kind: "flag".into(),
             },
             at,
         )
@@ -645,6 +648,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
                     / (challenges.len() as i64 * 3 + users.len() as i64 + 2);
             let submission = |value: &'static str, verdict: &'static str, t: i64| {
                 jeopardy_store::NewSubmission {
+                    item_id: None,
                     event_id,
                     challenge_id: *challenge_id,
                     scorer: jeopardy_store::Scorer::User(*user),

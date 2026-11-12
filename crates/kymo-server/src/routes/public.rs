@@ -95,6 +95,30 @@ pub async fn ladder(
     Ok(Json(crate::ladder::build(&all)))
 }
 
+/// The ladder over time: cumulative points per team, dated by when each match was last decided.
+pub async fn ladder_timeline(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::ladder::Series>>, ApiError> {
+    let all = db::list(&state.pool).await?;
+    let matches: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT tournament_id, match_id, MAX(at) FROM activity WHERE kind IN ('result', 'corrected', 'forfeit') AND match_id IS NOT NULL GROUP BY tournament_id, match_id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let fallback: Vec<(i64, i64)> =
+        sqlx::query_as("SELECT id, CAST(strftime('%s', created_at) AS INTEGER) FROM tournament")
+            .fetch_all(&state.pool)
+            .await?;
+    let dates = crate::ladder::Dates {
+        matches: matches
+            .into_iter()
+            .map(|(t, m, at)| ((t, m as usize), at))
+            .collect(),
+        fallback: fallback.into_iter().collect(),
+    };
+    Ok(Json(crate::ladder::timeline(&all, &dates)))
+}
+
 /// Tells a signed in caller what its token is: the organizer, or a referee for some tournaments.
 pub async fn me(
     State(state): State<AppState>,

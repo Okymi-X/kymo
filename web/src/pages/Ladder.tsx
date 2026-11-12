@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { Avatar } from '../components/Avatar'
+import { LadderChart } from '../components/LadderChart'
 import { BackLink } from '../components/BackLink'
 import { Pager } from '../components/Pager'
 import { PageTitle, SearchField } from '../components/ui'
@@ -28,6 +29,7 @@ export function Ladder() {
         <PageTitle>Ladder</PageTitle>
         <p className="mt-2 max-w-prose text-muted">Points across every tournament here: 3 for a win, 1 for a draw and 10 for winning a tournament. Teams with the same name count as one team.</p>
       </div>
+      <LadderChart />
       {isPending && <p className="text-muted">Loading</p>}
       {error && <p role="alert" className="text-danger">The ladder could not be loaded.</p>}
       {data && data.length === 0 && <p className="text-muted">No results yet. The ladder fills in as matches are played.</p>}

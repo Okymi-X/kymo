@@ -4,10 +4,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::clock::{self, Clock};
+use crate::error::ApiError;
 use crate::labs::LabRegistry;
 use crate::monitor::Monitor;
 use crate::ops::{BackupConfig, Ops};
+use crate::permissions::PermissionCache;
 use crate::vpn::VpnSetup;
+use kymo_core::{Permission, PermissionMatrix, Role};
 use kymo_instances::{InstanceRuntime, Policy, ResourceCaps};
 use kymo_jeopardy::{RateDenied, RateRule, RateState};
 
@@ -54,6 +57,7 @@ pub struct AppState {
     backups: Option<BackupConfig>,
     vpn: Option<VpnSetup>,
     labs: Arc<LabRegistry>,
+    permissions: Arc<PermissionCache>,
 }
 
 impl AppState {
@@ -78,6 +82,7 @@ impl AppState {
             backups: None,
             vpn: None,
             labs: Arc::default(),
+            permissions: Arc::default(),
         })
     }
 
@@ -136,6 +141,20 @@ impl AppState {
 
     pub fn instance_setup(&self) -> Option<&InstanceSetup> {
         self.instances.as_ref()
+    }
+
+    /// Whether the role holds the permission under the organizer's configuration. Every
+    /// permission decision goes through here, so no route can bypass the configured matrix.
+    pub async fn can(&self, role: Role, permission: Permission) -> Result<bool, ApiError> {
+        Ok(self.permission_matrix().await?.can(role, permission))
+    }
+
+    pub async fn permission_matrix(&self) -> Result<PermissionMatrix, ApiError> {
+        self.permissions.matrix(&self.pool).await
+    }
+
+    pub async fn set_permission_matrix(&self, matrix: PermissionMatrix) -> Result<(), ApiError> {
+        self.permissions.set(&self.pool, matrix).await
     }
 
     /// Current unix time in seconds from the configured clock.

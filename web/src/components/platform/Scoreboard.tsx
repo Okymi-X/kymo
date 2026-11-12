@@ -18,6 +18,11 @@ export function Scoreboard({ slug }: { slug: string }) {
   const matrix = board.challenges && board.challenges.length > 0 && board.challenges.length <= 40 ? board.challenges : null
   return (
     <div className="flex flex-col gap-4">
+      {board.frozen_at && (
+        <p role="status" className="rounded-card border border-line bg-surface px-4 py-3 text-sm">
+          The scoreboard is frozen as of {new Date(board.frozen_at * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. Play carries on, and the final board appears when the event ends.
+        </p>
+      )}
       <ScoreChart slug={slug} />
       {!board.public && <p className="text-sm text-muted">The scoreboard is not public. Only registered players and staff see it.</p>}
       <div className="overflow-x-auto rounded-card border border-line bg-surface">

@@ -1,6 +1,9 @@
 use std::str::FromStr;
 
-use kymo_core::{EventKind, EventSchedule, EventState, Mode, TeamRules, effective_state};
+use kymo_core::{
+    EventKind, EventSchedule, EventState, Mode, RegistrationPolicy, TeamRules, can_register_under,
+    effective_state,
+};
 use serde::Serialize;
 use sqlx::{FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
 
@@ -31,6 +34,12 @@ pub struct EventRow {
     pub team_max: i64,
     pub allow_invites: bool,
     pub roster_locked: bool,
+    /// When registration stops: `at_start`, `at_time` or `manual`.
+    pub registration_policy: String,
+    /// The organizer's own switch: true ends registration under every policy.
+    pub registration_closed: bool,
+    /// When the event actually went live, which can be before `starts_at`.
+    pub started_at: Option<i64>,
     /// `published` (a host port per instance) or `vpn` (a private lab reached through OpenVPN).
     pub network_mode: String,
     /// The lab host that runs this event's instances; none means this machine's own runtime.
@@ -54,6 +63,21 @@ impl EventRow {
 
     pub fn effective_state(&self, now: i64) -> Result<EventState, ApiError> {
         Ok(effective_state(self.stored_state()?, &self.schedule(), now))
+    }
+
+    pub fn policy(&self) -> RegistrationPolicy {
+        RegistrationPolicy::parse(&self.registration_policy).unwrap_or_default()
+    }
+
+    /// Whether registration is open right now, or why not: the one rule the API and the pages share.
+    pub fn registration(&self, now: i64) -> Result<(), kymo_core::Denied> {
+        can_register_under(
+            self.stored_state().unwrap_or(EventState::Draft),
+            &self.schedule(),
+            self.policy(),
+            self.registration_closed,
+            now,
+        )
     }
 
     pub fn mode(&self) -> Result<Mode, ApiError> {
@@ -93,6 +117,15 @@ pub struct EventOut {
     pub team_max: i64,
     pub allow_invites: bool,
     pub roster_locked: bool,
+    pub registration_policy: String,
+    pub registration_closed: bool,
+    /// True when registration accepts players right now, by the same rule the join button uses.
+    pub registration_open: bool,
+    /// Why registration is not open, in plain words, or none while it is.
+    pub registration_note: Option<String>,
+    pub started_at: Option<i64>,
+    /// True when an organizer started the event before its scheduled start.
+    pub started_early: bool,
     pub network_mode: String,
     pub lab_host_id: Option<i64>,
     pub created_at: i64,
@@ -107,7 +140,16 @@ impl EventOut {
                 .flatten()
                 .filter(|ends_at| *ends_at <= now)
         });
+        let registration = row.registration(now);
+        let started_early =
+            matches!((row.started_at, row.starts_at), (Some(at), Some(planned)) if at < planned);
         Ok(EventOut {
+            registration_open: registration.is_ok(),
+            registration_note: registration.err().map(|d| d.message().to_owned()),
+            started_early,
+            registration_policy: row.registration_policy,
+            registration_closed: row.registration_closed,
+            started_at: row.started_at,
             effective_state,
             id: row.id,
             kind: row.kind,
@@ -149,6 +191,7 @@ pub struct EventFields {
     pub team_max: i64,
     pub allow_invites: bool,
     pub roster_locked: bool,
+    pub registration_policy: RegistrationPolicy,
 }
 
 impl EventFields {
@@ -176,6 +219,21 @@ impl EventFields {
             && a >= b
         {
             return bad("the event must start before it ends");
+        }
+        if let (Some(opens), Some(starts)) = (self.registration_opens, self.starts_at)
+            && opens >= starts
+        {
+            return bad("registration must open before the event starts");
+        }
+        if let (Some(closes), Some(ends)) = (self.registration_closes, self.ends_at)
+            && closes > ends
+        {
+            return bad("registration cannot close after the event ends");
+        }
+        if self.registration_policy == RegistrationPolicy::AtTime
+            && self.registration_closes.is_none()
+        {
+            return bad("set a closing time, or choose another registration policy");
         }
         if !(1..=MAX_TEAM_SIZE).contains(&self.team_min)
             || !(1..=MAX_TEAM_SIZE).contains(&self.team_max)
@@ -211,6 +269,7 @@ impl From<&EventRow> for EventFields {
             team_max: row.team_max,
             allow_invites: row.allow_invites,
             roster_locked: row.roster_locked,
+            registration_policy: row.policy(),
         }
     }
 }
@@ -240,7 +299,7 @@ pub async fn insert(
 ) -> Result<i64, ApiError> {
     let slug = free_slug(tx, slug_base).await?;
     let done = sqlx::query(
-        "INSERT INTO event (kind, mode, name, slug, registration_opens, registration_closes, starts_at, ends_at, scoreboard_public, description, team_min, team_max, allow_invites, roster_locked, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO event (kind, mode, name, slug, registration_opens, registration_closes, starts_at, ends_at, scoreboard_public, description, team_min, team_max, allow_invites, roster_locked, registration_policy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(fields.kind.as_str())
     .bind(fields.mode.as_str())
@@ -256,6 +315,7 @@ pub async fn insert(
     .bind(fields.team_max)
     .bind(fields.allow_invites)
     .bind(fields.roster_locked)
+    .bind(fields.registration_policy.as_str())
     .bind(now)
     .execute(&mut **tx)
     .await?;
@@ -278,12 +338,13 @@ pub fn tournament_fields(name: &str) -> EventFields {
         team_max: 4,
         allow_invites: true,
         roster_locked: true,
+        registration_policy: RegistrationPolicy::AtStart,
     }
 }
 
 pub async fn update(pool: &SqlitePool, id: i64, fields: &EventFields) -> Result<(), ApiError> {
     let done = sqlx::query(
-        "UPDATE event SET mode = ?, name = ?, registration_opens = ?, registration_closes = ?, starts_at = ?, ends_at = ?, scoreboard_public = ?, description = ?, team_min = ?, team_max = ?, allow_invites = ?, roster_locked = ? WHERE id = ?",
+        "UPDATE event SET mode = ?, name = ?, registration_opens = ?, registration_closes = ?, starts_at = ?, ends_at = ?, scoreboard_public = ?, description = ?, team_min = ?, team_max = ?, allow_invites = ?, roster_locked = ?, registration_policy = ? WHERE id = ?",
     )
     .bind(fields.mode.as_str())
     .bind(&fields.name)
@@ -297,6 +358,7 @@ pub async fn update(pool: &SqlitePool, id: i64, fields: &EventFields) -> Result<
     .bind(fields.team_max)
     .bind(fields.allow_invites)
     .bind(fields.roster_locked)
+    .bind(fields.registration_policy.as_str())
     .bind(id)
     .execute(pool)
     .await?;
@@ -316,9 +378,16 @@ pub async fn set_state(
     sqlx::query(
         "UPDATE event SET state = ?, ended_at = CASE \
          WHEN ? = 'ended' THEN ? \
+         WHEN ? IN ('draft', 'registration_open', 'live') THEN NULL \
+         ELSE ended_at END, \
+         started_at = CASE \
+         WHEN ? = 'live' THEN COALESCE(started_at, ?) \
          WHEN ? IN ('draft', 'registration_open') THEN NULL \
-         ELSE ended_at END WHERE id = ?",
+         ELSE started_at END WHERE id = ?",
     )
+    .bind(state.as_str())
+    .bind(state.as_str())
+    .bind(at)
     .bind(state.as_str())
     .bind(state.as_str())
     .bind(at)
@@ -499,4 +568,75 @@ pub async fn set_lab_host(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// Someone who could be added to an event: an account in a solo event, a team in a team event.
+#[derive(Debug, Serialize, FromRow)]
+pub struct Candidate {
+    pub id: i64,
+    pub name: String,
+    pub detail: String,
+}
+
+/// Accounts or teams matching `q` that are not registered yet, at most ten.
+pub async fn candidates(
+    pool: &SqlitePool,
+    event: &EventRow,
+    q: &str,
+) -> Result<Vec<Candidate>, ApiError> {
+    let like = crate::users::like_pattern(q.trim());
+    let sql = if event.mode == "solo" {
+        "SELECT u.id, COALESCE(NULLIF(u.display_name, ''), u.username) AS name, '@' || u.username AS detail \
+         FROM user u WHERE u.banned = 0 \
+         AND u.id NOT IN (SELECT user_id FROM event_participant WHERE event_id = ?1 AND user_id IS NOT NULL) \
+         AND (u.username LIKE ?2 ESCAPE '\\' OR u.display_name LIKE ?2 ESCAPE '\\') ORDER BY u.username LIMIT 10"
+    } else {
+        "SELECT t.id, t.name AS name, (SELECT COUNT(*) FROM player_team_member m WHERE m.team_id = t.id) || ' members' AS detail \
+         FROM player_team t \
+         WHERE t.id NOT IN (SELECT team_id FROM event_participant WHERE event_id = ?1 AND team_id IS NOT NULL) \
+         AND t.name LIKE ?2 ESCAPE '\\' ORDER BY t.name LIMIT 10"
+    };
+    Ok(sqlx::query_as(sql)
+        .bind(event.id)
+        .bind(like)
+        .fetch_all(pool)
+        .await?)
+}
+
+/// Removes one registration and returns its name. Everything the participant did stays on
+/// record (submissions, solves, matches, audit); only the registration goes, so they leave the
+/// current standings and receive nothing new. Live instances are told to expire so the reaper
+/// stops them.
+pub async fn remove_participant(
+    pool: &SqlitePool,
+    event_id: i64,
+    participant_id: i64,
+    now: i64,
+) -> Result<Participant, ApiError> {
+    let found = participants(pool, event_id)
+        .await?
+        .into_iter()
+        .find(|p| p.id == participant_id)
+        .ok_or(ApiError::NotFound)?;
+    let (kind, scorer) = match (found.user_id, found.team_id) {
+        (Some(user), _) => ("user", user),
+        (_, Some(team)) => ("team", team),
+        _ => return Err(ApiError::Internal),
+    };
+    let mut tx = crate::db::begin_write(pool).await?;
+    sqlx::query("DELETE FROM event_participant WHERE id = ? AND event_id = ?")
+        .bind(participant_id)
+        .bind(event_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE instance SET expires_at = ? WHERE event_id = ? AND scorer_kind = ? AND scorer_id = ? AND state IN ('starting', 'running') AND expires_at > ?")
+        .bind(now)
+        .bind(event_id)
+        .bind(kind)
+        .bind(scorer)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(found)
 }

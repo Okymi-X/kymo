@@ -264,6 +264,12 @@ pub async fn create_user(
 pub struct ModerateBody {
     role: Option<String>,
     banned: Option<bool>,
+    display_name: Option<String>,
+    bio: Option<String>,
+    /// An address, or an empty string to remove it.
+    email: Option<String>,
+    /// A new password the organizer chose. The account is signed out everywhere.
+    new_password: Option<String>,
 }
 
 pub async fn update_user(
@@ -283,18 +289,57 @@ pub async fn update_user(
             "role is player, referee, monitor or admin".into(),
         ));
     }
-    if admin.0.user_id == Some(id) {
+    if admin.0.user_id == Some(id) && (role.is_some() || body.banned.is_some()) {
         return Err(ApiError::Conflict(
             "you cannot change your own role or ban yourself".into(),
         ));
     }
+    // Check everything first so a refused part changes nothing.
+    let display_name = body
+        .display_name
+        .as_deref()
+        .map(users::check_display_name)
+        .transpose()?;
+    let bio = body.bio.as_deref().map(users::check_bio).transpose()?;
+    let email = match body.email.as_deref().map(str::trim) {
+        None => None,
+        Some("") => Some(None),
+        Some(raw) => Some(Some(users::check_email(raw)?)),
+    };
+    let new_hash = match &body.new_password {
+        Some(password) => {
+            passwords::check_strength(password)?;
+            Some(passwords::hash(password.clone()).await?)
+        }
+        None => None,
+    };
+    users::by_id(&state.pool, id).await?;
     users::moderate(&state.pool, id, role, body.banned).await?;
-    let detail = format!(
+    users::update_profile(&state.pool, id, display_name.as_deref(), bio.as_deref()).await?;
+    if let Some(email) = &email {
+        users::set_email(&state.pool, id, email.as_deref()).await?;
+    }
+    if let Some(hash) = &new_hash {
+        users::set_password(&state.pool, id, hash).await?;
+        tokens::end_user_sessions(&state.pool, id, None).await?;
+    }
+    let mut detail = format!(
         "role={} banned={}",
         role.map_or("unchanged", Role::as_str),
         body.banned
             .map_or("unchanged".to_owned(), |b| b.to_string())
     );
+    // Say what was edited, never the values (an email or a password).
+    for (name, edited) in [
+        ("display_name", display_name.is_some()),
+        ("bio", bio.is_some()),
+        ("email", email.is_some()),
+        ("password_reset", new_hash.is_some()),
+    ] {
+        if edited {
+            detail.push_str(&format!(" {name}=changed"));
+        }
+    }
     if body.banned.is_some() {
         crate::vpn::sync_quiet(&state).await;
     }

@@ -43,6 +43,12 @@ async fn jeopardy_event(state: &AppState, id: i64) -> Result<EventRow, ApiError>
     Ok(row)
 }
 
+/// An event whose challenges are authored here: a Jeopardy event, or a tournament event that
+/// decides its matches with challenges.
+async fn authoring_event(state: &AppState, id: i64) -> Result<EventRow, ApiError> {
+    event_store::by_id(&state.pool, id).await
+}
+
 async fn event_of_challenge(state: &AppState, row: &ChallengeRow) -> Result<EventRow, ApiError> {
     event_store::by_id(&state.pool, row.event_id).await
 }
@@ -61,7 +67,7 @@ pub async fn list_categories(
     State(state): State<AppState>,
     Path(event_id): Path<i64>,
 ) -> Result<Json<Vec<CategoryRow>>, ApiError> {
-    jeopardy_event(&state, event_id).await?;
+    authoring_event(&state, event_id).await?;
     Ok(Json(store::categories(&state.pool, event_id).await?))
 }
 
@@ -71,7 +77,7 @@ pub async fn create_category(
     Path(event_id): Path<i64>,
     Json(body): Json<CategoryBody>,
 ) -> Result<(StatusCode, Json<CategoryRow>), ApiError> {
-    jeopardy_event(&state, event_id).await?;
+    authoring_event(&state, event_id).await?;
     let name = clean_name(&body.name, MAX_CATEGORY_NAME)?;
     let id = store::category_insert(&state.pool, event_id, &name, body.position).await?;
     Ok((
@@ -139,6 +145,7 @@ pub struct AdminChallenge {
     position: i64,
     requires_instance: bool,
     instance_config: Option<Value>,
+    kind: String,
     created_at: i64,
     lab_host_id: Option<i64>,
     solves: i64,
@@ -173,6 +180,7 @@ fn admin_out(
         retire_at: row.retire_at,
         position: row.position,
         requires_instance: row.requires_instance,
+        kind: row.kind,
         created_at: row.created_at,
         lab_host_id: row.lab_host_id,
         solves,
@@ -194,7 +202,7 @@ pub async fn list_challenges(
     State(state): State<AppState>,
     Path(event_id): Path<i64>,
 ) -> Result<Json<Vec<AdminChallenge>>, ApiError> {
-    jeopardy_event(&state, event_id).await?;
+    authoring_event(&state, event_id).await?;
     let totals = jeopardy_store::solve_totals(&state.pool, event_id).await?;
     let hints = store::hints_of_event(&state.pool, event_id).await?;
     let attachments = store::attachments_of_event(&state.pool, event_id).await?;
@@ -226,7 +234,10 @@ pub struct ChallengeBody {
     #[serde(default)]
     description: String,
     scoring: Scoring,
-    flag: FlagSpec,
+    /// Required for `flag` challenges; a DFIR challenge keeps its answers in its questions.
+    flag: Option<FlagSpec>,
+    /// `flag` (default) or `dfir`.
+    kind: Option<String>,
     #[serde(default)]
     flag_prefix: String,
     #[serde(default)]
@@ -242,19 +253,55 @@ pub struct ChallengeBody {
     instance_config: Option<Value>,
 }
 
+/// Tournament challenges are worth a fixed number of points; a DFIR challenge is too, in any event.
+fn check_tournament_rules(
+    event: &EventRow,
+    kind: &str,
+    scoring: &Scoring,
+    requires_instance: bool,
+) -> Result<(), ApiError> {
+    let tournament = event.kind == "tournament";
+    if kind == "dfir" && !matches!(scoring, Scoring::Static { .. }) {
+        return Err(bad(
+            "a DFIR challenge is worth fixed points, split between its questions",
+        ));
+    }
+    if kind == "dfir" && requires_instance {
+        return Err(bad("a DFIR challenge cannot start an instance"));
+    }
+    if tournament && !matches!(scoring, Scoring::Static { .. }) {
+        return Err(bad(
+            "tournament challenges use fixed points, because the match score is the points a side earned",
+        ));
+    }
+    Ok(())
+}
+
 pub async fn create_challenge(
     _: Require<needs::ManageChallenges>,
     State(state): State<AppState>,
     Path(event_id): Path<i64>,
     Json(body): Json<ChallengeBody>,
 ) -> Result<(StatusCode, Json<AdminChallenge>), ApiError> {
-    jeopardy_event(&state, event_id).await?;
+    let event = authoring_event(&state, event_id).await?;
+    let kind = body.kind.as_deref().unwrap_or("flag");
+    let flag = match kind {
+        "flag" => body
+            .flag
+            .ok_or_else(|| bad("a flag challenge needs a flag"))?,
+        "dfir" => FlagSpec::Static {
+            value: "dfir".into(),
+        },
+        _ => return Err(bad("the type is flag or dfir")),
+    };
+    check_tournament_rules(&event, kind, &body.scoring, body.requires_instance)?;
     let fields = ChallengeFields {
+        kind: kind.to_owned(),
         category_id: body.category_id,
         title: clean_name(&body.title, MAX_TITLE)?,
         description: body.description.trim().to_owned(),
         scoring: body.scoring,
-        flag: body.flag,
+        flag,
         flag_prefix: body.flag_prefix,
         flag_suffix: body.flag_suffix,
         case_sensitive: body.case_sensitive.unwrap_or(true),
@@ -329,6 +376,11 @@ pub async fn update_challenge(
     f.position = body.position.unwrap_or(f.position);
     f.requires_instance = body.requires_instance.unwrap_or(f.requires_instance);
     f.instance_config = body.instance_config.unwrap_or(f.instance_config);
+    let event = authoring_event(&state, row.event_id).await?;
+    check_tournament_rules(&event, &row.kind, &f.scoring, f.requires_instance)?;
+    if row.kind == "dfir" {
+        check_items_total(&state, row.id, &f.scoring).await?;
+    }
     f.validate()?;
     store::challenge_update(&state.pool, &row, &f).await?;
     let fresh = store::challenge_by_id(&state.pool, id).await?;
@@ -373,6 +425,17 @@ pub async fn publish(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<AdminChallenge>, ApiError> {
+    let row = store::challenge_by_id(&state.pool, id).await?;
+    if row.kind == "dfir" {
+        let items = crate::duel_store::items(&state.pool, id).await?;
+        let points: Vec<u32> = items
+            .iter()
+            .map(|i| u32::try_from(i.points).unwrap_or(0))
+            .collect();
+        let total = u32::try_from(kymo_jeopardy::current_value(&row.scoring, 0)).unwrap_or(0);
+        kymo_duel::check_items(total, &points)
+            .map_err(|e| ApiError::Conflict(format!("fix the questions before publishing: {e}")))?;
+    }
     move_to(&state, id, "published").await
 }
 
@@ -669,4 +732,123 @@ pub async fn set_scoreboard(
     state.notify(&row.slug);
     let fresh = event_store::by_id(&state.pool, event_id).await?;
     Ok(Json(EventOut::new(fresh, state.now())?))
+}
+
+/// An existing set of questions must keep adding up when the challenge's points change.
+async fn check_items_total(state: &AppState, id: i64, scoring: &Scoring) -> Result<(), ApiError> {
+    let items = crate::duel_store::items(&state.pool, id).await?;
+    if items.is_empty() {
+        return Ok(());
+    }
+    let points: Vec<u32> = items
+        .iter()
+        .map(|i| u32::try_from(i.points).unwrap_or(0))
+        .collect();
+    let total = u32::try_from(kymo_jeopardy::current_value(scoring, 0)).unwrap_or(0);
+    kymo_duel::check_items(total, &points)
+        .map_err(|e| ApiError::Conflict(format!("change the questions with the points: {e}")))
+}
+
+#[derive(Serialize)]
+pub struct ItemOut {
+    id: i64,
+    question: String,
+    answer: FlagSpec,
+    case_sensitive: bool,
+    points: i64,
+    max_attempts: Option<i64>,
+}
+
+fn item_out(row: crate::duel_store::ItemRow) -> ItemOut {
+    ItemOut {
+        id: row.id,
+        question: row.question,
+        answer: row.answer,
+        case_sensitive: row.case_sensitive,
+        points: row.points,
+        max_attempts: row.max_attempts,
+    }
+}
+
+pub async fn list_items(
+    _: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<ItemOut>>, ApiError> {
+    let row = store::challenge_by_id(&state.pool, id).await?;
+    if row.kind != "dfir" {
+        return Err(ApiError::NotFound);
+    }
+    let items = crate::duel_store::items(&state.pool, id).await?;
+    Ok(Json(items.into_iter().map(item_out).collect()))
+}
+
+#[derive(Deserialize)]
+pub struct ItemBody {
+    question: String,
+    answer: FlagSpec,
+    case_sensitive: Option<bool>,
+    points: i64,
+    max_attempts: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct ItemsBody {
+    items: Vec<ItemBody>,
+}
+
+/// Replaces the questions of a DFIR challenge. Their points must add up to the challenge's.
+pub async fn put_items(
+    _: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<ItemsBody>,
+) -> Result<Json<Vec<ItemOut>>, ApiError> {
+    let _guard = state.write_lock.lock().await;
+    let row = store::challenge_by_id(&state.pool, id).await?;
+    if row.kind != "dfir" {
+        return Err(ApiError::NotFound);
+    }
+    let mut fields = Vec::with_capacity(body.items.len());
+    for item in body.items {
+        let question = item.question.trim().to_owned();
+        if question.is_empty()
+            || question.chars().count() > 2000
+            || question
+                .chars()
+                .any(|c| crate::text::is_hidden_char(c) && !matches!(c, '\n' | '\t'))
+        {
+            return Err(bad("each question is 1 to 2000 characters of text"));
+        }
+        item.answer
+            .validate()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        let empty = matches!(&item.answer, FlagSpec::Static { value } if value.trim().is_empty())
+            || matches!(&item.answer, FlagSpec::Regex { pattern } if pattern.is_empty());
+        if empty {
+            return Err(bad("each question needs an answer"));
+        }
+        if item.points < 1 || item.points > 1_000_000 {
+            return Err(bad("each question is worth 1 to 1000000 points"));
+        }
+        if item.max_attempts.is_some_and(|m| m < 1) {
+            return Err(bad("attempts must be at least 1"));
+        }
+        fields.push(crate::duel_store::ItemFields {
+            question,
+            answer: item.answer,
+            case_sensitive: item.case_sensitive.unwrap_or(false),
+            points: item.points,
+            max_attempts: item.max_attempts,
+        });
+    }
+    let points: Vec<u32> = fields
+        .iter()
+        .map(|i| u32::try_from(i.points).unwrap_or(0))
+        .collect();
+    let total = u32::try_from(kymo_jeopardy::current_value(&row.scoring, 0)).unwrap_or(0);
+    kymo_duel::check_items(total, &points).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    crate::duel_store::replace_items(&state.pool, id, &fields).await?;
+    let items = crate::duel_store::items(&state.pool, id).await?;
+    Ok(Json(items.into_iter().map(item_out).collect()))
 }

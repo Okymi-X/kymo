@@ -5,7 +5,7 @@ use kymo_core::{EventState, TeamError, TeamRules, can_invite, can_leave};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::Player;
+use crate::auth::{Account, Player, needs};
 use crate::error::ApiError;
 use crate::event_store::{self, EventRow};
 use crate::state::AppState;
@@ -62,7 +62,7 @@ pub struct CreateBody {
 }
 
 pub async fn create(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Json(body): Json<CreateBody>,
 ) -> Result<(StatusCode, Json<TeamOut>), ApiError> {
@@ -77,7 +77,7 @@ pub async fn create(
 }
 
 pub async fn mine(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
 ) -> Result<Json<TeamOut>, ApiError> {
     let team = team_store::of_user(&state.pool, player.id)
@@ -87,7 +87,7 @@ pub async fn mine(
 }
 
 pub async fn show(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<TeamOut>, ApiError> {
@@ -101,7 +101,7 @@ pub struct JoinBody {
 }
 
 pub async fn join(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Json(body): Json<JoinBody>,
 ) -> Result<Json<TeamOut>, ApiError> {
@@ -118,7 +118,7 @@ pub async fn join(
 }
 
 pub async fn leave(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -131,7 +131,7 @@ pub async fn leave(
 }
 
 pub async fn rotate_code(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
@@ -145,7 +145,7 @@ pub async fn rotate_code(
 }
 
 pub async fn kick(
-    player: Player,
+    Account(player, _): Account<needs::ManageTeam>,
     State(state): State<AppState>,
     Path((id, user_id)): Path<(i64, i64)>,
 ) -> Result<StatusCode, ApiError> {

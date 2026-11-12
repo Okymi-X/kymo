@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::{ClientIp, Player, Require, needs};
+use crate::auth::{Account, ClientIp, Require, needs};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::monitor_store;
@@ -27,7 +27,7 @@ pub struct HostQuery {
 
 /// What a player needs to know before they download a profile.
 pub async fn status(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     State(state): State<AppState>,
     Query(q): Query<HostQuery>,
 ) -> Result<Json<Value>, ApiError> {
@@ -69,7 +69,7 @@ pub async fn status(
 /// Issues a new certificate and returns the `.ovpn` file. The previous profile for the same
 /// host stops working. A POST because it changes state; the response is never cached.
 pub async fn profile(
-    player: Player,
+    Account(player, _): Account<needs::StartInstance>,
     ip: ClientIp,
     State(state): State<AppState>,
     Query(q): Query<HostQuery>,
@@ -256,11 +256,6 @@ pub async fn set_network(
         return Err(ApiError::BadRequest("mode is published or vpn".into()));
     }
     let event = event_store::by_id(&state.pool, id).await?;
-    if event.kind != "jeopardy" {
-        return Err(ApiError::Conflict(
-            "only Jeopardy events have challenge instances".into(),
-        ));
-    }
     vpn::check_mode(&state, event.lab_host_id, &body.mode).await?;
     if event.network_mode != body.mode {
         vpn::check_overrides(&state, id, &body.mode).await?;

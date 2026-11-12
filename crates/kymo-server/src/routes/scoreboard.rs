@@ -9,7 +9,9 @@ use kymo_jeopardy::{Challenge, Solve, Step, progression, rank, team_breakdown};
 use serde::{Deserialize, Serialize};
 
 use super::challenges::solve_points;
-use crate::auth::{MaybeCaller, Player};
+use std::marker::PhantomData;
+
+use crate::auth::{Account, MaybeCaller, needs};
 use crate::challenge_store::{self as store, ChallengeRow};
 use crate::error::ApiError;
 use crate::event_store::{self, EventRow};
@@ -50,6 +52,34 @@ pub struct ScoreboardOut {
     public: bool,
     rows: Vec<BoardRow>,
     challenges: Option<Vec<MatrixChallenge>>,
+    /// Set while the public board is frozen: the moment it shows.
+    frozen_at: Option<i64>,
+}
+
+/// The moment a viewer's board is frozen at, if it is. Staff who may see unpublished boards
+/// always see the live one, and a freeze lifts when the event ends.
+async fn freeze_for(
+    state: &AppState,
+    event: &EventRow,
+    settings: &jeopardy_store::JeopardySettings,
+    caller: Option<crate::auth::Caller>,
+) -> Result<Option<i64>, ApiError> {
+    let Some(at) = settings.freeze_at else {
+        return Ok(None);
+    };
+    let now = state.now();
+    let live = matches!(
+        event.effective_state(now)?,
+        kymo_core::EventState::Live | kymo_core::EventState::Paused
+    );
+    if now < at || !live {
+        return Ok(None);
+    }
+    let role = caller.map_or(Role::Visitor, |c| c.role);
+    if state.can(role, Permission::ViewHiddenScoreboard).await? {
+        return Ok(None);
+    }
+    Ok(Some(at))
 }
 
 fn kind_of(event: &EventRow) -> &'static str {
@@ -73,17 +103,19 @@ async fn visible_event(
 ) -> Result<EventRow, ApiError> {
     let event = jeopardy_by_slug(state, slug).await?;
     let role = caller.map_or(Role::Visitor, |c| c.role);
-    if event.state == "draft" && !role.can(Permission::ManageChallenges) {
+    let manages = state.can(role, Permission::ManageChallenges).await?;
+    if event.state == "draft" && !manages {
         return Err(ApiError::NotFound);
     }
-    if !scoreboard_visible(event.scoreboard_public, role) {
+    let sees_hidden = state.can(role, Permission::ViewHiddenScoreboard).await?;
+    if !scoreboard_visible(event.scoreboard_public, sees_hidden) {
         let registered = match caller.and_then(|c| c.user_id) {
             Some(user_id) => jeopardy_store::scorer_of(&state.pool, &event, user_id)
                 .await
                 .is_ok(),
             None => false,
         };
-        if !registered && !role.can(Permission::ManageChallenges) {
+        if !registered && !manages {
             return Err(ApiError::Denied("the scoreboard is not public yet".into()));
         }
     }
@@ -97,8 +129,12 @@ pub async fn scoreboard(
     Query(query): Query<BoardQuery>,
 ) -> Result<Json<ScoreboardOut>, ApiError> {
     let event = visible_event(&state, caller, &slug).await?;
-    let board = Board::load(&state.pool, &event).await?;
+    let mut board = Board::load(&state.pool, &event).await?;
     let settings = jeopardy_store::settings(&state.pool, event.id).await?;
+    let frozen_at = freeze_for(&state, &event, &settings, caller).await?;
+    if let Some(cutoff) = frozen_at {
+        board.freeze_at(cutoff);
+    }
     let ranked = rank(
         &settings.board_config(),
         &board.participants,
@@ -152,6 +188,7 @@ pub async fn scoreboard(
         public: event.scoreboard_public,
         rows,
         challenges,
+        frozen_at,
     }))
 }
 
@@ -181,7 +218,7 @@ fn titles(rows: &[ChallengeRow]) -> HashMap<i64, &ChallengeRow> {
 }
 
 pub async fn progress(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<ProgressOut>, ApiError> {
@@ -260,7 +297,7 @@ pub struct TeamProgressOut {
 
 /// Team total and each teammate's solves. Members only; everyone else gets 404.
 pub async fn team_progress(
-    player: Player,
+    Account(player, _): Account<needs::PlayEvent>,
     State(state): State<AppState>,
     Path(team_id): Path<i64>,
     Query(query): Query<TeamQuery>,
@@ -275,7 +312,12 @@ pub async fn team_progress(
         return Err(ApiError::NotFound);
     }
     let viewer = player.id;
-    let Json(team) = progress(player, State(state.clone()), Path(query.event.clone())).await?;
+    let Json(team) = progress(
+        Account(player, PhantomData),
+        State(state.clone()),
+        Path(query.event.clone()),
+    )
+    .await?;
     let board = Board::load(&state.pool, &play.event).await?;
     let all = store::challenges(&state.pool, play.event.id).await?;
     let by_id = titles(&all);
@@ -370,8 +412,11 @@ pub async fn timeline(
     Query(query): Query<TimelineQuery>,
 ) -> Result<Json<TimelineOut>, ApiError> {
     let event = visible_event(&state, caller, &slug).await?;
-    let board = Board::load(&state.pool, &event).await?;
+    let mut board = Board::load(&state.pool, &event).await?;
     let settings = jeopardy_store::settings(&state.pool, event.id).await?;
+    if let Some(cutoff) = freeze_for(&state, &event, &settings, caller).await? {
+        board.freeze_at(cutoff);
+    }
     let ranked = rank(
         &settings.board_config(),
         &board.participants,
@@ -426,4 +471,62 @@ pub async fn timeline(
         to,
         series,
     }))
+}
+
+/// A CSV cell that cannot be read as a spreadsheet formula and cannot break the row.
+fn csv_cell(value: &str) -> String {
+    let mut text = value.replace(['\r', '\n'], " ");
+    if text.starts_with(['=', '+', '-', '@', '\t']) {
+        text.insert(0, '\'');
+    }
+    format!("\"{}\"", text.replace('"', "\"\""))
+}
+
+/// The live ranking as CSV for organizers, regardless of any freeze.
+pub async fn export_csv(
+    _: crate::auth::Require<crate::auth::needs::ManageEvents>,
+    State(state): State<AppState>,
+    Path(event_id): Path<i64>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+    use axum::response::IntoResponse;
+    let event = crate::event_store::by_id(&state.pool, event_id).await?;
+    if event.kind != "jeopardy" {
+        return Err(ApiError::NotFound);
+    }
+    let board = Board::load(&state.pool, &event).await?;
+    let settings = jeopardy_store::settings(&state.pool, event.id).await?;
+    let ranked = rank(
+        &settings.board_config(),
+        &board.participants,
+        &board.challenges,
+        &board.solves,
+    );
+    let mut out = String::from("rank,name,points,solves,last_solve_at\r\n");
+    for row in ranked {
+        let name = board
+            .names
+            .get(&row.participant)
+            .cloned()
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{},{},{},{},{}\r\n",
+            row.rank,
+            csv_cell(&name),
+            row.points,
+            row.solves,
+            row.last_solve_at.map_or(String::new(), |t| t.to_string()),
+        ));
+    }
+    Ok((
+        [
+            (CONTENT_TYPE, "text/csv; charset=utf-8".to_owned()),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}-scoreboard.csv\"", event.slug),
+            ),
+        ],
+        out,
+    )
+        .into_response())
 }

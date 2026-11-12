@@ -13,6 +13,29 @@ fn auto_winner(slots: [Slot; 2]) -> Option<Side> {
 impl Bracket {
     /// Records a result. The bracket is left untouched when this returns an error.
     pub fn set_result(&mut self, id: MatchId, a: u32, b: u32) -> Result<(), EngineError> {
+        self.record_result(id, a, b, None)
+    }
+
+    /// Like `set_result`, but a tied score in a knockout stage is decided for `winner` by a
+    /// tie-break the caller applied (for example who reached the score first). The score is kept
+    /// as played. League stages keep their draws, and a score that is not tied ignores `winner`.
+    pub fn set_result_tiebreak(
+        &mut self,
+        id: MatchId,
+        a: u32,
+        b: u32,
+        winner: Side,
+    ) -> Result<(), EngineError> {
+        self.record_result(id, a, b, Some(winner))
+    }
+
+    fn record_result(
+        &mut self,
+        id: MatchId,
+        a: u32,
+        b: u32,
+        tiebreak: Option<Side>,
+    ) -> Result<(), EngineError> {
         self.swiss_guard(id)?;
         let mut next = self.clone();
         let m = next
@@ -22,7 +45,8 @@ impl Bracket {
         if !m.is_ready() {
             return Err(EngineError::NotReady(id));
         }
-        if a == b && (m.stage != Stage::League || next.best_of > 1) {
+        let knockout_tie = a == b && m.stage != Stage::League;
+        if a == b && (knockout_tie && tiebreak.is_none() || next.best_of > 1) {
             return Err(EngineError::Tie);
         }
         let need = u32::from(next.best_of / 2 + 1);
@@ -37,6 +61,7 @@ impl Bracket {
         m.winner = match a.cmp(&b) {
             std::cmp::Ordering::Greater => Some(Side::A),
             std::cmp::Ordering::Less => Some(Side::B),
+            std::cmp::Ordering::Equal if knockout_tie => tiebreak,
             std::cmp::Ordering::Equal => None,
         };
         next.settle(id)?;

@@ -15,6 +15,8 @@ import './index.css'
 const Ladder = lazy(() => import('./pages/Ladder').then((m) => ({ default: m.Ladder })))
 const AdminEvent = lazy(() => import('./pages/admin/AdminEvent').then((m) => ({ default: m.AdminEvent })))
 const AdminEvents = lazy(() => import('./pages/admin/AdminEvents').then((m) => ({ default: m.AdminEvents })))
+const MatchPage = lazy(() => import('./pages/MatchPage').then((m) => ({ default: m.MatchPage })))
+const AdminPermissions = lazy(() => import('./pages/admin/AdminPermissions').then((m) => ({ default: m.AdminPermissions })))
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers').then((m) => ({ default: m.AdminUsers })))
 const Labs = lazy(() => import('./pages/admin/Labs').then((m) => ({ default: m.Labs })))
 const Ops = lazy(() => import('./pages/admin/Ops').then((m) => ({ default: m.Ops })))
@@ -70,6 +72,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/admin/events" element={<AdminEvents />} />
               <Route path="/admin/events/:id" element={<AdminEvent />} />
               <Route path="/admin/users" element={<AdminUsers />} />
+              <Route path="/admin/permissions" element={<AdminPermissions />} />
               <Route path="/admin/ops" element={<Ops />} />
               <Route path="/admin/labs" element={<Labs />} />
               <Route path="/monitor" element={<Monitor />} />
@@ -77,6 +80,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/settings" element={<Settings />} />
               <Route path="/tokens" element={<Tokens />} />
               <Route path="/t/:slug" element={<TournamentPage />} />
+              <Route path="/t/:slug/match/:matchId" element={<MatchPage />} />
               <Route path="/report/:code" element={<ReportPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

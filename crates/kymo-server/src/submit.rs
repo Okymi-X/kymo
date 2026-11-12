@@ -35,6 +35,29 @@ pub async fn play_context(state: &AppState, slug: &str, user_id: i64) -> Result<
     })
 }
 
+/// Like `play_context`, but a tournament event is accepted too. Only for the routes that are
+/// gated per match afterwards (instances and file downloads): the challenge board and flag
+/// submission stay Jeopardy-only.
+pub async fn play_context_any(
+    state: &AppState,
+    slug: &str,
+    user_id: i64,
+) -> Result<Play, ApiError> {
+    let event = event_store::by_slug(&state.pool, slug).await?;
+    if !matches!(event.kind.as_str(), "jeopardy" | "tournament")
+        || event.stored_state()? == EventState::Draft
+    {
+        return Err(ApiError::NotFound);
+    }
+    let scorer = jeopardy_store::scorer_of(&state.pool, &event, user_id).await?;
+    let effective = event.effective_state(state.now())?;
+    Ok(Play {
+        event,
+        scorer,
+        effective,
+    })
+}
+
 /// A challenge of this event that players may know about: never a draft.
 pub async fn challenge_of(
     state: &AppState,
@@ -93,6 +116,11 @@ pub async fn run(
     if attempt.flag.chars().count() > MAX_SUBMITTED_FLAG {
         return Err(ApiError::BadRequest("that flag is too long".into()));
     }
+    if challenge.kind == "dfir" {
+        return Err(ApiError::BadRequest(
+            "this challenge is answered question by question".into(),
+        ));
+    }
     let now = state.now();
     open_for_play(play, challenge, now)?;
     let _guard = state.write_lock.lock().await;
@@ -124,6 +152,7 @@ pub async fn run(
     let record = NewSubmission {
         event_id: play.event.id,
         challenge_id: challenge.id,
+        item_id: None,
         scorer,
         user_id: attempt.user_id,
         ip: &attempt.ip,
@@ -162,5 +191,82 @@ pub async fn run(
         attempts_remaining: challenge
             .attempt_cap()
             .remaining(used.saturating_add(counted)),
+    })
+}
+
+/// Judges one answer to a DFIR question and records it. A correct answer scores the question's
+/// own points; a question is answered once and its attempt limit is its own.
+pub async fn run_item(
+    state: &AppState,
+    play: &Play,
+    challenge: &ChallengeRow,
+    item_id: i64,
+    attempt: &Attempt<'_>,
+) -> Result<Outcome, ApiError> {
+    if attempt.flag.chars().count() > MAX_SUBMITTED_FLAG {
+        return Err(ApiError::BadRequest("that answer is too long".into()));
+    }
+    if challenge.kind != "dfir" {
+        return Err(ApiError::BadRequest(
+            "this challenge has no questions".into(),
+        ));
+    }
+    let now = state.now();
+    open_for_play(play, challenge, now)?;
+    let item = crate::duel_store::items(&state.pool, challenge.id)
+        .await?
+        .into_iter()
+        .find(|i| i.id == item_id)
+        .ok_or(ApiError::NotFound)?;
+    let _guard = state.write_lock.lock().await;
+    let scorer = play.scorer;
+    if jeopardy_store::items_solved(&state.pool, play.event.id, scorer)
+        .await?
+        .contains_key(&item.id)
+    {
+        return Err(ApiError::Conflict("already answered correctly".into()));
+    }
+    let verdict = check(
+        &item.answer,
+        &kymo_jeopardy::FlagFormat::default(),
+        item.case_sensitive,
+        attempt.flag,
+    );
+    let settings = jeopardy_store::settings(&state.pool, play.event.id).await?;
+    state
+        .rate_check(play.event.id, scorer.id(), &settings.rate_rule())
+        .map_err(|denied| ApiError::RateLimited {
+            retry_after: denied.retry_after_secs,
+        })?;
+    let used = jeopardy_store::item_attempts_used(&state.pool, item.id, scorer).await?;
+    let cap = kymo_jeopardy::AttemptCap {
+        max: item.max_attempts.and_then(|m| u32::try_from(m).ok()),
+    };
+    cap.check(used)
+        .map_err(|capped| ApiError::Conflict(capped.to_string()))?;
+    let record = NewSubmission {
+        event_id: play.event.id,
+        challenge_id: challenge.id,
+        item_id: Some(item.id),
+        scorer,
+        user_id: attempt.user_id,
+        ip: &attempt.ip,
+        value: attempt.flag.trim(),
+        verdict: verdict_str(verdict),
+        at: now,
+    };
+    let mut tx = crate::db::begin_write(&state.pool).await?;
+    jeopardy_store::insert_submission(&mut tx, &record).await?;
+    if verdict == Verdict::Correct {
+        jeopardy_store::insert_item_solve(&mut tx, &record, item.points).await?;
+    }
+    tx.commit().await?;
+    if verdict == Verdict::Correct {
+        state.notify(&play.event.slug);
+    }
+    Ok(Outcome {
+        verdict,
+        points: (verdict == Verdict::Correct).then_some(item.points),
+        attempts_remaining: cap.remaining(used.saturating_add(1)),
     })
 }

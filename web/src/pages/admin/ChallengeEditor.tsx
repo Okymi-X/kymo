@@ -7,8 +7,11 @@ import { Modal, ModalBody, ModalCancel, ModalFooter, ModalHeader, modalForm } fr
 import { Pill, Toggle } from '../../components/platform/bits'
 import { Button, ErrorText, Field, Input, Select, Textarea } from '../../components/ui'
 import { fileSize, flagHint, fromLocalInput, labLabel, toLocalInput, verdictText } from '../../lib/platform'
+import { DfirItems } from './DfirItems'
 
 export interface Draft {
+  /** `flag` (also on a container) or `dfir`, answered question by question. */
+  kind: 'flag' | 'dfir'
   title: string
   description: string
   category_id: number
@@ -39,6 +42,7 @@ export interface Draft {
 }
 
 export const blank = (category: number): Draft => ({
+  kind: 'flag',
   title: '',
   description: '',
   category_id: category,
@@ -75,6 +79,7 @@ export function fromChallenge(c: AdminChallenge): Draft {
   const cfg = c.instance_config
   return {
     ...blank(c.category_id),
+    kind: c.kind,
     title: c.title,
     description: c.description,
     scoring: c.scoring.kind,
@@ -106,9 +111,10 @@ export function fromChallenge(c: AdminChallenge): Draft {
 const int = (s: string) => Math.trunc(Number(s))
 
 /** Turns the form into the API body; the server validates every field again. */
-export function toBody(d: Draft): ChallengeBody {
+export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
+  const dfir = d.kind === 'dfir'
   const scoring: Scoring =
-    d.scoring === 'static'
+    d.scoring === 'static' || fixedPoints || dfir
       ? { kind: 'static', points: int(d.points) }
       : { kind: 'dynamic', initial: int(d.initial), minimum: int(d.minimum), decay: int(d.decay), curve: d.curve }
   const flag: FlagSpec =
@@ -118,7 +124,8 @@ export function toBody(d: Draft): ChallengeBody {
     title: d.title.trim(),
     description: d.description,
     scoring,
-    flag,
+    kind: d.kind,
+    ...(dfir ? {} : { flag }),
     flag_prefix: d.prefix,
     flag_suffix: d.suffix,
     case_sensitive: d.caseSensitive,
@@ -126,8 +133,8 @@ export function toBody(d: Draft): ChallengeBody {
     release_at: fromLocalInput(d.release),
     retire_at: fromLocalInput(d.retire),
     position: int(d.position) || 0,
-    requires_instance: d.requiresInstance,
-    instance_config: d.requiresInstance
+    requires_instance: !dfir && d.requiresInstance,
+    instance_config: !dfir && d.requiresInstance
       ? { image: d.image.trim(), port: int(d.port), cpu_millis: int(d.cpu), memory_mb: int(d.memory), pids: int(d.pids), ttl_secs: int(d.ttl) }
       : null,
   }
@@ -141,11 +148,12 @@ const inRange = (value: string, min: number, max: number) => {
 }
 
 /** What would be refused, found before the request is sent so the form can say why Save is off. */
-export function validate(d: Draft): Problems {
+export function validate(d: Draft, fixedPoints = false): Problems {
   const p: Problems = {}
+  const dfir = d.kind === 'dfir'
   if (d.title.trim() === '') p.title = 'Give the challenge a title.'
   if (d.category_id === 0) p.category_id = 'Add a category first.'
-  if (d.scoring === 'static') {
+  if (d.scoring === 'static' || fixedPoints || dfir) {
     if (!inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
   } else {
     if (!inRange(d.initial, 1, 100000)) p.initial = 'A whole number, 1 or more.'
@@ -153,7 +161,9 @@ export function validate(d: Draft): Problems {
     else if (inRange(d.initial, 1, 100000) && Number(d.minimum) > Number(d.initial)) p.minimum = 'The floor cannot be above the start.'
     if (!inRange(d.decay, 1, 100000)) p.decay = 'A whole number, 1 or more.'
   }
-  if (d.flagValue === '') {
+  if (dfir) {
+    // The answers live in the questions.
+  } else if (d.flagValue === '') {
     p.flagValue = 'Enter the flag.'
   } else if (d.flagKind === 'static' || d.flagKind === 'per_team') {
     // A flag that does not match the accepted format could never be submitted.
@@ -173,7 +183,7 @@ export function validate(d: Draft): Problems {
   const rel = fromLocalInput(d.release)
   const ret = fromLocalInput(d.retire)
   if (rel !== null && ret !== null && rel >= ret) p.retire = 'It must retire after it is released.'
-  if (d.requiresInstance) {
+  if (d.requiresInstance && !dfir) {
     if (d.image.trim() === '') p.image = 'Name the image or machine to start.'
     if (!inRange(d.port, 1, 65535)) p.port = '1 to 65535.'
     if (!inRange(d.cpu, 1, 4000)) p.cpu = '1 to 4000.'
@@ -229,7 +239,7 @@ function dynamicSummary(d: Draft): string {
   return `The first solver gets ${start}, falling ${d.curve === 'parabolic' ? 'faster at first' : 'quickly then slowly'} to ${floor} after about ${n} solves. Everyone's points update as more teams solve it.`
 }
 
-function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged: () => void }) {
+function Extras({ challenge, tournament, onChanged }: { challenge: AdminChallenge; tournament: boolean; onChanged: () => void }) {
   const [hint, setHint] = useState('')
   const [cost, setCost] = useState('10')
   const addHint = useMutation({
@@ -248,6 +258,7 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
   const costOk = inRange(cost, 0, 100000)
   return (
     <>
+      {!tournament && (
       <Section title="Hints" help="Players can unlock a hint for its cost, which comes off the challenge when they solve it. Changes here save at once.">
         {challenge.hints.length === 0 && <p className="text-sm text-muted">No hints yet.</p>}
         {challenge.hints.map((h) => (
@@ -272,6 +283,7 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
         </div>
         <ErrorText error={addHint.error ?? delHint.error} />
       </Section>
+      )}
 
       <Section title="Attachments" help="Files players download from the challenge, up to 10 MB each. Changes here save at once.">
         {challenge.attachments.length === 0 && <p className="text-sm text-muted">No files yet.</p>}
@@ -302,6 +314,7 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
         <ErrorText error={upload.error ?? delFile.error} />
       </Section>
 
+      {challenge.kind !== 'dfir' && (
       <Section title="Test the flag" help="Checks a flag the way a player's submission is checked, without recording a submission or a solve.">
         <div className="flex gap-2">
           <Input value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Try a flag" aria-label="Flag to test" className="min-w-0 flex-1 font-mono" autoComplete="off" />
@@ -312,24 +325,30 @@ function Extras({ challenge, onChanged }: { challenge: AdminChallenge; onChanged
         {test.data && <p className={test.data.verdict === 'correct' ? 'text-sm text-win' : 'text-sm text-danger'}>{verdictText[test.data.verdict]}</p>}
         <ErrorText error={test.error} />
       </Section>
+      )}
     </>
   )
 }
 
 interface Props {
   eventId: number
+  /** A tournament's challenges are worth fixed points and have no hints. */
+  eventKind: 'jeopardy' | 'tournament'
   categories: Category[]
   challenge: AdminChallenge | null
   onClose: () => void
 }
 
-export function ChallengeEditor({ eventId, categories, challenge, onClose }: Props) {
+export function ChallengeEditor({ eventId, eventKind, categories, challenge, onClose }: Props) {
+  const tournament = eventKind === 'tournament'
   const client = useQueryClient()
   const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : blank(categories[0]?.id ?? 0)))
   const [d, setD] = useState<Draft>(start)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setD((prev) => ({ ...prev, [key]: value }))
   const dirty = JSON.stringify(d) !== JSON.stringify(start)
-  const problems = validate(d)
+  const dfir = d.kind === 'dfir'
+  const fixedPoints = tournament || dfir
+  const problems = validate(d, tournament)
   const first = Object.values(problems)[0]
   // Show a field's problem only after it has been touched, so a new form does not open in red.
   const [touched, setTouched] = useState(false)
@@ -339,7 +358,8 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
   const refresh = () => void client.invalidateQueries({ queryKey: ['admin-challenges', eventId] })
   const save = useMutation({
     mutationFn: async () => {
-      const saved = challenge ? await platform.updateChallenge(challenge.id, toBody(d)) : await platform.createChallenge(eventId, toBody(d))
+      const body = toBody(d, tournament)
+      const saved = challenge ? await platform.updateChallenge(challenge.id, body) : await platform.createChallenge(eventId, body)
       // The host is its own call: it has its own checks (the lab host must work with the event's network mode).
       if (d.requiresInstance && d.labHost !== start.labHost) await platform.setChallengeLab(saved.id, d.labHost === '' ? null : Number(d.labHost))
       return saved
@@ -367,7 +387,7 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
       >
         <ModalHeader
           title={challenge ? 'Edit challenge' : 'New challenge'}
-          subtitle={challenge ? `${challenge.solves} ${challenge.solves === 1 ? 'solve' : 'solves'}` : 'Players see it once you publish it.'}
+          subtitle={challenge && !tournament ? `${challenge.solves} ${challenge.solves === 1 ? 'solve' : 'solves'}` : 'Players see it once you publish it.'}
           actions={
             challenge && (
               <>
@@ -390,7 +410,7 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
           <ErrorText error={state.error} />
 
           <Section title="Basics">
-            <div className="grid gap-4 sm:grid-cols-[1fr_14rem]">
+            <div className="grid gap-4 sm:grid-cols-[1fr_14rem_12rem]">
               <Field label="Title" error={shown.title}>
                 <Input value={d.title} onChange={(e) => set('title', e.target.value)} maxLength={100} aria-invalid={shown.title ? true : undefined} />
               </Field>
@@ -403,6 +423,12 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
                   ))}
                 </Select>
               </Field>
+              <Field label="Type" hint={challenge ? 'Fixed once created.' : dfir ? 'Several questions, each with its own answer and points.' : undefined}>
+                <Select value={d.kind} onChange={(e) => set('kind', e.target.value as Draft['kind'])} disabled={challenge !== null}>
+                  <option value="flag">Single flag</option>
+                  <option value="dfir">Multi-question</option>
+                </Select>
+              </Field>
             </div>
             <Field label="Description" hint="Shown to players as plain text. Say what to do, not how to solve it.">
               <Textarea value={d.description} onChange={(e) => set('description', e.target.value)} rows={4} />
@@ -411,13 +437,13 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
 
           <Section title="Points">
             <div className="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-start">
-              <Field label="Scoring">
-                <Select value={d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type">
+              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : 'A match score is the points earned.') : undefined}>
+                <Select value={fixedPoints ? 'static' : d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type" disabled={fixedPoints}>
                   <option value="static">Fixed points</option>
                   <option value="dynamic">Dynamic points</option>
                 </Select>
               </Field>
-              {d.scoring === 'static' ? (
+              {fixedPoints || d.scoring === 'static' ? (
                 <Num label="Points" value={d.points} onChange={(v) => set('points', v)} error={shown.points} />
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -434,9 +460,10 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
                 </div>
               )}
             </div>
-            {d.scoring === 'dynamic' && <p className="text-xs text-muted">{dynamicSummary(d)}</p>}
+            {!fixedPoints && d.scoring === 'dynamic' && <p className="text-xs text-muted">{dynamicSummary(d)}</p>}
           </Section>
 
+          {!dfir && (
           <Section title="Flag" help="What a player must submit, and the shape that is accepted before it is even compared.">
             <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
               <Field label="Kind">
@@ -463,6 +490,8 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
               {flagHint(d.prefix, d.suffix) && <span className="text-xs text-muted">Players see the shape: <code className="font-mono text-ink">{flagHint(d.prefix, d.suffix)}</code></span>}
             </div>
           </Section>
+          )}
+          {dfir && (challenge ? <DfirItems challenge={challenge} onChanged={refresh} /> : <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">Create the challenge first, then add its questions here. Each question has its own answer, points and attempt limit.</p>)}
 
           <Section title="Availability" help="When players can see and solve it, and how many wrong tries they get. Times use your browser's time zone.">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -470,11 +499,12 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
               <When label="Retire at" value={d.retire} onChange={(v) => set('retire', v)} error={shown.retire} hint="Empty: stays open until the event ends." />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Num label="Attempt limit" value={d.maxAttempts} onChange={(v) => set('maxAttempts', v)} min={1} error={shown.maxAttempts} hint="Empty means unlimited. Wrong-format answers never count." />
+              {!dfir && <Num label="Attempt limit" value={d.maxAttempts} onChange={(v) => set('maxAttempts', v)} min={1} error={shown.maxAttempts} hint="Empty means unlimited. Wrong-format answers never count." />}
               <Num label="Order" value={d.position} onChange={(v) => set('position', v)} min={-1000} hint="Lower numbers come first in the category." />
             </div>
           </Section>
 
+          {!dfir && (
           <Section title="Instance" help="Give every player or team their own copy of a service or machine to attack. Turn it off for a plain flag.">
             <Toggle label="Each player or team starts its own instance" checked={d.requiresInstance} onChange={(v) => set('requiresInstance', v)} />
             {d.requiresInstance && (
@@ -504,11 +534,12 @@ export function ChallengeEditor({ eventId, categories, challenge, onClose }: Pro
               </>
             )}
           </Section>
+          )}
 
           {challenge ? (
-            <Extras challenge={challenge} onChanged={refresh} />
+            <Extras challenge={challenge} tournament={tournament} onChanged={refresh} />
           ) : (
-            <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">Hints, attachments and a flag test appear here once the challenge is created.</p>
+            <p className="rounded-card border border-dashed border-line p-4 text-sm text-muted">{tournament ? 'Files' : 'Hints, files'} {dfir ? '' : 'and a flag test '}appear here once the challenge is created.</p>
           )}
           <ErrorText error={save.error} />
         </ModalBody>

@@ -82,10 +82,11 @@ const statusStyle: Record<Status, string> = {
 
 const statusLabel: Record<Status, string> = { draft: 'Draft', live: 'Live', done: 'Finished' }
 
-export function StatusPill({ status }: { status: Status }) {
+export function StatusPill({ status, paused = false }: { status: Status; paused?: boolean }) {
+  const shown = paused && status === 'live'
   return (
-    <span className={`rounded-full border border-line px-2.5 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
-      {statusLabel[status]}
+    <span className={`rounded-full border border-line px-2.5 py-0.5 text-xs font-medium ${shown ? 'text-danger' : statusStyle[status]}`}>
+      {shown ? 'Paused' : statusLabel[status]}
     </span>
   )
 }
