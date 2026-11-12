@@ -603,6 +603,24 @@ export interface CleanupReport {
 
 // ---------- VPN ----------
 
+/** Whether the player's tunnel is up right now. `has_profile` is false until they download one. */
+export interface VpnConnection {
+  has_profile: boolean
+  connected: boolean
+}
+
+/** The one instance a player has going, in whichever event it is. */
+export interface MyInstance {
+  instance: {
+    id: number
+    challenge_id: number
+    title: string
+    state: 'starting' | 'running'
+    event_slug: string
+    remaining_secs: number
+  } | null
+}
+
 export interface VpnStatus {
   enabled: boolean
   /** False when the gateway for this host cannot be reached or does not exist. */

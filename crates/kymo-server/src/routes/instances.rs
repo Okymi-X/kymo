@@ -14,6 +14,14 @@ use crate::instances;
 use crate::state::AppState;
 use crate::submit::{challenge_of, play_context_any, released};
 
+/// The player's current instance in any event, for the header. None when they have none.
+pub async fn mine(
+    Account(player, _): Account<needs::StartInstance>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(instances::mine(&state, player.id).await?))
+}
+
 async fn context(
     state: &AppState,
     player: &Player,

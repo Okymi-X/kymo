@@ -267,6 +267,23 @@ pub async fn live_of(
     .await?)
 }
 
+/// The one run a player has going in any event, alone or through their team: the latest that is
+/// starting or running and has not passed its time.
+pub async fn live_of_user(
+    pool: &SqlitePool,
+    user_id: i64,
+    now: i64,
+) -> Result<Option<(i64, i64, String, String, String, i64)>, ApiError> {
+    Ok(sqlx::query_as(
+        "SELECT i.id, i.challenge_id, c.title, i.state, e.slug, i.expires_at FROM instance i JOIN challenge c ON c.id = i.challenge_id JOIN event e ON e.id = i.event_id WHERE i.state IN ('starting', 'running') AND i.expires_at > ? AND ((i.scorer_kind = 'user' AND i.scorer_id = ?) OR (i.scorer_kind = 'team' AND i.scorer_id IN (SELECT team_id FROM player_team_member WHERE user_id = ?))) ORDER BY i.id DESC LIMIT 1",
+    )
+    .bind(now)
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
 /// The extra services of a run, as stored.
 pub fn extra_services(json: Option<&str>) -> Vec<kymo_instances::ExtraPort> {
     json.and_then(|j| serde_json::from_str(j).ok())

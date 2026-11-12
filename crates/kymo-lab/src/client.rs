@@ -611,6 +611,15 @@ impl kymo_vpn::Gateway for RemoteGateway {
             .map_err(gateway_error)
     }
 
+    async fn connected(&self) -> Result<Vec<String>, kymo_vpn::GatewayError> {
+        let state: crate::protocol::ConnectedState = self
+            .lab
+            .send(Method::GET, "/v1/vpn/connected", None::<&()>)
+            .await
+            .map_err(gateway_error)?;
+        Ok(state.connected)
+    }
+
     async fn status(&self) -> Result<kymo_vpn::GatewayStatus, kymo_vpn::GatewayError> {
         let state: crate::protocol::GatewayState = self
             .lab

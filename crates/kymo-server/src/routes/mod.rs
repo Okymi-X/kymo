@@ -166,6 +166,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/admin/instances/reap", post(instances::admin_reap))
         .route("/vpn", get(vpn::status))
+        .route("/vpn/connection", get(vpn::connection))
+        .route("/me/instance", get(instances::mine))
         .route("/vpn/profile", post(vpn::profile))
         .route("/admin/labs", get(labs::list).post(labs::create))
         .route("/admin/labs/{id}", put(labs::update).delete(labs::delete))

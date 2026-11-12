@@ -27,6 +27,7 @@
 //! | `POST /v1/vpn/attach` / `detach`   | Join or leave a lab network                             |
 //! | `POST /v1/vpn/rules`               | Apply the firewall script                               |
 //! | `POST /v1/vpn/kick`                | End a player's session                                  |
+//! | `GET  /v1/vpn/connected`           | Which players are connected to the gateway right now    |
 //! | `GET  /v1/vpn/reachable?ip=&port=` | Whether a service answers, asked from inside the gateway |
 //! | `PUT  /v1/vpn/labs/{network}`      | Create a private lab network with the given subnet      |
 //! | `DELETE /v1/vpn/labs/{network}`    | Remove it                                               |
@@ -184,6 +185,12 @@ pub struct KickBody {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OkBody {
     pub ok: bool,
+}
+
+/// The players connected to the gateway, by common name (`u<id>`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ConnectedState {
+    pub connected: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ import { ShortcutsDialog } from './ShortcutsDialog'
 import { HeaderProvider, useHeaderInfo } from './HeaderContext'
 import { ThemeToggle } from './ThemeToggle'
 import { useAppearance } from './ThemeLoader'
+import { PlayerStatus } from './platform/PlayerStatus'
 import { StatusPill } from './ui'
 
 const shortcut = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd K' : 'Ctrl K'
@@ -169,6 +170,7 @@ function Header({ onSearch }: { onSearch: () => void }) {
           <Context />
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {who?.role === 'player' && <PlayerStatus />}
           <LiveBadge />
           <button
             type="button"

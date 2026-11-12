@@ -577,6 +577,22 @@ pub async fn force_stop(state: &AppState, id: i64) -> Result<InstanceRow, ApiErr
     store::by_id(&state.pool, id).await
 }
 
+/// The instance a player has going right now, whichever event it is in, for the header.
+pub async fn mine(state: &AppState, user_id: i64) -> Result<Value, ApiError> {
+    let now = state.now();
+    let row = store::live_of_user(&state.pool, user_id, now).await?;
+    Ok(json!({
+        "instance": row.map(|(id, challenge_id, title, run_state, slug, expires_at)| json!({
+            "id": id,
+            "challenge_id": challenge_id,
+            "title": title,
+            "state": if run_state == "running" { "running" } else { "starting" },
+            "event_slug": slug,
+            "remaining_secs": (expires_at - now).max(0),
+        })),
+    }))
+}
+
 /// A player's running and starting instances in an event, for the "your instances" list.
 pub async fn list_for(state: &AppState, play: &Play) -> Result<Value, ApiError> {
     let setup = setup(state)?;

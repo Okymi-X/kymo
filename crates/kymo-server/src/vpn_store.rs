@@ -77,6 +77,16 @@ pub async fn clients(pool: &SqlitePool, hid: i64) -> Result<Vec<ClientRow>, ApiE
     )
 }
 
+/// The lab hosts a player has a VPN profile on (0 is this server's own gateway).
+pub async fn client_hosts(pool: &SqlitePool, user_id: i64) -> Result<Vec<i64>, ApiError> {
+    Ok(
+        sqlx::query_scalar("SELECT lab_host_id FROM vpn_client WHERE user_id = ? ORDER BY 1")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
 pub async fn used_client_indices(pool: &SqlitePool, hid: i64) -> Result<BTreeSet<u32>, ApiError> {
     let rows: Vec<i64> = sqlx::query_scalar("SELECT idx FROM vpn_client WHERE lab_host_id = ?")
         .bind(hid)

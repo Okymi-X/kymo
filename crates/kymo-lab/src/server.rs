@@ -1657,6 +1657,13 @@ async fn vpn_kick(
     Ok(Json(OkBody { ok: true }))
 }
 
+async fn vpn_connected(
+    State(lab): State<Arc<Lab>>,
+) -> Result<Json<crate::protocol::ConnectedState>, ApiError> {
+    let connected = vpn_of(&lab)?.connected().await.map_err(gateway_error)?;
+    Ok(Json(crate::protocol::ConnectedState { connected }))
+}
+
 #[derive(Deserialize)]
 struct ReachQuery {
     ip: String,
@@ -1726,6 +1733,7 @@ pub fn router(lab: Arc<Lab>) -> Router {
         .route("/v1/vpn/detach", post(vpn_detach))
         .route("/v1/vpn/rules", post(vpn_rules))
         .route("/v1/vpn/kick", post(vpn_kick))
+        .route("/v1/vpn/connected", get(vpn_connected))
         .route("/v1/vpn/reachable", get(vpn_reachable))
         .route(
             "/v1/vpn/labs/{network}",

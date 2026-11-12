@@ -38,6 +38,9 @@ pub struct InstanceSetup {
     pub reap_grace_secs: i64,
 }
 
+/// Per lab host: when it was asked and who was connected.
+pub type ConnectedCache = Mutex<HashMap<i64, (i64, Vec<String>)>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
@@ -58,6 +61,9 @@ pub struct AppState {
     vpn: Option<VpnSetup>,
     labs: Arc<LabRegistry>,
     permissions: Arc<PermissionCache>,
+    /// Who was connected to each gateway when it was last asked (host, when, common names), so
+    /// many browsers polling cost a lab host one question every few seconds.
+    connected: Arc<ConnectedCache>,
 }
 
 impl AppState {
@@ -83,6 +89,7 @@ impl AppState {
             vpn: None,
             labs: Arc::default(),
             permissions: Arc::default(),
+            connected: Arc::default(),
         })
     }
 
@@ -111,6 +118,10 @@ impl AppState {
     pub fn with_vpn(mut self, setup: VpnSetup) -> Self {
         self.vpn = Some(setup);
         self
+    }
+
+    pub fn connected_cache(&self) -> &ConnectedCache {
+        &self.connected
     }
 
     pub fn vpn_setup(&self) -> Option<&VpnSetup> {

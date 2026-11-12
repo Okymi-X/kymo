@@ -44,6 +44,8 @@ pub trait Gateway: Send + Sync {
     /// Ends a connected player's session. `common_name` must pass `valid_common_name`.
     async fn kick(&self, common_name: &str) -> Result<(), GatewayError>;
     async fn status(&self) -> Result<GatewayStatus, GatewayError>;
+    /// The common names of the players connected right now (a player is `u<id>`).
+    async fn connected(&self) -> Result<Vec<String>, GatewayError>;
     /// Whether something accepts a TCP connection at `ip:port`, tried from inside the gateway,
     /// which is attached to every lab. This is how an instance in a private lab is checked.
     async fn reachable(&self, ip: std::net::Ipv4Addr, port: u16) -> Result<bool, GatewayError>;
@@ -56,6 +58,7 @@ struct FakeState {
     rules_runs: usize,
     kicked: Vec<String>,
     not_reachable: bool,
+    connected: Vec<String>,
     fail: bool,
 }
 
@@ -82,6 +85,11 @@ impl FakeGateway {
     /// Makes every call fail, as a stopped container platform would.
     pub fn set_fail(&self, fail: bool) {
         self.lock().fail = fail;
+    }
+
+    /// Sets who counts as connected.
+    pub fn set_connected(&self, names: &[&str]) {
+        self.lock().connected = names.iter().map(|n| (*n).to_owned()).collect();
     }
 
     pub fn networks(&self) -> Vec<String> {
@@ -135,6 +143,10 @@ impl Gateway for FakeGateway {
 
     async fn reachable(&self, _: std::net::Ipv4Addr, _: u16) -> Result<bool, GatewayError> {
         Ok(!self.check()?.not_reachable)
+    }
+
+    async fn connected(&self) -> Result<Vec<String>, GatewayError> {
+        Ok(self.check()?.connected.clone())
     }
 
     async fn status(&self) -> Result<GatewayStatus, GatewayError> {

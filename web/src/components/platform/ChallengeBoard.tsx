@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Check, Lock } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { platform } from '../../api/platform'
 import { useEventStream } from '../../api/platformHooks'
 import { groupByCategory } from '../../lib/platform'
@@ -12,12 +13,30 @@ export function ChallengeBoard({ slug, vpn = false, labHost = null }: { slug: st
   useEventStream(slug, true)
   const q = useQuery({ queryKey: ['challenges', slug], queryFn: () => platform.challenges(slug), refetchInterval: 20_000 })
   const [openId, setOpenId] = useState<number | null>(null)
+  // The header's instance icon links here with ?challenge=<id>, which opens that challenge. The
+  // parameter goes when the dialog closes, so a refresh does not reopen it.
+  const [params, setParams] = useSearchParams()
+  const linked = Number(params.get('challenge')) || null
+  const shownId = openId ?? linked
+  const close = () => {
+    setOpenId(null)
+    if (params.has('challenge')) {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('challenge')
+          return next
+        },
+        { replace: true },
+      )
+    }
+  }
   const groups = useMemo(() => (q.data ? groupByCategory(q.data.categories, q.data.challenges) : []), [q.data])
   if (q.isPending) return <Loading label="Loading challenges" />
   // A failed refresh must not replace a board that is on screen: an open challenge would vanish with the flag being typed.
   if (q.error && !q.data) return <ErrorText error={q.error} />
-  const selected = q.data?.challenges.find((c) => c.id === openId)
-  const category = groups.find((g) => g.challenges.some((c) => c.id === openId))?.category.name ?? ''
+  const selected = q.data?.challenges.find((c) => c.id === shownId)
+  const category = groups.find((g) => g.challenges.some((c) => c.id === shownId))?.category.name ?? ''
   if (groups.length === 0) return <Empty>No challenges are visible yet.</Empty>
   return (
     <div className="flex flex-col gap-8">
@@ -56,7 +75,7 @@ export function ChallengeBoard({ slug, vpn = false, labHost = null }: { slug: st
           </ul>
         </section>
       ))}
-      {selected && <ChallengeDialog slug={slug} challenge={selected} category={category} vpn={vpn} labHost={labHost} onClose={() => setOpenId(null)} />}
+      {selected && <ChallengeDialog slug={slug} challenge={selected} category={category} vpn={vpn} labHost={labHost} onClose={close} />}
     </div>
   )
 }

@@ -1290,6 +1290,89 @@ async fn a_lab_follows_its_event_to_a_new_lab_host_and_removing_the_old_host_cle
 }
 
 #[tokio::test]
+async fn the_header_knows_whether_a_player_is_connected_and_which_instance_is_running() {
+    let lab = Lab::new(true, "solo").await;
+    let challenge = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    let (sam, _) = lab.player("sam").await;
+    lab.register(&pat).await;
+    lab.register(&sam).await;
+    lab.set_state("live").await;
+
+    // No profile yet: nothing to show, and no instance.
+    let (s, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({ "has_profile": false, "connected": false }));
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b, json!({ "instance": null }));
+
+    // A profile, but the tunnel is down.
+    assert_eq!(lab.profile(&pat).await.status, StatusCode::OK);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": false }));
+
+    // The tunnel comes up: the answer follows within a few seconds, and only for that player.
+    lab.gateway.set_connected(&["u1"]);
+    lab.set_time(T0 + 10);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": true }));
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&sam), None).await;
+    assert_eq!(b["connected"], false, "another player's tunnel is not mine");
+
+    // And it goes down again.
+    lab.gateway.set_connected(&[]);
+    lab.set_time(T0 + 20);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b["connected"], false);
+
+    // A gateway that cannot be asked counts as not connected, never an error.
+    lab.gateway.set_connected(&["u1"]);
+    lab.gateway.set_fail(true);
+    lab.set_time(T0 + 30);
+    let (s, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!((s, b["connected"].clone()), (StatusCode::OK, json!(false)));
+    lab.gateway.set_fail(false);
+
+    // The instance shows from the moment it starts and is the player's own.
+    let (s, started) = lab.act(&pat, "POST", challenge, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b["instance"]["title"], "Box A");
+    assert_eq!(b["instance"]["challenge_id"], challenge);
+    assert_eq!(b["instance"]["event_slug"], lab.slug.as_str());
+    assert!(b["instance"]["remaining_secs"].as_i64().unwrap() > 0);
+    let (_, other) = lab.call("GET", "/me/instance", Some(&sam), None).await;
+    assert_eq!(other, json!({ "instance": null }));
+
+    // Stopped: gone again.
+    lab.act(&pat, "DELETE", challenge, "").await;
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b, json!({ "instance": null }));
+}
+
+#[tokio::test]
+async fn the_header_asks_the_lab_hosts_gateway_who_is_connected() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = remote_lab().await;
+    let (pat, _) = lab.player("pat").await;
+    let host_id = lab.use_remote(&remote).await;
+    lab.raw(
+        "POST",
+        &format!("/vpn/profile?lab_host={host_id}"),
+        Some(&pat),
+        None,
+    )
+    .await;
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": false }));
+    // Connected to the lab host's gateway, not this server's own.
+    remote.gateway.set_connected(&["u1"]);
+    lab.set_time(T0 + 10);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b["connected"], true, "{b}");
+}
+
+#[tokio::test]
 async fn certificates_are_per_host_so_one_hosts_profile_opens_nothing_on_another() {
     let lab = Lab::new(true, "solo").await;
     let remote = remote_lab().await;

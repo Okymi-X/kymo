@@ -3,6 +3,8 @@ import type { ChallengeSettings, Tournament } from './types'
 import type {
   AdminChallenge,
   AdminVpn,
+  MyInstance,
+  VpnConnection,
   AdminInstance,
   VerifyLogEntry,
   AuditPage,
@@ -134,6 +136,8 @@ export const platform = {
 
   // VPN
   vpnStatus: (labHost: number | null = null) => request<VpnStatus>('GET', labHost === null ? '/vpn' : `/vpn?lab_host=${labHost}`),
+  vpnConnection: () => request<VpnConnection>('GET', '/vpn/connection'),
+  myInstance: () => request<MyInstance>('GET', '/me/instance'),
   vpnProfile: (labHost: number | null = null) => downloadFile(labHost === null ? '/vpn/profile' : `/vpn/profile?lab_host=${labHost}`, 'kymo.ovpn', 'POST'),
   labs: () => request<{ labs: LabHost[] }>('GET', '/admin/labs'),
   createLab: (body: LabBody) => request<{ lab: LabHost; check: LabCheck }>('POST', '/admin/labs', body),

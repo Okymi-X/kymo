@@ -58,6 +58,50 @@ fn setup(state: &AppState) -> Result<&VpnSetup, ApiError> {
 /// The VPN of one host: this server's own gateway (`hid` 0) or the one on lab host `hid`. A lab
 /// host's gateway is driven over its API; the authority stays here, one per host, so a
 /// certificate for one lab host opens nothing on another.
+/// How long an answer about who is connected stays good, in seconds.
+const CONNECTED_TTL_SECS: i64 = 3;
+
+/// Whether the player has a VPN profile on any host, and whether they are connected through one
+/// of them right now. A gateway that cannot be asked counts as not connected.
+pub async fn connection(state: &AppState, user_id: i64) -> Result<(bool, bool), ApiError> {
+    if state.vpn_setup().is_none() {
+        return Ok((false, false));
+    }
+    let hosts = store::client_hosts(&state.pool, user_id).await?;
+    let name = common_name(user_id);
+    for hid in &hosts {
+        if connected_on(state, *hid).await.contains(&name) {
+            return Ok((true, true));
+        }
+    }
+    Ok((!hosts.is_empty(), false))
+}
+
+async fn connected_on(state: &AppState, hid: i64) -> Vec<String> {
+    let now = state.now();
+    {
+        let cache = state
+            .connected_cache()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((at, names)) = cache.get(&hid)
+            && now - *at < CONNECTED_TTL_SECS
+        {
+            return names.clone();
+        }
+    }
+    let names = match setup_for(state, hid).await {
+        Ok(setup) => setup.gateway.connected().await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    state
+        .connected_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(hid, (now, names.clone()));
+    names
+}
+
 pub async fn setup_for(state: &AppState, hid: i64) -> Result<VpnSetup, ApiError> {
     let base = setup(state)?;
     if hid == 0 {

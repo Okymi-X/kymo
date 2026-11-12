@@ -88,6 +88,9 @@ impl kymo_vpn::Gateway for NoLocalGateway {
     async fn status(&self) -> Result<kymo_vpn::GatewayStatus, kymo_vpn::GatewayError> {
         Err(no_gateway())
     }
+    async fn connected(&self) -> Result<Vec<String>, kymo_vpn::GatewayError> {
+        Ok(Vec::new())
+    }
     async fn reachable(
         &self,
         _: std::net::Ipv4Addr,
