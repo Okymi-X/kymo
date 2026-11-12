@@ -53,6 +53,106 @@ impl StartRequest {
     }
 }
 
+/// How a flag reaches the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagDelivery {
+    /// The lab host writes it into the instance (an environment variable, or a file over SSH).
+    Inject,
+    /// The lab host keeps it and only the Verifier container can release it.
+    Hold,
+}
+
+/// A flag the platform generated for one run. The value is a secret: it never appears in
+/// `Debug` output, so it cannot end up in a log line by accident.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunFlag {
+    pub name: String,
+    pub value: String,
+    pub deliver: FlagDelivery,
+}
+
+impl std::fmt::Debug for RunFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunFlag")
+            .field("name", &self.name)
+            .field("value", &"<hidden>")
+            .field("deliver", &self.deliver)
+            .finish()
+    }
+}
+
+/// Something an instance is reachable at, as the lab host reports it: the machine, a Verifier,
+/// or a listed service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Endpoint {
+    /// `machine`, `verifier` or `service`.
+    pub role: String,
+    pub name: String,
+    pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// `http` for a web page, none for a plain address.
+    #[serde(default)]
+    pub scheme: Option<String>,
+}
+
+/// What a start may carry besides the request: generated flags, and the address of the run's
+/// Verifier. Kept apart from `StartRequest` so runtimes that know nothing about them are
+/// unaffected.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartExtras {
+    pub flags: Vec<RunFlag>,
+    pub verifier_ip: Option<String>,
+}
+
+impl StartExtras {
+    pub fn is_empty(&self) -> bool {
+        self.flags.is_empty() && self.verifier_ip.is_none()
+    }
+}
+
+/// A Verifier container to start next to an instance, on the same lab network.
+#[derive(Clone, PartialEq, Eq)]
+pub struct VerifierSpec {
+    /// The container's name, built from the instance's.
+    pub name: String,
+    /// The instance it belongs to, kept as a label so cleanup can tell what is orphaned.
+    pub instance_id: String,
+    pub network: String,
+    pub ip: String,
+    pub image: String,
+    pub port: u16,
+    pub memory_mb: u32,
+    pub cpu_millis: u32,
+    /// The host directory with `verifier.json` and the scripts, mounted read-only.
+    pub definition_dir: String,
+    /// A JSON document describing the run (target address, held flag, admin token). A secret:
+    /// it stays out of `Debug` output.
+    pub run_json: String,
+}
+
+impl std::fmt::Debug for VerifierSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifierSpec")
+            .field("name", &self.name)
+            .field("instance_id", &self.instance_id)
+            .field("network", &self.network)
+            .field("ip", &self.ip)
+            .field("image", &self.image)
+            .field("port", &self.port)
+            .field("run_json", &"<hidden>")
+            .finish()
+    }
+}
+
+/// A started instance together with the endpoints the lab host reported for it.
+#[derive(Debug, Clone)]
+pub struct StartOutcome {
+    pub started: Started,
+    pub endpoints: Vec<Endpoint>,
+}
+
 /// A further published service of an instance, for machines that offer several (a web server and
 /// SSH, say). `host` is where it is reachable, `guest` the port inside.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +208,23 @@ pub struct Managed {
 #[async_trait]
 pub trait InstanceRuntime: Send + Sync {
     async fn start(&self, request: &StartRequest) -> Result<Started, RuntimeError>;
+    /// Starts with generated flags and a Verifier address. Only a lab host can do this, so the
+    /// default refuses rather than silently starting an instance without its flags.
+    async fn start_with(
+        &self,
+        request: &StartRequest,
+        extras: &StartExtras,
+    ) -> Result<StartOutcome, RuntimeError> {
+        if !extras.is_empty() {
+            return Err(RuntimeError::Failed(
+                "this runtime cannot hand out flags or a Verifier, use a lab host".into(),
+            ));
+        }
+        Ok(StartOutcome {
+            started: self.start(request).await?,
+            endpoints: Vec::new(),
+        })
+    }
     /// Removes the container and anything created for it. Stopping a missing instance is Ok.
     async fn stop(&self, handle: &str) -> Result<(), RuntimeError>;
     async fn status(&self, handle: &str) -> Result<RuntimeStatus, RuntimeError>;
@@ -121,6 +238,23 @@ pub trait InstanceRuntime: Send + Sync {
     /// Whether something accepts TCP connections on the published host port. Only meaningful
     /// for a published placement; a lab is probed through the VPN gateway instead.
     async fn reachable(&self, host_port: u16) -> bool;
+    /// Starts a Verifier container on a lab network and returns its handle. Only a runtime that
+    /// can place containers on lab networks can.
+    async fn start_verifier(&self, _spec: &VerifierSpec) -> Result<String, RuntimeError> {
+        Err(RuntimeError::Unavailable(
+            "this runtime cannot start a Verifier".into(),
+        ))
+    }
+    /// Every Verifier container this runtime started, running or not.
+    async fn list_verifiers(&self) -> Result<Vec<Managed>, RuntimeError> {
+        Ok(Vec::new())
+    }
+    /// Whether a started instance has finished its own setup (flags written, Verifier up) and
+    /// may be handed to a player. Only a lab host has such a step; everything else is ready as
+    /// soon as it runs.
+    async fn ready(&self, _handle: &str) -> bool {
+        true
+    }
     /// Whether this runtime can start anything. A platform that leaves all containers to lab
     /// hosts says no, so an event with no lab host can be told why it cannot start instances.
     fn can_start(&self) -> bool {
@@ -139,6 +273,7 @@ struct FakeInner {
     fail_starts: bool,
     extra_ports: Vec<ExtraPort>,
     ready_secs: Option<u32>,
+    verifiers: HashMap<String, VerifierSpec>,
 }
 
 /// In memory runtime for tests.
@@ -207,6 +342,18 @@ impl FakeRuntime {
         self.lock().live.get(handle).map(|(_, spec)| spec.clone())
     }
 
+    /// The Verifier containers that are running, by handle.
+    pub fn verifiers(&self) -> Vec<(String, VerifierSpec)> {
+        let mut list: Vec<_> = self
+            .lock()
+            .verifiers
+            .iter()
+            .map(|(h, v)| (h.clone(), v.clone()))
+            .collect();
+        list.sort_by(|a, b| a.0.cmp(&b.0));
+        list
+    }
+
     /// Simulates a container nobody recorded, as left behind by a crash.
     pub fn add_orphan(&self, instance_id: &str, spec: InstanceSpec) -> String {
         let mut inner = self.lock();
@@ -269,7 +416,37 @@ impl InstanceRuntime for FakeRuntime {
         let mut inner = self.lock();
         inner.live.remove(handle);
         inner.placements.remove(handle);
+        inner.verifiers.remove(handle);
         Ok(())
+    }
+
+    async fn start_verifier(&self, spec: &VerifierSpec) -> Result<String, RuntimeError> {
+        let mut inner = self.lock();
+        if inner.fail_starts {
+            return Err(RuntimeError::Failed("verifier image not found".into()));
+        }
+        if !inner.labs.contains_key(&spec.network) {
+            return Err(RuntimeError::Failed(format!(
+                "no lab network {}",
+                spec.network
+            )));
+        }
+        inner.next += 1;
+        let handle = format!("fake-verifier-{}", inner.next);
+        inner.verifiers.insert(handle.clone(), spec.clone());
+        Ok(handle)
+    }
+
+    async fn list_verifiers(&self) -> Result<Vec<Managed>, RuntimeError> {
+        Ok(self
+            .lock()
+            .verifiers
+            .iter()
+            .map(|(handle, v)| Managed {
+                handle: handle.clone(),
+                instance_id: v.instance_id.clone(),
+            })
+            .collect())
     }
 
     async fn status(&self, handle: &str) -> Result<RuntimeStatus, RuntimeError> {

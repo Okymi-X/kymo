@@ -317,8 +317,9 @@ async fn a_server_without_the_vpn_says_so_and_refuses_vpn_events() {
     );
     let (s, b) = lab.network("vpn").await;
     assert_eq!(s, StatusCode::CONFLICT, "{b}");
+    let admin = lab.admin.clone();
     let (_, event) = lab
-        .call("GET", &format!("/events/{}", lab.slug), None, None)
+        .call("GET", &format!("/events/{}", lab.slug), Some(&admin), None)
         .await;
     assert_eq!(event["network_mode"], "published");
     let (_, admin) = lab.admin("GET", "/admin/vpn", None).await;
@@ -1139,12 +1140,17 @@ async fn remote_lab() -> RemoteLab {
 impl Lab {
     /// Registers the remote lab host, gives the event to it and switches the event to the VPN.
     async fn use_remote(&self, remote: &RemoteLab) -> i64 {
+        self.use_remote_as(remote, "Remote").await
+    }
+
+    /// Same, under another name, for a second lab host.
+    async fn use_remote_as(&self, remote: &RemoteLab, name: &str) -> i64 {
         let (s, added) = self
             .admin(
                 "POST",
                 "/admin/labs",
                 Some(json!({
-                    "name": "Remote", "api_url": remote.url, "token": LAB_TOKEN,
+                    "name": name, "api_url": remote.url, "token": LAB_TOKEN,
                     "public_host": "203.0.113.9",
                 })),
             )
@@ -1218,6 +1224,153 @@ async fn a_vpn_event_on_a_lab_host_uses_that_hosts_gateway_and_publishes_nothing
     instances::reap(&lab.state).await.unwrap();
     assert!(remote.runtime.labs().is_empty());
     assert!(remote.gateway.networks().is_empty());
+}
+
+#[tokio::test]
+async fn a_lab_follows_its_event_to_a_new_lab_host_and_removing_the_old_host_clears_its_vpn_state()
+{
+    let lab = Lab::new(true, "solo").await;
+    let old = remote_lab().await;
+    let new = remote_lab().await;
+    let challenge = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    let old_id = lab.use_remote_as(&old, "Old").await;
+    assert_eq!(
+        lab.raw(
+            "POST",
+            &format!("/vpn/profile?lab_host={old_id}"),
+            Some(&pat),
+            None
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    let (s, started) = lab.act(&pat, "POST", challenge, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    lab.act(&pat, "DELETE", challenge, "").await;
+
+    // The event moves to a new host and the old one is removed.
+    let new_id = lab.use_remote_as(&new, "New").await;
+    let (s, b) = lab
+        .admin("DELETE", &format!("/admin/labs/{old_id}"), None)
+        .await;
+    assert!(s.is_success(), "{s} {b}");
+    let leftovers: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM vpn_lab WHERE lab_host_id = ?1) + (SELECT COUNT(*) FROM vpn_client WHERE lab_host_id = ?1)",
+    )
+    .bind(old_id)
+    .fetch_one(&lab.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(leftovers, 0, "nothing of the removed host stays behind");
+
+    // The player's lab was on the old host; it moves, and the new gateway lets them through.
+    assert_eq!(
+        lab.raw(
+            "POST",
+            &format!("/vpn/profile?lab_host={new_id}"),
+            Some(&pat),
+            None
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    let (s, started) = lab.act(&pat, "POST", challenge, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    let host_of_lab: i64 = sqlx::query_scalar("SELECT lab_host_id FROM vpn_lab")
+        .fetch_one(&lab.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(host_of_lab, new_id);
+    let rules = std::fs::read_to_string(new.dir.path().join("rules.sh")).unwrap();
+    assert!(rules.contains("-j ACCEPT"), "{rules}");
+}
+
+#[tokio::test]
+async fn the_header_knows_whether_a_player_is_connected_and_which_instance_is_running() {
+    let lab = Lab::new(true, "solo").await;
+    let challenge = lab.challenge("Box A").await;
+    let (pat, _) = lab.player("pat").await;
+    let (sam, _) = lab.player("sam").await;
+    lab.register(&pat).await;
+    lab.register(&sam).await;
+    lab.set_state("live").await;
+
+    // No profile yet: nothing to show, and no instance.
+    let (s, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({ "has_profile": false, "connected": false }));
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b, json!({ "instance": null }));
+
+    // A profile, but the tunnel is down.
+    assert_eq!(lab.profile(&pat).await.status, StatusCode::OK);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": false }));
+
+    // The tunnel comes up: the answer follows within a few seconds, and only for that player.
+    lab.gateway.set_connected(&["u1"]);
+    lab.set_time(T0 + 10);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": true }));
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&sam), None).await;
+    assert_eq!(b["connected"], false, "another player's tunnel is not mine");
+
+    // And it goes down again.
+    lab.gateway.set_connected(&[]);
+    lab.set_time(T0 + 20);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b["connected"], false);
+
+    // A gateway that cannot be asked counts as not connected, never an error.
+    lab.gateway.set_connected(&["u1"]);
+    lab.gateway.set_fail(true);
+    lab.set_time(T0 + 30);
+    let (s, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!((s, b["connected"].clone()), (StatusCode::OK, json!(false)));
+    lab.gateway.set_fail(false);
+
+    // The instance shows from the moment it starts and is the player's own.
+    let (s, started) = lab.act(&pat, "POST", challenge, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b["instance"]["title"], "Box A");
+    assert_eq!(b["instance"]["challenge_id"], challenge);
+    assert_eq!(b["instance"]["event_slug"], lab.slug.as_str());
+    assert!(b["instance"]["remaining_secs"].as_i64().unwrap() > 0);
+    let (_, other) = lab.call("GET", "/me/instance", Some(&sam), None).await;
+    assert_eq!(other, json!({ "instance": null }));
+
+    // Stopped: gone again.
+    lab.act(&pat, "DELETE", challenge, "").await;
+    let (_, b) = lab.call("GET", "/me/instance", Some(&pat), None).await;
+    assert_eq!(b, json!({ "instance": null }));
+}
+
+#[tokio::test]
+async fn the_header_asks_the_lab_hosts_gateway_who_is_connected() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = remote_lab().await;
+    let (pat, _) = lab.player("pat").await;
+    let host_id = lab.use_remote(&remote).await;
+    lab.raw(
+        "POST",
+        &format!("/vpn/profile?lab_host={host_id}"),
+        Some(&pat),
+        None,
+    )
+    .await;
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b, json!({ "has_profile": true, "connected": false }));
+    // Connected to the lab host's gateway, not this server's own.
+    remote.gateway.set_connected(&["u1"]);
+    lab.set_time(T0 + 10);
+    let (_, b) = lab.call("GET", "/vpn/connection", Some(&pat), None).await;
+    assert_eq!(b["connected"], true, "{b}");
 }
 
 #[tokio::test]
@@ -1435,4 +1588,224 @@ async fn a_machine_is_given_as_an_address_alone_and_a_service_as_address_and_por
         .await;
     assert_eq!(mine["instances"][0]["machine"], true);
     assert!(mine["instances"][0]["port"].is_null());
+}
+
+// ---------- dynamic flags and Responder challenges on a lab host ----------
+
+/// A lab host whose manifest hands out a container flag as `FLAG` and starts a Verifier from
+/// the definition directory `box`.
+async fn flag_lab() -> RemoteLab {
+    let manifest: kymo_lab::Manifest = serde_json::from_value(json!({
+        "artifact": "ctf/web:1", "port": 8000, "max_ttl_secs": 600,
+        "inject": { "flags": [ { "name": "flag", "env": "FLAG" } ] },
+        "verifier": { "definition": "box" },
+    }))
+    .unwrap();
+    let plain: kymo_lab::Manifest = serde_json::from_value(json!({
+        "artifact": "ctf/plain:1", "port": 8000, "max_ttl_secs": 600,
+        "inject": { "flags": [ { "name": "flag", "env": "FLAG" } ] },
+    }))
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let definitions = dir.path().join("verifiers/box");
+    std::fs::create_dir_all(&definitions).unwrap();
+    std::fs::write(definitions.join("verifier.json"), "{}").unwrap();
+    let mut cfg = kymo_lab::server::LabConfig::new("remote", LAB_TOKEN);
+    cfg.manifests = vec![manifest, plain];
+    cfg.verifiers_dir = dir.path().join("verifiers");
+    cfg.verifier_health_check = false;
+    let runtime = Arc::new(FakeRuntime::new());
+    let lab = kymo_lab::server::Lab::new(cfg, runtime.clone());
+    let gateway = Arc::new(FakeGateway::new());
+    lab.set_vpn(
+        Arc::new(kymo_lab::vpn::LabVpn::new(
+            gateway.clone(),
+            runtime.clone(),
+            GatewayConfig {
+                name: "kymo-lab-vpn-gateway".into(),
+                image: "img".into(),
+                dir: dir.path().join("gateway"),
+                publish_ip: "0.0.0.0".into(),
+                publish_port: 1194,
+                bind_options: String::new(),
+            },
+            "lab.example.org".into(),
+            "10.77.0.0/16".parse().unwrap(),
+        )),
+        true,
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    tokio::spawn(kymo_lab::server::serve(
+        listener,
+        kymo_lab::server::router(lab),
+        None,
+        std::future::pending(),
+    ));
+    RemoteLab {
+        url,
+        runtime,
+        gateway,
+        dir,
+    }
+}
+
+impl Lab {
+    async fn flag_challenge(&self, title: &str, image: &str, extra: Value) -> i64 {
+        let mut body = json!({
+            "category_id": self.category, "title": title, "description": "x",
+            "scoring": { "kind": "static", "points": 100 },
+            "flag_prefix": "KYMO{", "flag_suffix": "}",
+            "flag_mode": "dynamic",
+            "flags": [ { "name": "flag", "value": "KYMO{box_", "closing": "}" } ],
+            "requires_instance": true,
+            "instance_config": { "image": image, "port": 8000, "cpu_millis": 250, "memory_mb": 64, "pids": 64, "ttl_secs": 600 },
+        });
+        for (k, v) in extra.as_object().unwrap() {
+            body[k] = v.clone();
+        }
+        let (s, c) = self
+            .admin(
+                "POST",
+                &format!("/admin/events/{}/challenges", self.event_id),
+                Some(body),
+            )
+            .await;
+        assert_eq!(s, StatusCode::CREATED, "{c}");
+        let id = c["id"].as_i64().unwrap();
+        self.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+            .await;
+        id
+    }
+
+    async fn submit(&self, token: &str, challenge: i64, flag: &str) -> (StatusCode, Value) {
+        self.call(
+            "POST",
+            &format!("/events/{}/challenges/{challenge}/submit", self.slug),
+            Some(token),
+            Some(json!({ "flag": flag })),
+        )
+        .await
+    }
+}
+
+#[tokio::test]
+async fn a_dynamic_flag_is_generated_at_start_and_handed_to_the_lab_host() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = flag_lab().await;
+    let id = lab.flag_challenge("Box", "ctf/plain:1", json!({})).await;
+    let (pat, pat_id) = lab.player("pat").await;
+    let (sam, _) = lab.player("sam").await;
+    lab.register(&pat).await;
+    lab.register(&sam).await;
+    lab.set_state("live").await;
+    lab.use_remote(&remote).await;
+
+    let (s, started) = lab.act(&pat, "POST", id, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    // The container got the generated flag as FLAG, and the player was never told it.
+    let handle = remote.runtime.list_handles()[0].clone();
+    let env = remote.runtime.spec_of(&handle).unwrap().env;
+    let flag = env
+        .iter()
+        .find(|(k, _)| k == "FLAG")
+        .map(|(_, v)| v.clone())
+        .expect("the flag reached the container");
+    assert!(
+        flag.starts_with("KYMO{box_") && flag.ends_with('}') && flag.len() == 9 + 8 + 1,
+        "{flag}"
+    );
+    assert!(!started.to_string().contains(&flag));
+    // Kymo kept the same value for the run.
+    let kept: String = sqlx::query_scalar("SELECT value FROM instance_flag")
+        .fetch_one(&lab.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, flag);
+    // Pat solves with it; Sam cannot reuse it.
+    let (_, wrong) = lab.submit(&sam, id, &flag).await;
+    assert_eq!(wrong["verdict"], "incorrect");
+    let (_, ok) = lab.submit(&pat, id, &flag).await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+    let _ = pat_id;
+}
+
+#[tokio::test]
+async fn a_responder_gets_a_verifier_at_a_second_address_and_the_flag_stays_off_the_machine() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = flag_lab().await;
+    let id = lab
+        .flag_challenge("Responder", "ctf/web:1", json!({ "responder": true }))
+        .await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    lab.use_remote(&remote).await;
+
+    let (s, started) = lab.act(&pat, "POST", id, "").await;
+    assert_eq!(s, StatusCode::CREATED, "{started}");
+    assert_eq!(started["host"], "10.77.0.10");
+    // Two addresses of the same lab network: the machine and its Verifier, as endpoints.
+    let endpoints = started["endpoints"].as_array().expect("endpoints");
+    assert_eq!(endpoints.len(), 2, "{started}");
+    assert_eq!(endpoints[0]["role"], "machine");
+    assert_eq!(endpoints[0]["host"], "10.77.0.10");
+    assert_eq!(endpoints[1]["role"], "verifier");
+    assert_eq!(endpoints[1]["host"], "10.77.0.11");
+    assert_eq!(endpoints[1]["port"], 8080);
+    // The flag was held for the Verifier and is not in the machine's environment.
+    let handle = remote.runtime.list_handles()[0].clone();
+    let env = remote.runtime.spec_of(&handle).unwrap().env;
+    assert!(env.iter().all(|(k, _)| k != "FLAG"), "{env:?}");
+    let (_, verifier) = remote.runtime.verifiers().pop().expect("a Verifier");
+    assert_eq!(verifier.ip, "10.77.0.11");
+    let run: Value = serde_json::from_str(&verifier.run_json).unwrap();
+    let flag = run["flag"].as_str().unwrap().to_owned();
+    assert!(flag.starts_with("KYMO{box_"));
+    // Both addresses are in use: the next free one is the third.
+    let used: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT lab_ip, verifier_ip FROM instance")
+            .fetch_all(&lab.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        used,
+        vec![("10.77.0.10".to_owned(), Some("10.77.0.11".to_owned()))]
+    );
+    // The flag the Verifier releases is the one Kymo accepts.
+    let (_, ok) = lab.submit(&pat, id, &flag).await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+    // Stopping removes the Verifier on the lab host.
+    lab.act(&pat, "DELETE", id, "").await;
+    assert!(remote.runtime.verifiers().is_empty());
+}
+
+#[tokio::test]
+async fn a_responder_needs_a_lab_host_and_a_lab_host_that_has_a_verifier_for_the_image() {
+    // No lab host: the platform's own runtime cannot hand out flags or a Verifier.
+    let lab = Lab::new(true, "solo").await;
+    let id = lab
+        .flag_challenge("Responder", "ctf/web:1", json!({ "responder": true }))
+        .await;
+    let (pat, _) = lab.player("pat").await;
+    lab.register(&pat).await;
+    lab.set_state("live").await;
+    let (s, body) = lab.act(&pat, "POST", id, "").await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+
+    // A lab host whose manifest has no Verifier for this image refuses, and the start is free.
+    let remote = flag_lab().await;
+    lab.use_remote(&remote).await;
+    let plain = lab
+        .flag_challenge("No verifier", "ctf/plain:1", json!({ "responder": true }))
+        .await;
+    let (s, body) = lab.act(&pat, "POST", plain, "").await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(remote.runtime.running_count(), 0);
+    assert!(remote.runtime.verifiers().is_empty());
+    let free: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM instance WHERE state <> 'failed'")
+        .fetch_one(&lab.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(free, 0, "a failed start costs the player nothing");
 }

@@ -3,7 +3,13 @@ import type { ChallengeSettings, Tournament } from './types'
 import type {
   AdminChallenge,
   AdminVpn,
+  EventRules,
+  HomeContent,
+  PublicEvent,
+  MyInstance,
+  VpnConnection,
   AdminInstance,
+  VerifyLogEntry,
   AuditPage,
   Ban,
   BackupFile,
@@ -133,6 +139,15 @@ export const platform = {
 
   // VPN
   vpnStatus: (labHost: number | null = null) => request<VpnStatus>('GET', labHost === null ? '/vpn' : `/vpn?lab_host=${labHost}`),
+  home: () => request<HomeContent>('GET', '/home'),
+  saveHome: (home: HomeContent) => request<HomeContent>('PUT', '/admin/home', home),
+  resetHome: () => request<HomeContent>('DELETE', '/admin/home'),
+  publicScoreboards: () => request<PublicEvent[]>('GET', '/public/scoreboards'),
+  publicEvent: (slug: string) => request<PublicEvent>('GET', `/public/events/${encodeURIComponent(slug)}`),
+  eventRules: (slug: string) => request<EventRules>('GET', `${ev(slug)}/rules`),
+  saveEventRules: (id: number, rules: EventRules) => request<EventRules>('PUT', `/admin/events/${id}/rules`, rules),
+  vpnConnection: () => request<VpnConnection>('GET', '/vpn/connection'),
+  myInstance: () => request<MyInstance>('GET', '/me/instance'),
   vpnProfile: (labHost: number | null = null) => downloadFile(labHost === null ? '/vpn/profile' : `/vpn/profile?lab_host=${labHost}`, 'kymo.ovpn', 'POST'),
   labs: () => request<{ labs: LabHost[] }>('GET', '/admin/labs'),
   createLab: (body: LabBody) => request<{ lab: LabHost; check: LabCheck }>('POST', '/admin/labs', body),
@@ -201,6 +216,8 @@ export const platform = {
     request<Page<SubmissionLine>>('GET', `/admin/events/${id}/submissions${query({ per_page: 25, ...params })}`),
   adminInstances: (id: number) => request<{ instances: AdminInstance[] }>('GET', `/admin/events/${id}/instances`),
   stopAdminInstance: (id: number) => request<unknown>('DELETE', `/admin/instances/${id}`),
+  adminInstanceFlags: (id: number) => request<{ flags: { name: string; label: string; value: string }[] }>('GET', `/admin/instances/${id}/flags`),
+  adminVerifyLog: (id: number) => request<{ log: VerifyLogEntry[] }>('GET', `/admin/instances/${id}/verify-log`),
   exportScoreboard: (id: number, slug: string) => downloadFile(`/admin/events/${id}/scoreboard.csv`, `${slug}-scoreboard.csv`),
   exportEvent: (id: number, slug: string) => downloadFile(`/admin/events/${id}/export`, `${slug}.kymo-event.json`),
   importEvent: (bundle: string, keepTimes: boolean, keepState: boolean) =>

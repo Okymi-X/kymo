@@ -141,6 +141,10 @@ impl LabVpn {
         self.gateway.kick(common_name).await
     }
 
+    pub async fn connected(&self) -> Result<Vec<String>, GatewayError> {
+        self.gateway.connected().await
+    }
+
     pub async fn reachable(&self, ip: Ipv4Addr, port: u16) -> Result<bool, GatewayError> {
         self.gateway.reachable(ip, port).await
     }

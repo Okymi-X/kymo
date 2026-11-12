@@ -14,7 +14,7 @@ use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-use crate::challenge_store::{self as store, ChallengeFields};
+use crate::challenge_store::{self as store, ChallengeFields, FlagInput, FlagSet};
 use crate::error::ApiError;
 use crate::event_store::{self, EventFields, EventRow, MAX_NAME};
 use crate::jeopardy_store::{self, JeopardySettings};
@@ -119,6 +119,15 @@ pub struct ChallengePart {
     /// The questions of a DFIR challenge.
     #[serde(default)]
     pub items: Vec<ItemPart>,
+    /// `dynamic` when the flags are generated for every run. Written only when it is not static.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flag_mode: Option<String>,
+    /// A Responder challenge. Written only when true.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub responder: bool,
+    /// The flags of a dynamic or multi flag challenge. Generated run flags are never exported.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<FlagInput>,
     pub hints: Vec<HintPart>,
     pub attachments: Vec<AttachmentPart>,
 }
@@ -156,7 +165,15 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
             });
         }
         let fields = ChallengeFields::from(&row);
+        let set = FlagSet::from_rows(&row, &store::flag_rows(pool, row.id).await?);
         challenges.push(ChallengePart {
+            flag_mode: (set.mode != "static").then(|| set.mode.clone()),
+            responder: set.responder,
+            flags: if set.uses_rows() {
+                set.flags
+            } else {
+                Vec::new()
+            },
             category: names.get(&row.category_id).cloned().unwrap_or_default(),
             title: fields.title,
             description: fields.description,
@@ -232,6 +249,7 @@ pub struct ImportOptions {
 
 /// A challenge ready to write: everything decoded and checked before the first insert.
 struct Prepared {
+    flag_set: FlagSet,
     fields: ChallengeFields,
     category: String,
     state: String,
@@ -328,6 +346,12 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             }
         }
         fields.validate()?;
+        let flag_set = FlagSet {
+            mode: part.flag_mode.clone().unwrap_or_else(|| "static".into()),
+            responder: part.responder,
+            flags: part.flags.clone(),
+        };
+        flag_set.validate(&fields, false)?;
         if part.hints.len() > MAX_HINTS || part.attachments.len() > MAX_ATTACHMENTS {
             return Err(bad("a challenge has at most 20 hints and 20 attachments"));
         }
@@ -360,6 +384,7 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             ));
         }
         prepared.push(Prepared {
+            flag_set,
             fields,
             category: part.category.clone(),
             state: part.state.clone(),
@@ -437,6 +462,7 @@ async fn fill(
     for mut item in prepared {
         item.fields.category_id = *ids.get(&item.category).ok_or(ApiError::Internal)?;
         let id = store::challenge_insert(pool, event_id, &item.fields, now).await?;
+        store::apply_flag_set(pool, id, &item.flag_set).await?;
         for (content, cost, position) in &item.hints {
             store::hint_insert(pool, id, content, *cost, *position).await?;
         }

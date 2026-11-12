@@ -8,14 +8,16 @@ mod spec;
 
 #[cfg(feature = "docker")]
 pub mod docker;
+pub mod hardening;
 
 pub use error::{RuntimeError, SpecError};
+pub use hardening::{ALLOWED_CAPS, Hardening};
 pub use policy::{
     Action, Denied, InstanceRecord, InstanceState, Policy, Usage, authorize, due_for_reaping,
     effective_state, expires_at,
 };
 pub use runtime::{
-    ExtraPort, FakeRuntime, InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest,
-    Started,
+    Endpoint, ExtraPort, FakeRuntime, FlagDelivery, InstanceRuntime, Managed, Placement, RunFlag,
+    RuntimeStatus, StartExtras, StartOutcome, StartRequest, Started, VerifierSpec,
 };
 pub use spec::{InstanceSpec, ResourceCaps};

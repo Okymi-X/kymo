@@ -21,8 +21,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kymo_instances::{
-    ExtraPort, InstanceRuntime, InstanceSpec, Placement, ResourceCaps, RuntimeError, RuntimeStatus,
-    StartRequest,
+    ExtraPort, InstanceRuntime, InstanceSpec, Placement, ResourceCaps, RunFlag, RuntimeError,
+    RuntimeStatus, StartRequest,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -44,6 +44,10 @@ const AUTH_MAX_FAILURES: u32 = 10;
 const DEFAULT_GRACE_SECS: i64 = 60;
 /// How long past its time an instance is left before the reaper removes it.
 const EXPIRY_GRACE_SECS: i64 = 3;
+/// How long a machine may wait for its flags to be written before it is dropped.
+const STUCK_SETUP_SECS: i64 = 600;
+/// How long to keep trying to write flags into a machine that gave no boot timeout.
+const DEFAULT_BOOT_SECS: u32 = 180;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -132,6 +136,13 @@ pub struct LabConfig {
     pub state_path: Option<PathBuf>,
     /// `docker` or `podman`, shown by `health`.
     pub runtime_name: String,
+    /// The image of the Verifier container started next to a Responder instance.
+    pub verifier_image: String,
+    /// Where the organizer's Verifier definitions live, one directory per definition.
+    pub verifiers_dir: PathBuf,
+    /// Wait for a new Verifier to answer before the instance is handed out. Tests that run
+    /// against an in memory runtime switch it off.
+    pub verifier_health_check: bool,
 }
 
 impl LabConfig {
@@ -147,6 +158,9 @@ impl LabConfig {
             manifests: Vec::new(),
             state_path: None,
             runtime_name: "docker".into(),
+            verifier_image: "localhost/kymo/verifier:1".into(),
+            verifiers_dir: PathBuf::from("/etc/kymo-lab/verifiers"),
+            verifier_health_check: true,
         }
     }
 }
@@ -176,6 +190,27 @@ struct Record {
     /// The lab network it sits on, so a restart puts it back in the same place.
     #[serde(default)]
     place: Option<LabPlacement>,
+    /// The flags the platform generated for this run, kept so a lab side restart can hand out
+    /// the same ones. The state file is private to the service user; values never leave it.
+    #[serde(default)]
+    flags: Vec<RunFlag>,
+    /// The flags are still being written into the machine. The instance is reported as
+    /// starting until they are, so a player never gets an address for a box without its flag.
+    #[serde(default)]
+    pending: bool,
+    /// The Verifier container started next to this instance, for a Responder.
+    #[serde(default)]
+    verifier: Option<VerifierRecord>,
+}
+
+/// A Verifier container of an instance. The token lets the lab host read its run log; the
+/// player never has it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VerifierRecord {
+    handle: String,
+    ip: String,
+    port: u16,
+    token: String,
 }
 
 fn container_kind() -> String {
@@ -223,6 +258,28 @@ pub struct Lab {
     token_hash: [u8; 32],
     vpn: std::sync::OnceLock<Arc<LabVpn>>,
     vpn_only: std::sync::atomic::AtomicBool,
+}
+
+/// Whether a Verifier answers on its address, tried for a while as it starts.
+async fn verifier_answers(ip: &str, port: u16) -> bool {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    else {
+        return false;
+    };
+    for _ in 0..40 {
+        if client
+            .get(format!("http://{ip}:{port}/healthz"))
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success())
+        {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    false
 }
 
 fn system_clock() -> Clock {
@@ -338,6 +395,10 @@ impl Lab {
 
     /// Stops a record's machine or container. A runtime that is gone counts as stopped.
     async fn stop_record(&self, record: &Record) -> Result<(), RuntimeError> {
+        // The Verifier goes with its instance, whatever happens to the instance itself.
+        if let Some(verifier) = &record.verifier {
+            let _ = self.runtime.stop(&verifier.handle).await;
+        }
         match self.runtime_of(&record.runtime) {
             Some(rt) if !record.handle.is_empty() => rt.stop(&record.handle).await,
             _ => Ok(()),
@@ -464,6 +525,9 @@ impl Lab {
                     ports: Vec::new(),
                     ready_secs: None,
                     place: None,
+                    flags: Vec::new(),
+                    pending: false,
+                    verifier: None,
                     machine: false,
                 });
             }
@@ -491,9 +555,35 @@ impl Lab {
             .cloned()
     }
 
+    /// Where the instance and its Verifier can be reached on the lab network.
+    fn endpoints_of(&self, record: &Record) -> Vec<kymo_instances::Endpoint> {
+        let Some(place) = &record.place else {
+            return Vec::new();
+        };
+        let mut out = vec![kymo_instances::Endpoint {
+            role: "machine".into(),
+            name: "Machine".into(),
+            host: place.ip.clone(),
+            port: None,
+            scheme: None,
+        }];
+        if let Some(v) = &record.verifier {
+            out.push(kymo_instances::Endpoint {
+                role: "verifier".into(),
+                name: "Verifier".into(),
+                host: v.ip.clone(),
+                port: Some(v.port),
+                scheme: Some("http".into()),
+            });
+        }
+        out
+    }
+
     async fn info(&self, record: &Record) -> InstanceInfo {
         let status = if record.creating() {
             "creating"
+        } else if record.pending {
+            "starting"
         } else {
             match self.runtime_of(&record.runtime) {
                 None => "unknown",
@@ -518,6 +608,8 @@ impl Lab {
             created_at: record.created_at,
             expires_at: record.expires_at,
             meta: record.meta.clone(),
+            ip: record.place.as_ref().map(|p| p.ip.clone()),
+            endpoints: self.endpoints_of(record),
         }
     }
 
@@ -650,6 +742,16 @@ impl Lab {
                 "the lab address is outside this lab host's VPN range".into(),
             ));
         }
+        if let Some(verifier) = &place.verifier_ip {
+            let valid = verifier
+                .parse::<std::net::Ipv4Addr>()
+                .is_ok_and(|v| vpn.in_pool(v) && v != ip);
+            if !valid {
+                return Err(ApiError::BadRequest(
+                    "the Verifier address is not valid, or is the machine's own".into(),
+                ));
+            }
+        }
         Ok(Some(Checked {
             network: place.network.clone(),
             ip,
@@ -657,9 +759,40 @@ impl Lab {
         }))
     }
 
-    pub async fn create(&self, request: CreateRequest) -> Result<InstanceInfo, ApiError> {
+    pub async fn create(
+        self: &Arc<Self>,
+        request: CreateRequest,
+    ) -> Result<InstanceInfo, ApiError> {
         let mut plan = self.plan(&request)?;
         let lab = self.check_placement(&request)?;
+        let manifest = self
+            .cfg
+            .manifests
+            .iter()
+            .find(|m| m.artifact == request.spec.image)
+            .cloned();
+        // Where the run's flags go, and whether a Verifier starts. A flag the manifest has no
+        // place for is refused, so a typo cannot start an instance without its flag.
+        let flag_plan = match &manifest {
+            Some(m) => crate::inject::plan_flags(
+                &request.flags,
+                m.inject.as_ref(),
+                m.verifier.as_ref(),
+                m.is_vm(),
+                request.lab.as_ref(),
+            )
+            .map_err(|e| ApiError::BadRequest(e.0))?,
+            None if request.flags.is_empty()
+                && request.lab.as_ref().is_none_or(|l| l.verifier_ip.is_none()) =>
+            {
+                crate::inject::FlagPlan::default()
+            }
+            None => {
+                return Err(ApiError::BadRequest(
+                    "flags and a Verifier need a manifest for this image".into(),
+                ));
+            }
+        };
         if let (Plan::Vm { start, .. }, Some(l)) = (&mut plan, &lab) {
             // On a lab network the machine is a machine of its own: a tap on the network's bridge
             // and the address the platform reserved, with every port open on it.
@@ -715,6 +848,9 @@ impl Lab {
                     ready_secs: None,
                     machine,
                     place: request.lab.clone(),
+                    flags: request.flags.clone(),
+                    pending: false,
+                    verifier: None,
                 });
                 Ok(())
             }
@@ -735,9 +871,13 @@ impl Lab {
                 "no virtual machine runtime".into(),
             )),
             (Plan::Container(spec), _) => {
+                // The flag variables are added only for this start. The stored spec stays what the
+                // platform asked for, so a restart can resolve it against the manifest again.
+                let mut started_spec = spec.clone();
+                started_spec.env.extend(flag_plan.env.iter().cloned());
                 let start = StartRequest {
                     instance_id: request.instance_id.clone(),
-                    spec: spec.clone(),
+                    spec: started_spec,
                     placement: match &lab {
                         Some(l) => Placement::Lab {
                             network: l.network.clone(),
@@ -769,6 +909,7 @@ impl Lab {
                             record.host_port = started.host_port;
                             record.ports = started.extra_ports.clone();
                             record.ready_secs = started.ready_secs;
+                            record.pending = !flag_plan.files.is_empty();
                             record.clone()
                         });
                     if found.is_some() {
@@ -788,6 +929,37 @@ impl Lab {
                     &request.name,
                     format!("{} ({kind}) for {}", spec.image, meta_text(&request.meta)),
                 );
+                if flag_plan.verifier
+                    && let Err(e) = self
+                        .attach_verifier(&request, manifest.as_ref(), &flag_plan, &record)
+                        .await
+                {
+                    // No machine without its Verifier: take everything back.
+                    let _ = self.remove(&request.name).await;
+                    self.note(
+                        "create-failed",
+                        &request.name,
+                        "the Verifier could not be started",
+                    );
+                    return Err(e);
+                }
+                // Read the record again: the Verifier was added to it.
+                let record = self.find(&request.name).unwrap_or(record);
+                if !flag_plan.files.is_empty() {
+                    let (host, port) = self.ssh_endpoint(
+                        &request,
+                        manifest.as_ref().and_then(|m| m.inject.as_ref()),
+                        &started,
+                    );
+                    self.spawn_inject(
+                        record.name.clone(),
+                        manifest.as_ref().and_then(|m| m.inject.clone()),
+                        flag_plan.files.clone(),
+                        host,
+                        port,
+                        started.ready_secs,
+                    );
+                }
                 Ok(self.info(&record).await)
             }
             Err(e) => {
@@ -800,6 +972,184 @@ impl Lab {
                 Err(e.into())
             }
         }
+    }
+
+    /// Starts the Verifier container of a Responder instance on the instance's lab network and
+    /// waits for it to answer. The held flag goes to it and nowhere else.
+    async fn attach_verifier(
+        &self,
+        request: &CreateRequest,
+        manifest: Option<&Manifest>,
+        plan: &crate::inject::FlagPlan,
+        record: &Record,
+    ) -> Result<(), ApiError> {
+        let bad = |m: &str| ApiError::BadRequest(m.into());
+        let (Some(block), Some(lab)) = (
+            manifest.and_then(|m| m.verifier.as_ref()),
+            request.lab.as_ref(),
+        ) else {
+            return Err(bad("a Verifier needs a manifest block and a lab network"));
+        };
+        let ip = lab
+            .verifier_ip
+            .clone()
+            .ok_or_else(|| bad("the platform gave no Verifier address"))?;
+        let dir = self.cfg.verifiers_dir.join(&block.definition);
+        if !dir.join("verifier.json").is_file() {
+            return Err(bad("the Verifier definition for this image is missing"));
+        }
+        let name = format!("{}-v", request.name);
+        if name.len() > 64 {
+            return Err(bad("the instance name is too long for a Verifier"));
+        }
+        let ports: Vec<u16> = manifest
+            .map(|m| m.declared_ports().iter().map(|p| p.port).collect())
+            .unwrap_or_default();
+        let token: String = (0..16)
+            .map(|_| format!("{:02x}", rand::random::<u8>()))
+            .collect();
+        let run_json = serde_json::json!({
+            "target_ip": lab.ip,
+            "target_ports": ports,
+            "flag": plan.held.first().map(|f| f.value.clone()),
+            "expires_at": record.expires_at,
+            "admin_token": token,
+        })
+        .to_string();
+        let spec = kymo_instances::VerifierSpec {
+            name,
+            instance_id: request.instance_id.clone(),
+            network: lab.network.clone(),
+            ip: ip.clone(),
+            image: self.cfg.verifier_image.clone(),
+            port: block.port,
+            memory_mb: block.memory_mb(),
+            cpu_millis: block.cpu_millis(),
+            definition_dir: dir.to_string_lossy().into_owned(),
+            run_json,
+        };
+        let handle = self.runtime.start_verifier(&spec).await?;
+        {
+            let mut inner = self.lock();
+            if let Some(r) = inner.records.iter_mut().find(|r| r.name == request.name) {
+                r.verifier = Some(VerifierRecord {
+                    handle: handle.clone(),
+                    ip: ip.clone(),
+                    port: block.port,
+                    token,
+                });
+            }
+            self.save(&inner);
+        }
+        if self.cfg.verifier_health_check && !verifier_answers(&ip, block.port).await {
+            return Err(ApiError::Runtime(RuntimeError::Failed(
+                "the Verifier did not start".into(),
+            )));
+        }
+        Ok(())
+    }
+
+    /// Where the lab host reaches the guest's SSH: its address on the lab network, or the port
+    /// the guest's SSH was forwarded to on this machine.
+    fn ssh_endpoint(
+        &self,
+        request: &CreateRequest,
+        inject: Option<&crate::inject::Inject>,
+        started: &kymo_instances::Started,
+    ) -> (String, u16) {
+        let guest_port = inject.map_or(22, |i| i.port);
+        match &request.lab {
+            Some(lab) => (lab.ip.clone(), guest_port),
+            None => {
+                let mapped = started
+                    .extra_ports
+                    .iter()
+                    .find(|p| p.guest == guest_port)
+                    .map_or(started.host_port, |p| p.host);
+                ("127.0.0.1".to_owned(), mapped)
+            }
+        }
+    }
+
+    /// Writes the flags into a machine in the background, then lets the instance report as
+    /// running. If it cannot be done in time the instance is removed, so no player ever gets a
+    /// machine without its flag. Neither the log nor the record ever carries a flag value.
+    fn spawn_inject(
+        self: &Arc<Self>,
+        name: String,
+        inject: Option<crate::inject::Inject>,
+        files: Vec<crate::inject::FileWrite>,
+        host: String,
+        port: u16,
+        boot_secs: Option<u32>,
+    ) {
+        let lab = Arc::clone(self);
+        tokio::spawn(async move {
+            let outcome = match inject {
+                Some(inject) => {
+                    let target = crate::ssh::SshTarget {
+                        host,
+                        port,
+                        user: inject.user.clone().unwrap_or_default(),
+                        key: inject.ssh_key.clone().map(std::path::PathBuf::from),
+                        password: inject.ssh_password.clone(),
+                        sudo: inject.sudo,
+                    };
+                    let patience = std::time::Duration::from_secs(u64::from(
+                        boot_secs.unwrap_or(DEFAULT_BOOT_SECS),
+                    ));
+                    crate::ssh::write_files(&target, &files, patience)
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+                None => Err("the manifest has no inject block".to_owned()),
+            };
+            match outcome {
+                Ok(()) => {
+                    {
+                        let mut inner = lab.lock();
+                        if let Some(r) = inner.records.iter_mut().find(|r| r.name == name) {
+                            r.pending = false;
+                        }
+                        lab.save(&inner);
+                    }
+                    lab.note("flags-written", &name, format!("{} file(s)", files.len()));
+                }
+                Err(why) => {
+                    lab.note("inject-failed", &name, why);
+                    let _ = lab.remove(&name).await;
+                }
+            }
+        });
+    }
+
+    /// The run log of an instance's Verifier, for the organizer's Instances page.
+    pub async fn verify_log(&self, id: &str) -> Result<serde_json::Value, ApiError> {
+        let record = self.find(id).ok_or(ApiError::NotFound)?;
+        let v = record.verifier.ok_or(ApiError::NotFound)?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|_| ApiError::Runtime(RuntimeError::Failed("no HTTP client".into())))?;
+        let answer = client
+            .get(format!("http://{}:{}/_admin/log", v.ip, v.port))
+            .bearer_auth(&v.token)
+            .send()
+            .await
+            .map_err(|_| {
+                ApiError::Runtime(RuntimeError::Unavailable(
+                    "the Verifier does not answer".into(),
+                ))
+            })?;
+        if !answer.status().is_success() {
+            return Err(ApiError::Runtime(RuntimeError::Unavailable(
+                "the Verifier refused the request".into(),
+            )));
+        }
+        answer
+            .json()
+            .await
+            .map_err(|_| ApiError::Runtime(RuntimeError::Failed("the Verifier sent no log".into())))
     }
 
     pub async fn remove(&self, id: &str) -> Result<(), ApiError> {
@@ -815,7 +1165,7 @@ impl Lab {
         Ok(())
     }
 
-    pub async fn restart(&self, id: &str) -> Result<InstanceInfo, ApiError> {
+    pub async fn restart(self: &Arc<Self>, id: &str) -> Result<InstanceInfo, ApiError> {
         let record = self.find(id).ok_or(ApiError::NotFound)?;
         if record.creating() {
             return Err(ApiError::Conflict(
@@ -833,6 +1183,7 @@ impl Lab {
             spec: record.spec.clone(),
             meta: record.meta.clone(),
             lab: record.place.clone(),
+            flags: record.flags.clone(),
         };
         let info = self.create(request).await?;
         self.note("restart", &record.name, "");
@@ -846,7 +1197,13 @@ impl Lab {
             .lock()
             .records
             .iter()
-            .filter(|r| !r.creating() && now >= r.expires_at + EXPIRY_GRACE_SECS)
+            .filter(|r| {
+                !r.creating()
+                    && (now >= r.expires_at + EXPIRY_GRACE_SECS
+                        // A machine whose flags were never written (the lab host restarted in
+                        // between) is not handed to anyone.
+                        || (r.pending && now - r.created_at > STUCK_SETUP_SECS))
+            })
             .cloned()
             .collect();
         let mut removed = Vec::new();
@@ -877,6 +1234,21 @@ impl Lab {
                 let mut inner = self.lock();
                 inner.records.retain(|r| r.name != record.name);
                 self.save(&inner);
+            }
+        }
+        // A Verifier whose instance is gone (a crash between the two) is removed.
+        if let Ok(found) = self.runtime.list_verifiers().await {
+            let known: Vec<String> = self
+                .lock()
+                .records
+                .iter()
+                .map(|r| r.instance_id.clone())
+                .collect();
+            for v in found
+                .into_iter()
+                .filter(|v| !known.contains(&v.instance_id))
+            {
+                let _ = self.runtime.stop(&v.handle).await;
             }
         }
         removed
@@ -1103,6 +1475,13 @@ async fn get_one(
     Ok(Json(lab.info(&record).await))
 }
 
+async fn verify_log(
+    State(lab): State<Arc<Lab>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(lab.verify_log(&id).await?))
+}
+
 async fn remove(
     State(lab): State<Arc<Lab>>,
     Path(id): Path<String>,
@@ -1278,6 +1657,13 @@ async fn vpn_kick(
     Ok(Json(OkBody { ok: true }))
 }
 
+async fn vpn_connected(
+    State(lab): State<Arc<Lab>>,
+) -> Result<Json<crate::protocol::ConnectedState>, ApiError> {
+    let connected = vpn_of(&lab)?.connected().await.map_err(gateway_error)?;
+    Ok(Json(crate::protocol::ConnectedState { connected }))
+}
+
 #[derive(Deserialize)]
 struct ReachQuery {
     ip: String,
@@ -1336,6 +1722,7 @@ pub fn router(lab: Arc<Lab>) -> Router {
         .route("/v1/instances/{id}/stop", post(remove))
         .route("/v1/instances/{id}/restart", post(restart))
         .route("/v1/instances/{id}/screen", get(screen))
+        .route("/v1/instances/{id}/verify-log", get(verify_log))
         .route("/v1/ready", get(ready))
         .route("/v1/vpn/files", axum::routing::put(vpn_files))
         .route(
@@ -1346,6 +1733,7 @@ pub fn router(lab: Arc<Lab>) -> Router {
         .route("/v1/vpn/detach", post(vpn_detach))
         .route("/v1/vpn/rules", post(vpn_rules))
         .route("/v1/vpn/kick", post(vpn_kick))
+        .route("/v1/vpn/connected", get(vpn_connected))
         .route("/v1/vpn/reachable", get(vpn_reachable))
         .route(
             "/v1/vpn/labs/{network}",

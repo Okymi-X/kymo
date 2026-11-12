@@ -24,6 +24,7 @@ use std::path::Path;
 use kymo_instances::{InstanceSpec, ResourceCaps};
 use serde::{Deserialize, Serialize};
 
+pub use crate::inject::{Inject, VerifierBlock};
 pub use crate::protocol::PortDecl;
 
 /// What a manifest may ask for: containers (`docker`, `podman`) and virtual machines (`vm`, run
@@ -78,6 +79,24 @@ pub struct Manifest {
     pub pids: Option<u32>,
     pub max_ttl_secs: Option<i64>,
     pub read_only: Option<bool>,
+    /// Where the flags the platform generates for a run are put. Without it the lab host refuses
+    /// flags for this artifact.
+    #[serde(default)]
+    pub inject: Option<Inject>,
+    /// A Verifier container started next to each instance, for a Responder challenge.
+    #[serde(default)]
+    pub verifier: Option<VerifierBlock>,
+    /// Containers only. Capabilities added back after all are dropped, from a short allowlist
+    /// (`kymo_instances::ALLOWED_CAPS`). For a challenge that needs a real login: sshd,
+    /// sudo, a few services. Only the organizer can set it, here; the platform cannot ask.
+    #[serde(default)]
+    pub cap_add: Vec<String>,
+    /// Containers only. `false` lets setuid programs such as `sudo` work. Default `true`.
+    #[serde(default)]
+    pub no_new_privileges: Option<bool>,
+    /// Containers only. The container's host name, instead of Docker's random one.
+    #[serde(default)]
+    pub hostname: Option<String>,
 }
 
 fn default_runtime() -> String {
@@ -153,7 +172,38 @@ impl Manifest {
                 return Err(format!("env_allow has a bad name: {key}"));
             }
         }
+        if let Some(inject) = &self.inject {
+            let reserved: Vec<String> = self
+                .env
+                .keys()
+                .chain(self.env_allow.iter())
+                .cloned()
+                .collect();
+            inject.check(self.is_vm(), &reserved)?;
+        }
+        if let Some(verifier) = &self.verifier {
+            verifier.check()?;
+        }
+        if self.is_vm()
+            && (!self.cap_add.is_empty()
+                || self.no_new_privileges.is_some()
+                || self.hostname.is_some())
+        {
+            return Err(
+                "cap_add, no_new_privileges and hostname are for containers; a virtual machine already has its own kernel".into(),
+            );
+        }
+        self.hardening().check()?;
         Ok(())
+    }
+
+    /// What this image relaxes of the container lock down. The default relaxes nothing.
+    pub fn hardening(&self) -> kymo_instances::Hardening {
+        kymo_instances::Hardening {
+            cap_add: self.cap_add.clone(),
+            no_new_privileges: self.no_new_privileges.unwrap_or(true),
+            hostname: self.hostname.clone(),
+        }
     }
 
     pub fn is_vm(&self) -> bool {
@@ -363,6 +413,72 @@ mod tests {
             env: env.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
             read_only: false,
         }
+    }
+
+    #[test]
+    fn a_container_manifest_can_relax_the_lock_down_within_the_allowlist() {
+        let relaxed: Manifest = serde_json::from_str(
+            r#"{"artifact":"lab/login:1","port":22,"read_only":false,
+                "cap_add":["SETUID","SETGID","SYS_CHROOT"],"no_new_privileges":false}"#,
+        )
+        .unwrap();
+        assert!(relaxed.check().is_ok());
+        let h = relaxed.hardening();
+        assert_eq!(h.cap_add, vec!["SETUID", "SETGID", "SYS_CHROOT"]);
+        assert!(!h.no_new_privileges);
+        // The platform still cannot change any of it: the spec resolved for a start carries only
+        // limits, and the lock down is read from the manifest by the runtime.
+        assert!(
+            relaxed
+                .resolve(&asked(vec![]), &ResourceCaps::default())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_container_can_name_its_host_and_a_machine_cannot() {
+        let named: Manifest = serde_json::from_str(
+            r#"{"artifact":"lab/box:1","port":80,"hostname":"atlas-intranet"}"#,
+        )
+        .unwrap();
+        assert!(named.check().is_ok());
+        assert_eq!(
+            named.hardening().hostname.as_deref(),
+            Some("atlas-intranet")
+        );
+        assert!(!named.hardening().is_relaxed(), "a name relaxes nothing");
+        let bad: Manifest =
+            serde_json::from_str(r#"{"artifact":"lab/box:1","port":80,"hostname":"Not Valid"}"#)
+                .unwrap();
+        assert!(bad.check().is_err());
+        let vm: Manifest = serde_json::from_str(
+            r#"{"artifact":"box","runtime":"vm","file":"b.qcow2","ports":[{"name":"ssh","port":22}],"hostname":"x"}"#,
+        )
+        .unwrap();
+        assert!(vm.check().is_err());
+    }
+
+    #[test]
+    fn the_default_manifest_relaxes_nothing() {
+        let h = manifest().hardening();
+        assert!(h.cap_add.is_empty() && h.no_new_privileges && !h.is_relaxed());
+    }
+
+    #[test]
+    fn dangerous_capabilities_and_machines_are_refused() {
+        for cap in ["SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "ALL", "CAP_SETUID"] {
+            let m: Manifest = serde_json::from_str(&format!(
+                r#"{{"artifact":"lab/login:1","port":22,"cap_add":["{cap}"]}}"#
+            ))
+            .unwrap();
+            assert!(m.check().is_err(), "{cap}");
+        }
+        // A virtual machine has its own kernel; the container settings make no sense there.
+        let vm: Manifest = serde_json::from_str(
+            r#"{"artifact":"box","runtime":"vm","file":"box.qcow2","ports":[{"name":"ssh","port":22}],"cap_add":["SETUID"]}"#,
+        )
+        .unwrap();
+        assert!(vm.check().unwrap_err().contains("containers"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Download, Loader2, Play, RotateCcw, Square } from 'lucide-react'
+import { AlertTriangle, Download, ExternalLink, Loader2, Play, RotateCcw, Square } from 'lucide-react'
 import { platform } from '../../api/platform'
 import type { InstanceView } from '../../api/platformTypes'
 import { countdown } from '../../lib/platform'
@@ -71,6 +71,8 @@ export function InstancePanel({ slug, challengeId, open, vpn = false, labHost = 
   const failed = view.state === 'failed'
   const machine = view.machine === true
   const address = running && view.host && (machine || view.port) ? (machine ? view.host : `${view.host}:${view.port}`) : null
+  const verifier = running ? view.endpoints?.find((e) => e.role === 'verifier') : undefined
+  const verifierUrl = verifier ? `${verifier.scheme ?? 'http'}://${verifier.host}${verifier.port ? `:${verifier.port}` : ''}` : null
   const budgetLeft = view.starts_max - view.starts_used
   const privateNet = vpn || view.network === 'vpn'
   const needsProfile = privateNet && profile.data?.enabled === true && profile.data.has_profile === false
@@ -93,10 +95,24 @@ export function InstancePanel({ slug, challengeId, open, vpn = false, labHost = 
         </p>
       ) : running && address ? (
         <>
+          {verifierUrl && <span className="text-xs font-semibold text-muted">Machine</span>}
           <div className="flex flex-wrap items-center gap-2">
             <code className="rounded-control border border-line bg-bg px-2.5 py-1.5 font-mono text-sm">{address}</code>
             <CopyButton text={address} />
           </div>
+          {verifierUrl && (
+            <div className="flex flex-col gap-1.5" aria-label="Verifier">
+              <span className="text-xs font-semibold text-muted">Verifier</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="rounded-control border border-line bg-bg px-2.5 py-1.5 font-mono text-sm">{verifierUrl}</code>
+                <CopyButton text={verifierUrl} />
+                <a href={verifierUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1.5 rounded-control border border-line px-3 text-sm text-accent hover:bg-bg">
+                  <ExternalLink size={14} aria-hidden="true" /> Open
+                </a>
+              </div>
+              <p className="text-sm text-muted">Press Verify after each fix. When every check passes, it shows the flag: paste it into the flag box below.</p>
+            </div>
+          )}
           {machine && (
             <p className="text-sm text-muted">
               This is a machine on your private network. Every port is open on this address, so scan it to find what runs there, for example <code className="font-mono text-ink">nmap -sV -p- {view.host}</code>.

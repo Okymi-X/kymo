@@ -2,7 +2,7 @@ import { Menu, Search, X } from 'lucide-react'
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useTournaments } from '../api/hooks'
-import { session, useIsAdmin, useIsReferee, useWho } from '../api/client'
+import { session, useIsAdmin, useIsReferee, useSignedIn, useWho } from '../api/client'
 import { DEFAULT_APPEARANCE } from '../lib/theme'
 import { AccountMenu } from './AccountMenu'
 import { CommandPalette } from './CommandPalette'
@@ -10,6 +10,7 @@ import { ShortcutsDialog } from './ShortcutsDialog'
 import { HeaderProvider, useHeaderInfo } from './HeaderContext'
 import { ThemeToggle } from './ThemeToggle'
 import { useAppearance } from './ThemeLoader'
+import { PlayerStatus } from './platform/PlayerStatus'
 import { StatusPill } from './ui'
 
 const shortcut = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd K' : 'Ctrl K'
@@ -51,7 +52,7 @@ function LiveBadge() {
   if (live === 0) return null
   return (
     <Link
-      to="/?status=live"
+      to="/events"
       className="hidden h-9 items-center gap-2 rounded-full border border-line px-3 text-sm font-medium text-ink transition-colors hover:bg-line/50 md:flex"
       aria-label={`${live} tournaments live now`}
     >
@@ -65,8 +66,7 @@ function LiveBadge() {
 }
 
 const NAV: { to: string; label: string; match: (path: string) => boolean }[] = [
-  { to: '/', label: 'Tournaments', match: (p) => p === '/' || p.startsWith('/t/') },
-  { to: '/events', label: 'Events', match: (p) => p.startsWith('/events') || p.startsWith('/e/') },
+  { to: '/events', label: 'Events', match: (p) => p.startsWith('/events') || p.startsWith('/e/') || p.startsWith('/t/') },
   { to: '/ladder', label: 'Ladder', match: (p) => p === '/ladder' },
 ]
 
@@ -130,26 +130,19 @@ function Header({ onSearch }: { onSearch: () => void }) {
   const admin = useIsAdmin()
   const referee = useIsReferee()
   const who = useWho()
+  const signedIn = admin || who !== null || referee
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const look = useAppearance().data
   const siteName = look?.site_name ?? DEFAULT_APPEARANCE.site_name
-  const onTournaments = pathname === '/' || pathname.startsWith('/t/')
-  const onEvents = pathname.startsWith('/events') || pathname.startsWith('/e/')
+  const onEvents = pathname.startsWith('/events') || pathname.startsWith('/e/') || pathname.startsWith('/t/')
   const info = useHeaderInfo()
   return (
     <header className={`no-print sticky top-0 z-20 border-b backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200 supports-[backdrop-filter]:bg-surface/70 ${scrolled ? 'border-line bg-surface/90 shadow-[var(--shadow-lift)]' : 'border-transparent bg-surface/80'}`}>
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-3 sm:px-4">
-        <MobileNav />
+        {signedIn && <MobileNav />}
         <Brand siteName={siteName} logo={look?.logo ?? null} />
-        <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''}`}>
-          <Link
-            to="/"
-            aria-current={onTournaments ? 'page' : undefined}
-            className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${onTournaments ? 'bg-line/60 text-ink' : 'text-muted hover:bg-line/40 hover:text-ink'}`}
-          >
-            Tournaments
-          </Link>
+        <nav aria-label="Primary" className={`hidden items-center sm:flex ${info ? 'md:hidden lg:flex' : ''} ${signedIn ? '' : 'sm:hidden'}`}>
           <Link
             to="/events"
             aria-current={onEvents ? 'page' : undefined}
@@ -169,17 +162,20 @@ function Header({ onSearch }: { onSearch: () => void }) {
           <Context />
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <LiveBadge />
-          <button
-            type="button"
-            onClick={onSearch}
-            aria-label="Open command palette"
-            className="flex h-9 items-center gap-2 rounded-control border border-line bg-field/60 px-2.5 text-sm text-muted transition-colors hover:border-field-line hover:text-ink lg:w-60"
-          >
-            <Search size={15} aria-hidden="true" />
-            <span className="hidden flex-1 text-left lg:inline">Search Kymo</span>
-            <kbd className="hidden rounded border border-line px-1.5 py-0.5 font-mono text-[11px] sm:inline">{shortcut}</kbd>
-          </button>
+          {who?.role === 'player' && <PlayerStatus />}
+          {signedIn && <LiveBadge />}
+          {signedIn && (
+            <button
+              type="button"
+              onClick={onSearch}
+              aria-label="Open command palette"
+              className="flex h-9 items-center gap-2 rounded-control border border-line bg-field/60 px-2.5 text-sm text-muted transition-colors hover:border-field-line hover:text-ink lg:w-60"
+            >
+              <Search size={15} aria-hidden="true" />
+              <span className="hidden flex-1 text-left lg:inline">Search Kymo</span>
+              <kbd className="hidden rounded border border-line px-1.5 py-0.5 font-mono text-[11px] sm:inline">{shortcut}</kbd>
+            </button>
+          )}
           <ThemeToggle />
           {admin || who ? (
             <AccountMenu />
@@ -208,12 +204,13 @@ function Header({ onSearch }: { onSearch: () => void }) {
 }
 
 export function Shell({ children }: { children?: ReactNode }) {
+  const signedIn = useSignedIn()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [help, setHelp] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && signedIn) {
         e.preventDefault()
         setPaletteOpen((open) => !open)
       } else if (e.key === '?' && !(e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]'))) {
@@ -222,7 +219,7 @@ export function Shell({ children }: { children?: ReactNode }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [signedIn])
 
   return (
     <HeaderProvider>
@@ -231,7 +228,7 @@ export function Shell({ children }: { children?: ReactNode }) {
           Skip to content
         </a>
         <Header onSearch={() => setPaletteOpen(true)} />
-        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+        {signedIn && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
         {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
         <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-10 focus:outline-none"><Suspense fallback={<p role="status" className="py-10 text-center text-muted">Loading...</p>}>{children ?? <Outlet />}</Suspense></main>
       </div>

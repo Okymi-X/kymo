@@ -1,0 +1,15 @@
+#!/bin/sh
+# Keeps what runs on a player's lab network away from this machine. A player with root in a
+# challenge machine sits on a bridge whose own address is this host: without this rule it could
+# try the lab API, SSH or anything else listening here. Replies to connections the host started
+# (writing flags, checking a Verifier) are still allowed. Safe to run again.
+#
+#   kymo-lab-firewall 10.77.0.0/16
+set -eu
+POOL=${1:?the lab address pool, for example 10.77.0.0/16}
+command -v iptables >/dev/null 2>&1 || { echo "kymo-lab-firewall: iptables not found" >&2; exit 0; }
+iptables -w -N KYMO-LAB-IN 2>/dev/null || true
+iptables -w -F KYMO-LAB-IN
+iptables -w -A KYMO-LAB-IN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -w -A KYMO-LAB-IN -j DROP
+iptables -w -C INPUT -s "$POOL" -j KYMO-LAB-IN 2>/dev/null || iptables -w -I INPUT 1 -s "$POOL" -j KYMO-LAB-IN

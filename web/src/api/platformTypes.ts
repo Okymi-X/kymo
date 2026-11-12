@@ -143,6 +143,11 @@ export interface PlayerChallenge {
   max_attempts: number | null
   attempts_remaining: number | null
   requires_instance: boolean
+  /** A Responder: players fix the machine and a Verifier gives the flag. */
+  responder?: boolean
+  /** Flags in all, and how many this participant found. More than one only for a multi flag challenge. */
+  flags_total?: number
+  flags_found?: number
   /** Where its instance runs: which VPN profile it needs. */
   lab_host_id: number | null
   /** `flag` (also instance backed) or `dfir`, answered question by question. */
@@ -162,6 +167,9 @@ export interface SubmitResult {
   correct: boolean
   points: number | null
   attempts_remaining: number | null
+  /** Only for a challenge with several flags. */
+  flags_found?: number
+  flags_total?: number
 }
 
 export interface HintUnlock {
@@ -172,6 +180,16 @@ export interface HintUnlock {
 }
 
 export type InstanceStateName = 'none' | 'starting' | 'running' | 'stopped' | 'expired' | 'failed'
+
+export interface InstanceEndpoint {
+  /** `machine`, `verifier` or `service`. */
+  role: string
+  name: string
+  host: string
+  port: number | null
+  /** `http` for a web page. */
+  scheme?: string | null
+}
 
 export interface InstanceView {
   id?: number
@@ -188,6 +206,8 @@ export interface InstanceView {
   port?: number | null
   /** The other published services of a machine that offers several, by name. */
   services?: { name: string; port: number }[]
+  /** Where the machine and, for a Responder, its Verifier can be reached. */
+  endpoints?: InstanceEndpoint[]
   started_at?: number
   expires_at?: number
   remaining_secs?: number
@@ -302,6 +322,29 @@ export interface AdminAttachment {
   sha256: string
 }
 
+export interface AdminFlag {
+  id: number
+  challenge_id: number
+  position: number
+  name: string
+  /** Seen by organizers only. */
+  label: string
+  /** The whole flag when static, the prefix when dynamic. */
+  value: string
+  random_len: number
+  closing: string
+  weight: number
+}
+
+export interface FlagInput {
+  name: string
+  label?: string
+  value: string
+  random_len?: number
+  closing?: string
+  weight?: number
+}
+
 export interface AdminChallenge {
   id: number
   event_id: number
@@ -323,13 +366,25 @@ export interface AdminChallenge {
   /** `flag` (also instance backed) or `dfir` (question items, tournament events only). */
   kind: 'flag' | 'dfir'
   created_at: number
+  /** `static` (the flag above) or `dynamic` (generated for every instance run). */
+  flag_mode: 'static' | 'dynamic'
+  multi_flag: boolean
+  responder: boolean
+  /** The flags of a dynamic or multi flag challenge; empty for a plain static flag. */
+  flags: AdminFlag[]
   lab_host_id: number | null
   solves: number
   hints: AdminHint[]
   attachments: AdminAttachment[]
 }
 
-export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state' | 'kind' | 'flag'> & { flag?: FlagSpec; kind?: 'flag' | 'dfir' }
+export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state' | 'kind' | 'flag' | 'flag_mode' | 'multi_flag' | 'responder' | 'flags'> & {
+  flag?: FlagSpec
+  kind?: 'flag' | 'dfir'
+  flag_mode?: 'static' | 'dynamic'
+  responder?: boolean
+  flags?: FlagInput[]
+}
 
 export interface JeopardySettings {
   tie_breaks: ('earliest_last_solve' | 'most_solves' | 'first_blood')[]
@@ -387,6 +442,13 @@ export interface SubmissionLine {
   hidden: boolean
   verdict: Verdict
   at: number
+}
+
+/** One run of a Verifier, as the lab host recorded it. Organizers only. */
+export interface VerifyLogEntry {
+  at: number
+  millis: number
+  checks: { id: string; state: 'fixed' | 'failed' | 'broken'; detail: string }[]
 }
 
 export interface AdminInstance {
@@ -543,6 +605,60 @@ export interface CleanupReport {
 }
 
 // ---------- VPN ----------
+
+/** What the home page shows. In custom mode the organizer's own sanitized HTML and CSS replace the default page. */
+export interface HomeContent {
+  mode: 'default' | 'custom'
+  headline: string
+  subheadline: string
+  signin_label: string
+  signup_label: string
+  welcome: string
+  continue_label: string
+  banner: string
+  about_title: string
+  about_text: string
+  show_events: boolean
+  show_scoreboards: boolean
+  footer: string
+  custom_html: string
+  custom_css: string
+}
+
+/** An event whose scoreboard anyone may read. */
+export interface PublicEvent {
+  name: string
+  slug: string
+  kind: 'jeopardy' | 'tournament'
+  mode?: 'solo' | 'team'
+  effective_state: string
+  starts_at: number | null
+  ends_at: number | null
+  scoreboard_public?: boolean
+}
+
+export interface EventRules {
+  title: string
+  body: string
+}
+
+/** Whether the player's tunnel is up right now. `has_profile` is false until they download one. */
+export interface VpnConnection {
+  has_profile: boolean
+  connected: boolean
+}
+
+/** The one instance a player has going, in whichever event it is. */
+export interface MyInstance {
+  instance: {
+    id: number
+    challenge_id: number
+    title: string
+    state: 'starting' | 'running'
+    event_slug: string
+    remaining_secs: number
+  } | null
+}
 
 export interface VpnStatus {
   enabled: boolean

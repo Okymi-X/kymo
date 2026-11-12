@@ -3,6 +3,7 @@
 //! passed in as unix seconds.
 
 pub mod board;
+pub mod dynamic;
 pub mod error;
 pub mod flag;
 pub mod limit;

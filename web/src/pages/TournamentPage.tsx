@@ -152,7 +152,7 @@ export function TournamentPage() {
   return (
     <div className="flex flex-col gap-8" {...accentProps(t.accent)}>
       <div className="-mb-4">
-        <BackLink>Tournaments</BackLink>
+        <BackLink to="/events">Events</BackLink>
       </div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div ref={titleRef}>

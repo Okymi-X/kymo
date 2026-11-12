@@ -1,0 +1,18 @@
+{
+  "_comment": "A container that needs a real login: sshd, sudo and a few services, so the player can SSH in as an admin. By default a container gets NO capabilities and cannot gain privileges, which makes this impossible, so this manifest gives some back. Only the lab host's organizer can do this (here); the platform cannot ask for it. Prefer a virtual machine (runtime vm) when you can: it has its own kernel and nothing here applies.",
+  "artifact": "localhost/my-ctf/login-box:1",
+  "runtime": "docker",
+  "port": 22,
+  "hostname": "login-box",
+  "_comment_hostname": "What the machine calls itself (its host name), instead of Docker's random container id. Optional, and it relaxes nothing.",
+  "read_only": false,
+  "_comment_read_only": "false lets the container write to its own filesystem (sshd, logs, a database need it). The default is true.",
+  "cap_add": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "KILL", "SETGID", "SETUID", "SETPCAP", "NET_BIND_SERVICE", "SYS_CHROOT", "AUDIT_WRITE"],
+  "_comment_cap_add": "Added back after ALL capabilities are dropped, from a fixed allowlist (Docker's default set): AUDIT_WRITE, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, MKNOD, NET_BIND_SERVICE, NET_RAW, SETFCAP, SETGID, SETPCAP, SETUID, SYS_CHROOT. Anything else (SYS_ADMIN, NET_ADMIN, SYS_PTRACE, SYS_MODULE, DAC_READ_SEARCH...) is refused when the manifest loads, because those are what turn a container escape into a host takeover. Grant only what the image needs; the list above is what sshd plus sudo usually need.",
+  "no_new_privileges": false,
+  "_comment_no_new_privileges": "false lets setuid programs such as sudo and su work. Default true. A process that breaks out of the container then has root-in-container and the capabilities above, but never privileged mode, devices, host mounts, the Docker socket or the host's namespaces, and it stays on the player's private lab network with no route out.",
+  "memory_mb": 512,
+  "cpu_millis": 1000,
+  "pids": 256,
+  "max_ttl_secs": 3600
+}

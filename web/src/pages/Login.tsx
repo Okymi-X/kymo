@@ -38,7 +38,7 @@ export function Login() {
   }
   return (
     <form onSubmit={submit} className="mx-auto flex max-w-sm flex-col gap-5">
-      <BackLink>Tournaments</BackLink>
+      <BackLink>Home</BackLink>
       <PageTitle>Organizer sign in</PageTitle>
       <Field label="Password">
         <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />

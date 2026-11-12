@@ -1,0 +1,14 @@
+# /etc/systemd/system/kymo-lab-firewall.service. The installer writes this file.
+[Unit]
+Description=Kymo lab host: keep lab networks away from this machine
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/kymo-lab/lab.env
+ExecStart=/usr/local/sbin/kymo-lab-firewall ${KYMO_LAB_VPN_POOL}
+
+[Install]
+WantedBy=multi-user.target

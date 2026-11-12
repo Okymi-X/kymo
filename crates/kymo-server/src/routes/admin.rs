@@ -792,7 +792,6 @@ pub async fn load_demo(
     _: Admin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _guard = state.write_lock.lock().await;
     let report = crate::demo_platform::seed_all(&state).await?;
     Ok(Json(serde_json::json!({
         "added": report.added,

@@ -9,6 +9,16 @@ pub enum FlagError {
     PatternTooLong { max: usize },
     #[error("pattern is not a valid regular expression: {0}")]
     InvalidPattern(String),
+    #[error("the flag prefix must not be empty")]
+    EmptyPrefix,
+    #[error("the random part is {min} to {max} characters")]
+    RandomLength { min: usize, max: usize },
+    #[error("the flag is longer than {max} characters")]
+    TooLong { max: usize },
+    #[error("the flag prefix must start with the accepted prefix")]
+    PrefixOutsideFormat,
+    #[error("the flag closing text must end with the accepted suffix")]
+    ClosingOutsideFormat,
 }
 
 /// Invalid scoring configuration.

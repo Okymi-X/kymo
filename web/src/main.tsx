@@ -6,6 +6,7 @@ import { BrowserRouter, Route, Routes } from 'react-router'
 import { ThemeLoader, appearanceKey } from './components/ThemeLoader'
 import type { Appearance } from './api/types'
 import { resolveScheme } from './lib/scheme'
+import { RequireSession } from './components/RequireSession'
 import { Shell } from './components/Shell'
 import { Home } from './pages/Home'
 import { NotFound } from './pages/NotFound'
@@ -24,6 +25,7 @@ const Monitor = lazy(() => import('./pages/Monitor').then((m) => ({ default: m.M
 const Events = lazy(() => import('./pages/Events').then((m) => ({ default: m.Events })))
 const EventPage = lazy(() => import('./pages/EventPage').then((m) => ({ default: m.EventPage })))
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })))
+const PublicScoreboard = lazy(() => import('./pages/PublicScoreboard').then((m) => ({ default: m.PublicScoreboard })))
 const SignIn = lazy(() => import('./pages/SignIn').then((m) => ({ default: m.SignIn })))
 const TeamPage = lazy(() => import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })))
 const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })))
@@ -62,26 +64,31 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/t/:slug/stage" element={<Suspense fallback={null}><StagePage /></Suspense>} />
             <Route path="/embed/:slug" element={<Suspense fallback={null}><EmbedPage /></Suspense>} />
             <Route element={<Shell />}>
+              {/* Open to visitors: the front page, sign in, a public scoreboard and a team's score report (its code is its key). */}
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signin" element={<SignIn />} />
-              <Route path="/events" element={<Events />} />
-              <Route path="/e/:slug" element={<EventPage />} />
-              <Route path="/team" element={<TeamPage />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/admin/events" element={<AdminEvents />} />
-              <Route path="/admin/events/:id" element={<AdminEvent />} />
-              <Route path="/admin/users" element={<AdminUsers />} />
-              <Route path="/admin/permissions" element={<AdminPermissions />} />
-              <Route path="/admin/ops" element={<Ops />} />
-              <Route path="/admin/labs" element={<Labs />} />
-              <Route path="/monitor" element={<Monitor />} />
-              <Route path="/ladder" element={<Ladder />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/tokens" element={<Tokens />} />
-              <Route path="/t/:slug" element={<TournamentPage />} />
-              <Route path="/t/:slug/match/:matchId" element={<MatchPage />} />
+              <Route path="/s/:slug" element={<PublicScoreboard />} />
               <Route path="/report/:code" element={<ReportPage />} />
+              {/* Everything else needs a session. */}
+              <Route element={<RequireSession />}>
+                <Route path="/events" element={<Events />} />
+                <Route path="/e/:slug" element={<EventPage />} />
+                <Route path="/team" element={<TeamPage />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/admin/events" element={<AdminEvents />} />
+                <Route path="/admin/events/:id" element={<AdminEvent />} />
+                <Route path="/admin/users" element={<AdminUsers />} />
+                <Route path="/admin/permissions" element={<AdminPermissions />} />
+                <Route path="/admin/ops" element={<Ops />} />
+                <Route path="/admin/labs" element={<Labs />} />
+                <Route path="/monitor" element={<Monitor />} />
+                <Route path="/ladder" element={<Ladder />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/tokens" element={<Tokens />} />
+                <Route path="/t/:slug" element={<TournamentPage />} />
+                <Route path="/t/:slug/match/:matchId" element={<MatchPage />} />
+              </Route>
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

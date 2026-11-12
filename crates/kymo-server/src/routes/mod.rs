@@ -11,6 +11,7 @@ mod permissions;
 mod players;
 mod public;
 mod scoreboard;
+mod site;
 mod teams;
 mod vpn;
 
@@ -159,8 +160,15 @@ pub fn router(state: AppState) -> Router {
         .route("/events/{slug}/instances", get(instances::list))
         .route("/admin/events/{id}/instances", get(instances::admin_list))
         .route("/admin/instances/{id}", delete(instances::admin_stop))
+        .route("/admin/instances/{id}/flags", get(instances::admin_flags))
+        .route(
+            "/admin/instances/{id}/verify-log",
+            get(instances::admin_verify_log),
+        )
         .route("/admin/instances/reap", post(instances::admin_reap))
         .route("/vpn", get(vpn::status))
+        .route("/vpn/connection", get(vpn::connection))
+        .route("/me/instance", get(instances::mine))
         .route("/vpn/profile", post(vpn::profile))
         .route("/admin/labs", get(labs::list).post(labs::create))
         .route("/admin/labs/{id}", put(labs::update).delete(labs::delete))
@@ -301,6 +309,12 @@ pub fn router(state: AppState) -> Router {
         .route("/tournaments/{slug}/activity", get(public::activity))
         .route("/tournaments/{slug}/calendar.ics", get(public::calendar))
         .route("/settings", get(public::appearance))
+        .route("/home", get(site::home))
+        .route("/admin/home", put(site::save_home).delete(site::reset_home))
+        .route("/public/events/{slug}", get(site::public_event))
+        .route("/public/scoreboards", get(site::public_scoreboards))
+        .route("/events/{slug}/rules", get(site::rules))
+        .route("/admin/events/{id}/rules", put(site::save_rules))
         .route("/admin/demo", post(admin::load_demo))
         .route("/admin/import", post(admin::import))
         .route(
@@ -362,6 +376,10 @@ pub fn router(state: AppState) -> Router {
         .nest(
             "/api/v1",
             api.fallback(not_found)
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    crate::gate::require_login,
+                ))
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     crate::monitor::layer,

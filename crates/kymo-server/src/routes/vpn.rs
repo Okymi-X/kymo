@@ -66,6 +66,18 @@ pub async fn status(
     })))
 }
 
+/// Whether the player's tunnel is up right now, for the header. `has_profile` lets the page stay
+/// quiet for a player who never set up a VPN.
+pub async fn connection(
+    Account(player, _): Account<needs::StartInstance>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let (has_profile, connected) = vpn::connection(&state, player.id).await?;
+    Ok(Json(
+        json!({ "has_profile": has_profile, "connected": connected }),
+    ))
+}
+
 /// Issues a new certificate and returns the `.ovpn` file. The previous profile for the same
 /// host stops working. A POST because it changes state; the response is never cached.
 pub async fn profile(

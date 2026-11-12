@@ -3,6 +3,7 @@ import { Check, Download, Lightbulb, Lock } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { platform } from '../../api/platform'
 import type { PlayerChallenge, SubmitResult } from '../../api/platformTypes'
+import { flagProgress } from '../../lib/flags'
 import { fileSize, flagHint, verdictText } from '../../lib/platform'
 import { Modal, ModalBody, ModalHeader } from '../Modal'
 import { Button, ErrorText, Input } from '../ui'
@@ -85,6 +86,10 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
     if (flag.trim()) submit.mutate()
   }
   const hintText = flagHint(challenge.flag_format.prefix, challenge.flag_format.suffix)
+  // Several flags: how many are found, shown next to the one input every flag goes into.
+  const found = result?.flags_found ?? challenge.flags_found ?? 0
+  const total = result?.flags_total ?? challenge.flags_total ?? 1
+  const progress = flagProgress(found, total)
 
   return (
     <Modal label={challenge.title} onClose={onClose} width="40rem">
@@ -197,9 +202,16 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
           </p>
         ) : (
           <>
-            <label htmlFor="flag" className="text-sm font-semibold">
-              Flag
-            </label>
+            <div className="flex items-center gap-2">
+              <label htmlFor="flag" className="text-sm font-semibold">
+                Flag
+              </label>
+              {progress && (
+                <span aria-label={`${found} of ${total} flags found`} className={`rounded-full border border-line px-2 py-0.5 font-mono text-xs ${found === total ? 'text-win' : 'text-accent'}`}>
+                  {progress}
+                </span>
+              )}
+            </div>
             <div className="flex gap-2">
               <Input
                 id="flag"
@@ -216,6 +228,11 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
               </Button>
             </div>
             <div aria-live="polite" className="min-h-5 text-sm">
+              {result?.correct && !challenge.solved && result.flags_total && result.flags_total > 1 && (
+                <span className="text-win">
+                  Flag {result.flags_found} of {result.flags_total} found, {result.points} points.
+                </span>
+              )}
               {result && !result.correct && (
                 <span className="text-danger">
                   {verdictText[result.verdict]}.

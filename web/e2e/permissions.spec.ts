@@ -5,7 +5,7 @@ async function organizer(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Tournaments' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
 }
 
 test('an organizer edits what each role may do, and it sticks', async ({ page }) => {

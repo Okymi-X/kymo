@@ -18,6 +18,8 @@ import { RosterEditor } from '../../components/RosterEditor'
 import { TournamentAdmin } from '../../components/TournamentAdmin'
 import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
+import { InstanceDetails } from './InstanceDetails'
+import { RulesEditor } from '../../components/platform/RulesEditor'
 import { TournamentChallengeSettings } from './TournamentChallenges'
 
 type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
@@ -150,7 +152,7 @@ function Overview({ event }: { event: EventInfo }) {
               </Select>
             </Field>
           </div>
-          <Field label="Description and rules">
+          <Field label="Description">
             <Textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={2000} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -212,6 +214,8 @@ function Overview({ event }: { event: EventInfo }) {
         />
         <ErrorText error={board.error} />
       </Panel>
+
+      <RulesEditor eventId={event.id} slug={event.slug} />
 
       {event.kind === 'tournament' && <TournamentChallengeSettings event={event} />}
 
@@ -736,6 +740,7 @@ function Instances({ event }: { event: EventInfo }) {
     mutationFn: (id: number) => platform.stopAdminInstance(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-instances', event.id] }),
   })
+  const [details, setDetails] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [stateFilter, setStateFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -787,7 +792,8 @@ function Instances({ event }: { event: EventInfo }) {
             <td className={`${TD} font-mono`}>{r.host_port ?? ''}</td>
             <td className={`${TD} text-muted`}>{timeAgo(r.started_at)}</td>
             <td className={`${TD} text-muted`}>{new Date(r.expires_at * 1000).toLocaleTimeString()}</td>
-            <td className={TD}>
+            <td className={`${TD} flex flex-wrap gap-2`}>
+              <Button onClick={() => setDetails(r.id)}>Details</Button>
               {(r.state === 'running' || r.state === 'starting') && (
                 <Button variant="danger" onClick={() => stop.mutate(r.id)} disabled={stop.isPending}>
                   Stop
@@ -800,6 +806,7 @@ function Instances({ event }: { event: EventInfo }) {
       )}
       <Pager page={at} pages={pages} from={(at - 1) * size + 1} to={Math.min(at * size, matching.length)} total={matching.length} onChange={setPage} noun="instances" />
       <ErrorText error={stop.error} />
+      {details !== null && <InstanceDetails run={details} onClose={() => setDetails(null)} />}
     </div>
   )
 }

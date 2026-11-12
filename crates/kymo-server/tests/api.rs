@@ -53,6 +53,26 @@ async fn login(app: &Router) -> String {
     body["token"].as_str().unwrap().to_owned()
 }
 
+/// A signed in player. Reading anything but the sign in pages needs a session, so the tests that look at
+/// what a visitor sees read as this player.
+async fn viewer(app: &Router) -> String {
+    let creds = json!({ "username": "viewer", "password": "a long enough password" });
+    let (status, body) = call(
+        app,
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(creds.clone()),
+    )
+    .await;
+    if status == StatusCode::CREATED {
+        return body["token"].as_str().unwrap().to_owned();
+    }
+    let (status, body) = call(app, "POST", "/api/v1/auth/player-login", None, Some(creds)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["token"].as_str().unwrap().to_owned()
+}
+
 #[tokio::test]
 async fn admin_routes_require_a_token() {
     let app = app().await;
@@ -79,6 +99,7 @@ async fn admin_routes_require_a_token() {
 #[tokio::test]
 async fn full_single_elimination_flow() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
 
@@ -157,7 +178,14 @@ async fn full_single_elimination_flow() {
         .await;
         assert_eq!(status, StatusCode::OK);
     }
-    let (status, public) = call(&app, "GET", "/api/v1/tournaments/spring-cup-26", None, None).await;
+    let (status, public) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/spring-cup-26",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(public["status"], "done");
 
@@ -179,6 +207,7 @@ async fn full_single_elimination_flow() {
 #[tokio::test]
 async fn duplicate_tournament_names_conflict_and_unknown_slug_is_404() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let body = json!({"name": "Cup", "format": "double_elimination"});
     let (first, _) = call(
@@ -198,7 +227,14 @@ async fn duplicate_tournament_names_conflict_and_unknown_slug_is_404() {
     )
     .await;
     assert_eq!((first, second), (StatusCode::CREATED, StatusCode::CONFLICT));
-    let (status, _) = call(&app, "GET", "/api/v1/tournaments/nope", None, None).await;
+    let (status, _) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/nope",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -325,7 +361,14 @@ async fn api_tokens_authenticate_until_revoked_and_sessions_survive_restart() {
 /// Plays every ready match (side A wins) through the HTTP API until the tournament is done.
 async fn play_out(app: &Router, token: &str, id: i64) -> Value {
     for _ in 0..64 {
-        let (_, t) = call(app, "GET", "/api/v1/tournaments/play-off", None, None).await;
+        let (_, t) = call(
+            app,
+            "GET",
+            "/api/v1/tournaments/play-off",
+            Some(token),
+            None,
+        )
+        .await;
         if t["status"] == "done" {
             return t;
         }
@@ -433,6 +476,7 @@ async fn forfeit_over_the_api_advances_a_team_and_validates_the_side() {
 #[tokio::test]
 async fn third_place_option_adds_a_match_and_keeps_the_champion() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     let body = json!({"name": "Bronze", "format": "single_elimination", "third_place": true});
@@ -461,7 +505,14 @@ async fn third_place_option_adds_a_match_and_keeps_the_champion() {
         )
         .await;
     }
-    let (_, done) = call(&app, "GET", "/api/v1/tournaments/bronze", None, None).await;
+    let (_, done) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/bronze",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(done["status"], "done");
     let (status, _) = call(
         &app,
@@ -521,6 +572,7 @@ async fn appearance_is_public_editable_by_admins_and_validated() {
 #[tokio::test]
 async fn list_reports_progress_without_sending_brackets() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -549,7 +601,7 @@ async fn list_reports_progress_without_sending_brackets() {
         Some(json!({"score_a": 1, "score_b": 0})),
     )
     .await;
-    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
     assert_eq!(list[0]["progress"], json!({"played": 1, "total": 3}));
     assert!(list[0]["bracket"].is_null());
 }
@@ -656,6 +708,7 @@ async fn throttle_is_per_client_and_sends_retry_after() {
 #[tokio::test]
 async fn names_scores_and_options_are_validated() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
 
@@ -677,7 +730,7 @@ async fn names_scores_and_options_are_validated() {
             "/api/v1/tournaments/{}",
             "%E6%9D%B1%E4%BA%AC%E5%A4%A7%E4%BC%9A"
         ),
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -738,6 +791,7 @@ async fn unknown_slugs_and_files_return_404_and_logout_ends_the_session() {
 #[tokio::test]
 async fn round_robin_plays_with_draws_to_a_champion_and_caps_the_roster() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     let (status, made) = call(
@@ -796,7 +850,14 @@ async fn round_robin_plays_with_draws_to_a_champion_and_caps_the_roster() {
         )
         .await;
     }
-    let (_, done) = call(&app, "GET", "/api/v1/tournaments/league", None, None).await;
+    let (_, done) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/league",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(done["status"], "done");
     assert!(done["champion"].is_number());
     assert_eq!(done["progress"], json!({"played": 6, "total": 6}));
@@ -834,6 +895,7 @@ async fn round_robin_plays_with_draws_to_a_champion_and_caps_the_roster() {
 #[tokio::test]
 async fn groups_then_knockout_runs_over_the_api_and_validates_its_setup() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
 
@@ -885,7 +947,14 @@ async fn groups_then_knockout_runs_over_the_api_and_validates_its_setup() {
     assert_eq!(started["bracket"]["matches"].as_array().unwrap().len(), 15);
 
     for _ in 0..40 {
-        let (_, tour) = call(&app, "GET", "/api/v1/tournaments/worlds", None, None).await;
+        let (_, tour) = call(
+            &app,
+            "GET",
+            "/api/v1/tournaments/worlds",
+            Some(v.as_str()),
+            None,
+        )
+        .await;
         if tour["status"] == "done" {
             assert!(tour["champion"].is_number());
             assert_eq!(tour["progress"]["played"], tour["progress"]["total"]);
@@ -922,6 +991,7 @@ async fn groups_then_knockout_runs_over_the_api_and_validates_its_setup() {
 #[tokio::test]
 async fn activity_log_is_public_ordered_and_marks_corrections() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -982,7 +1052,7 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
         &app,
         "GET",
         "/api/v1/tournaments/audit/activity",
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -1003,7 +1073,14 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
     assert!(log[0]["at"].as_i64().unwrap() >= log[4]["at"].as_i64().unwrap());
     assert_eq!(log[3]["match_id"], 0);
 
-    let (status, _) = call(&app, "GET", "/api/v1/tournaments/nope/activity", None, None).await;
+    let (status, _) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/nope/activity",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     call(&app, "POST", "/api/v1/admin/tournaments/1/reset", t, None).await;
@@ -1011,7 +1088,7 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
         &app,
         "GET",
         "/api/v1/tournaments/audit/activity",
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -1059,20 +1136,21 @@ async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
 #[tokio::test]
 async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let (status, _) = call(&app, "POST", "/api/v1/admin/demo", None, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     let (status, first) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    // Nine tournaments and the three Jeopardy events.
-    assert_eq!(first["added"], 12);
+    // Twelve tournaments and nine Jeopardy events.
+    assert_eq!(first["added"], 21);
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
-    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
     let list = list.as_array().unwrap();
-    assert_eq!(list.len(), 9);
+    assert_eq!(list.len(), 12);
     let formats: std::collections::HashSet<_> =
         list.iter().map(|t| t["format"].as_str().unwrap()).collect();
     assert_eq!(formats.len(), 5);
@@ -1080,13 +1158,20 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
         list.iter().map(|t| t["status"].as_str().unwrap()).collect();
     assert_eq!(statuses, ["draft", "live", "done"].into_iter().collect());
 
-    let (_, winter) = call(&app, "GET", "/api/v1/tournaments/winter-finals", None, None).await;
+    let (_, winter) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/winter-finals",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert!(winter["champion"].is_number());
     let (_, owls) = call(
         &app,
         "GET",
         "/api/v1/tournaments/night-owls-invitational/activity",
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -1100,13 +1185,21 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
         kinds.contains(&"corrected") && kinds.contains(&"forfeit"),
         "{kinds:?}"
     );
-    let (_, worlds) = call(&app, "GET", "/api/v1/tournaments/worlds-2026", None, None).await;
+    let (_, worlds) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/worlds-2026",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert!(worlds["progress"]["played"].as_u64().unwrap() >= 18);
 }
 
 #[tokio::test]
 async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -1172,7 +1265,14 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
         Some(json!({"score_a": 1, "score_b": 0})),
     )
     .await;
-    let (_, after) = call(&app, "GET", "/api/v1/tournaments/plan-cup", None, None).await;
+    let (_, after) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/plan-cup",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(
         after["bracket"]["matches"][0]["scheduled_at"],
         1_800_000_000
@@ -1182,7 +1282,7 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
         &app,
         "GET",
         "/api/v1/tournaments/plan-cup/activity",
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -1202,7 +1302,7 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
         &app,
         "GET",
         "/api/v1/tournaments/plan-cup/calendar.ics",
-        None,
+        Some(v.as_str()),
         "",
     )
     .await;
@@ -1228,7 +1328,7 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
         &app,
         "GET",
         "/api/v1/tournaments/plan-cup/calendar.ics",
-        None,
+        Some(v.as_str()),
         "",
     )
     .await;
@@ -1238,13 +1338,14 @@ async fn schedule_is_validated_logged_kept_after_play_and_exported_as_a_calendar
 #[tokio::test]
 async fn the_hundred_team_demo_tournament_has_unique_names_byes_and_progress() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     let (_, open) = call(
         &app,
         "GET",
         "/api/v1/tournaments/ctf-world-open",
-        None,
+        Some(v.as_str()),
         None,
     )
     .await;
@@ -1407,6 +1508,7 @@ async fn api_tokens_can_expire_and_cannot_mint_tokens() {
 #[tokio::test]
 async fn public_list_trims_rosters_but_reports_the_full_count() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -1429,10 +1531,17 @@ async fn public_list_trims_rosters_but_reports_the_full_count() {
     )
     .await;
 
-    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
     assert_eq!(list[0]["teams"].as_array().unwrap().len(), 4);
     assert_eq!(list[0]["team_count"], 9);
-    let (_, full) = call(&app, "GET", "/api/v1/tournaments/big", None, None).await;
+    let (_, full) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/big",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(full["teams"].as_array().unwrap().len(), 9);
 }
 
@@ -1584,6 +1693,7 @@ async fn swiss_plans_rounds_as_results_arrive_over_the_api() {
 #[tokio::test]
 async fn import_creates_a_tournament_with_roster_and_can_start_it() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     let sample = json!({
@@ -1607,7 +1717,7 @@ async fn import_creates_a_tournament_with_roster_and_can_start_it() {
     let bad = json!({"name": "Broken", "format": "single_elimination", "teams": [{"name": "X"}, {"name": "x"}]});
     let (status, _) = call(&app, "POST", "/api/v1/admin/import", t, Some(bad)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (_, list) = call(&app, "GET", "/api/v1/tournaments", None, None).await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
     assert_eq!(
         list.as_array().unwrap().len(),
         1,
@@ -1646,6 +1756,7 @@ async fn the_documented_example_file_imports() {
 #[tokio::test]
 async fn a_tournament_can_carry_its_own_accent() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -1675,7 +1786,14 @@ async fn a_tournament_can_carry_its_own_accent() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (_, shown) = call(&app, "GET", "/api/v1/tournaments/tinted", None, None).await;
+    let (_, shown) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/tinted",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(shown["accent"], "#aa2200");
     let (_, cleared) = call(
         &app,
@@ -2038,6 +2156,7 @@ async fn tournament_links_carry_an_escaped_preview_for_chats() {
 #[tokio::test]
 async fn captains_report_scores_that_wait_for_the_organizer() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -2105,7 +2224,14 @@ async fn captains_report_scores_that_wait_for_the_organizer() {
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
     // Nothing changed until the organizer approves.
-    let (_, shown) = call(&app, "GET", "/api/v1/tournaments/reports", None, None).await;
+    let (_, shown) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/reports",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert!(shown["bracket"]["matches"][0]["score"].is_null());
     let (_, list) = call(&app, "GET", "/api/v1/admin/reports", t, None).await;
     assert_eq!(list.as_array().unwrap().len(), 1);
@@ -2141,6 +2267,7 @@ async fn captains_report_scores_that_wait_for_the_organizer() {
 #[tokio::test]
 async fn the_ladder_adds_wins_draws_and_titles_across_tournaments() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     for name in ["Cup One", "Cup Two"] {
@@ -2180,7 +2307,7 @@ async fn the_ladder_adds_wins_draws_and_titles_across_tournaments() {
         )
         .await;
     }
-    let (status, ladder) = call(&app, "GET", "/api/v1/ladder", None, None).await;
+    let (status, ladder) = call(&app, "GET", "/api/v1/ladder", Some(v.as_str()), None).await;
     assert_eq!(status, StatusCode::OK);
     let top = &ladder[0];
     assert_eq!(
@@ -2270,6 +2397,7 @@ async fn a_tournament_description_is_stored_validated_and_kept_on_rename() {
 #[tokio::test]
 async fn a_match_can_be_marked_live_and_the_result_clears_it() {
     let app = app().await;
+    let v = viewer(&app).await;
     let token = login(&app).await;
     let t = Some(token.as_str());
     call(
@@ -2319,7 +2447,14 @@ async fn a_match_can_be_marked_live_and_the_result_clears_it() {
     .await;
     assert_eq!(status, StatusCode::OK, "{out}");
     assert!(out["bracket"]["matches"][0]["started_at"].is_number());
-    let (_, log) = call(&app, "GET", "/api/v1/tournaments/live/activity", None, None).await;
+    let (_, log) = call(
+        &app,
+        "GET",
+        "/api/v1/tournaments/live/activity",
+        Some(v.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(log[0]["kind"], "live");
     let (_, out) = call(
         &app,

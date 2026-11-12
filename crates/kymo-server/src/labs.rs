@@ -88,6 +88,9 @@ impl kymo_vpn::Gateway for NoLocalGateway {
     async fn status(&self) -> Result<kymo_vpn::GatewayStatus, kymo_vpn::GatewayError> {
         Err(no_gateway())
     }
+    async fn connected(&self) -> Result<Vec<String>, kymo_vpn::GatewayError> {
+        Ok(Vec::new())
+    }
     async fn reachable(
         &self,
         _: std::net::Ipv4Addr,
@@ -178,6 +181,47 @@ pub async fn usable(state: &AppState, id: i64) -> Result<LabHostRow, ApiError> {
     Ok(row)
 }
 
+/// The first lab host version that hands out flags and starts a Verifier.
+const FLAGS_SINCE: (u64, u64, u64) = (0, 4, 0);
+
+/// Parses `major.minor.patch`, ignoring anything after the patch number (`0.4.0-rc1`).
+fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = text.split('.');
+    let number = |p: Option<&str>| {
+        p?.chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok()
+    };
+    Some((
+        number(parts.next())?,
+        number(parts.next())?,
+        number(parts.next())?,
+    ))
+}
+
+/// A lab host that can hand out the flags of a run and start a Verifier. An older one would
+/// ignore them and start an instance without its flag, so it is refused up front.
+pub async fn require_flag_support(state: &AppState, id: i64) -> Result<(), ApiError> {
+    let row = lab_store::get(&state.pool, id).await?;
+    let client = state
+        .labs()
+        .client(&row)
+        .map_err(|_| ApiError::Unavailable("the lab host cannot be reached".into()))?;
+    let health = client
+        .health()
+        .await
+        .map_err(|_| ApiError::Unavailable("the lab host cannot be reached".into()))?;
+    match parse_version(&health.version) {
+        Some(v) if v >= FLAGS_SINCE => Ok(()),
+        _ => Err(ApiError::Unavailable(format!(
+            "the lab host {} runs version {}; this challenge needs 0.4.0 or later",
+            row.name, health.version
+        ))),
+    }
+}
+
 /// Asks every enabled lab host how it is and remembers the answer, so the admin pages show it
 /// without calling out themselves. Called by the reaper.
 pub async fn refresh_health(state: &AppState) {
@@ -194,5 +238,21 @@ pub async fn refresh_health(state: &AppState) {
         if let Ok(h) = &health {
             let _ = lab_store::record_vpn(&state.pool, row.id, h.vpn.as_ref(), h.vpn_only).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_by_number_and_ignore_a_suffix() {
+        assert_eq!(parse_version("0.4.0"), Some((0, 4, 0)));
+        assert_eq!(parse_version("0.10.2-rc1"), Some((0, 10, 2)));
+        assert!(parse_version("0.3.9") < Some(FLAGS_SINCE));
+        assert!(parse_version("0.4.0") >= Some(FLAGS_SINCE));
+        assert!(parse_version("1.0.0") >= Some(FLAGS_SINCE));
+        assert_eq!(parse_version("dev"), None);
+        assert_eq!(parse_version("0.4"), None);
     }
 }

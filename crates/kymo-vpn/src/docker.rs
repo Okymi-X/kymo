@@ -92,6 +92,20 @@ impl DockerGateway {
     }
 }
 
+/// The common names in OpenVPN's `status 2` output: the `CLIENT_LIST,<name>,...` lines. The header
+/// line (`HEADER,CLIENT_LIST,...`) and everything else is skipped.
+pub fn parse_connected(status: &str) -> Vec<String> {
+    status
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.trim().split(',');
+            (parts.next() == Some("CLIENT_LIST")).then_some(())?;
+            let name = parts.next()?;
+            valid_common_name(name).then(|| name.to_owned())
+        })
+        .collect()
+}
+
 fn failed(e: bollard::errors::Error) -> GatewayError {
     GatewayError::Failed(e.to_string())
 }
@@ -252,6 +266,14 @@ impl Gateway for DockerGateway {
             .map(|_| ())
     }
 
+    async fn connected(&self) -> Result<Vec<String>, GatewayError> {
+        // `status 2` lists every connected client as a CSV line; `quit` ends the session.
+        let script =
+            format!("(echo 'status 2'; sleep 1; echo quit) | nc 127.0.0.1 {MANAGEMENT_PORT}");
+        let text = self.exec(vec!["sh".into(), "-c".into(), script]).await?;
+        Ok(parse_connected(&text))
+    }
+
     async fn status(&self) -> Result<GatewayStatus, GatewayError> {
         let name = self.container().await?;
         let info = self
@@ -284,5 +306,23 @@ impl Gateway for DockerGateway {
             .exec_code(vec!["sh".into(), "-c".into(), script])
             .await?;
         Ok(code == Some(0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_connected;
+
+    #[test]
+    fn only_client_lines_with_a_valid_name_count_as_connected() {
+        let status = "TITLE,OpenVPN 2.6.12\r\nTIME,2026-11-12 16:04:20,1\r\n\
+HEADER,CLIENT_LIST,Common Name,Real Address,Virtual Address\r\n\
+CLIENT_LIST,u15,172.16.10.1:56510,10.8.0.2,,100,200\r\n\
+CLIENT_LIST,u7,172.16.10.9:41000,10.8.0.3,,1,2\r\n\
+CLIENT_LIST,bad name;rm,1.2.3.4:1,10.8.0.4,,1,2\r\n\
+HEADER,ROUTING_TABLE,Virtual Address\r\nROUTING_TABLE,10.8.0.2,u15\r\nEND\r\n";
+        assert_eq!(parse_connected(status), vec!["u15", "u7"]);
+        assert!(parse_connected("").is_empty());
+        assert!(parse_connected("HEADER,CLIENT_LIST,Common Name\nEND").is_empty());
     }
 }

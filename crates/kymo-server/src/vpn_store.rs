@@ -77,6 +77,16 @@ pub async fn clients(pool: &SqlitePool, hid: i64) -> Result<Vec<ClientRow>, ApiE
     )
 }
 
+/// The lab hosts a player has a VPN profile on (0 is this server's own gateway).
+pub async fn client_hosts(pool: &SqlitePool, user_id: i64) -> Result<Vec<i64>, ApiError> {
+    Ok(
+        sqlx::query_scalar("SELECT lab_host_id FROM vpn_client WHERE user_id = ? ORDER BY 1")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
 pub async fn used_client_indices(pool: &SqlitePool, hid: i64) -> Result<BTreeSet<u32>, ApiError> {
     let rows: Vec<i64> = sqlx::query_scalar("SELECT idx FROM vpn_client WHERE lab_host_id = ?")
         .bind(hid)
@@ -275,6 +285,16 @@ pub async fn touch_lab(pool: &SqlitePool, id: i64, now: i64) -> Result<(), ApiEr
     Ok(())
 }
 
+/// Puts a lab on another lab host. Its network name and address range stay the same.
+pub async fn move_lab(pool: &SqlitePool, id: i64, hid: i64) -> Result<(), ApiError> {
+    sqlx::query("UPDATE vpn_lab SET lab_host_id = ? WHERE id = ?")
+        .bind(hid)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn delete_lab(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
     sqlx::query("DELETE FROM vpn_lab WHERE id = ?")
         .bind(id)
@@ -285,13 +305,18 @@ pub async fn delete_lab(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
 
 /// Addresses in use by live instances of a lab.
 pub async fn lab_ips_in_use(pool: &SqlitePool, lab_id: i64) -> Result<BTreeSet<String>, ApiError> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "SELECT i.lab_ip FROM instance i JOIN vpn_lab l ON l.event_id = i.event_id AND l.scorer_kind = i.scorer_kind AND l.scorer_id = i.scorer_id WHERE l.id = ? AND i.lab_ip IS NOT NULL AND i.state IN ('starting', 'running')",
-    )
-    .bind(lab_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().collect())
+    let mut used = BTreeSet::new();
+    // A run holds its own address and, for a Responder, its Verifier's.
+    for column in ["lab_ip", "verifier_ip"] {
+        let rows: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT i.{column} FROM instance i JOIN vpn_lab l ON l.event_id = i.event_id AND l.scorer_kind = i.scorer_kind AND l.scorer_id = i.scorer_id WHERE l.id = ? AND i.{column} IS NOT NULL AND i.state IN ('starting', 'running')"
+        ))
+        .bind(lab_id)
+        .fetch_all(pool)
+        .await?;
+        used.extend(rows);
+    }
+    Ok(used)
 }
 
 pub async fn live_instances_in_lab(pool: &SqlitePool, lab: &LabRow) -> Result<i64, ApiError> {

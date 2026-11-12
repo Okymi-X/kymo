@@ -6,9 +6,12 @@
 //! [`client::RemoteRuntime`] makes a lab host look like any other `InstanceRuntime`.
 
 pub mod client;
+pub mod inject;
 pub mod manifest;
 pub mod naming;
 pub mod protocol;
+#[cfg(feature = "server")]
+pub mod ssh;
 
 #[cfg(feature = "server")]
 pub mod server;

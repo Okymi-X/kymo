@@ -34,14 +34,9 @@ export function VpnPanel({ labHost = null }: { labHost?: number | null }) {
   }
   return (
     <Panel className="flex flex-col gap-4">
-      <div className="flex items-start gap-3">
-        <ShieldCheck size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-accent" />
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold tracking-tight">Your private network</h2>
-          <p className="text-sm text-muted">
-            Challenge instances in this event are not on the internet{v.host ? ` (the VPN server is ${v.host}${v.port ? `:${v.port}` : ''}, UDP)` : ''}. Each player gets their own isolated network, and you reach it through a VPN that only you can use. Other players cannot reach your instances, and you cannot reach theirs.
-          </p>
-        </div>
+      <div className="flex items-center gap-3">
+        <ShieldCheck size={20} aria-hidden="true" className="shrink-0 text-accent" />
+        <h2 className="text-lg font-semibold tracking-tight">Your private network</h2>
       </div>
       <ol className="ml-5 list-decimal space-y-1 text-sm">
         <li>Install an OpenVPN client (version 2.5 or newer), for example OpenVPN Connect or the <code className="font-mono">openvpn</code> command.</li>

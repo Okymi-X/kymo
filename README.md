@@ -20,6 +20,8 @@ Open source tournament manager for CTF events. Run a knockout, double eliminatio
 - [Formats](#formats)
 - [Challenge instances with Docker or Podman](#challenge-instances-with-docker-or-podman)
 - [Separate lab host](#separate-lab-host)
+- [Dynamic flags and several flags](#dynamic-flags-and-several-flags)
+- [Responder challenges and the Verifier](#responder-challenges-and-the-verifier)
 - [Backup and restore](#backup-and-restore)
 - [Private VPN for every player](#private-vpn-for-every-player)
 - [Deploying on your own server](#deploying-on-your-own-server)
@@ -40,6 +42,7 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 
 - **Jeopardy CTFs, solo or in teams:** categories, static or dynamic points, hints with a point cost, attachments, flag formats and regex flags, attempt limits, a scoreboard that stays hidden until you publish it, and per teammate progress. Players sign up, form teams with invite codes, register for an event and play in the browser.
 - **Challenge instances:** a challenge can start a private Docker container per player or team, with CPU, memory, process and lifetime limits, an expiry reaper and cleanup of orphaned containers.
+- **A front page you shape:** `/` is a home page with sign in and sign up. The default page is built from texts the organizer edits (headline, buttons, banner, about, footer); the organizer can instead write their own HTML and CSS. Signed in players see a greeting, their running instance and their events on top. See "Home page, sign in and public scoreboards".
 - **Roles and safety:** visitors, players, referees, monitors and admins; per endpoint rate limits with automatic and manual bans, a request log, a moderation audit trail, health and backup tools, and event bundles you can export and import.
 - **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss. Any of them can be best of 1, 3, 5 or 7, entered game by game.
 - **Organizer tools:** enter and correct scores, forfeits, undo the newest result, schedule matches with a place, drag teams into seeding order, seed by qualifier score or at random, decide ties by hand, rename, duplicate, back up as JSON, import a setup file.
@@ -169,7 +172,17 @@ curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -X POST http://127.0.0.1:8787/api/v1/admin/import --data @docs/examples/spring-cup.json
 ```
 
-Reads are public: `GET /api/v1/tournaments` and `GET /api/v1/tournaments/{slug}`. An API token cannot create other tokens.
+Everything needs a session (an API token counts) except the sign in pages and the public views of events whose scoreboard is public (see "Home page, sign in and public scoreboards"). An API token cannot create other tokens.
+
+## Home page, sign in and public scoreboards
+
+**Sign in is required.** Every page and API call needs a session, except: the front page, signing in and up, the appearance and home page content, a team's score report (its code is its key), and the read only views of events whose scoreboard is public. The rule lives in one place (`crates/kymo-server/src/gate.rs`), so a new route is closed by default. A stale session is refused, so an expired one reads as signed out.
+
+**Public scoreboards.** An event's *Anyone can see the scoreboard* switch is the only exception. It opens `/s/<event>` (a read only scoreboard with a Sign in button) and, for a tournament, its bracket for the embed, stage and calendar views. Nothing else about the event is open: not its challenges, players or rules. Answers to visitors are reused for 5 seconds, so a crowd costs one computation per event every few seconds. The event update streams send only a "something changed" ping and stay open, because a browser cannot send the session header on them.
+
+**The home page** (Appearance, Home page). In the default page the organizer edits the headline, text, button labels, announcement banner, about section and footer, and switches the events and public scoreboards sections on or off. In custom mode they write HTML and CSS. The HTML is cleaned when saved and again in the browser (no scripts, forms, frames, event handlers or inline styles), shown inside a shadow root so its CSS cannot touch the app, and the CSS cannot load anything from outside (`@import`, outside `url()`), use `position: fixed` or backslash escapes. Links to `/signin`, `/signin?mode=register` and `/events` work as normal links; the sign in forms themselves stay ours. Signed in players see the page with a greeting, their running instance and their live and upcoming events.
+
+**Rules.** Each event can have its own rules (Manage events, the event, Rules): a title and a text. Players open them from a button on the event page. A line starting with `#` is a heading, `-` a list item, and a blank line a new paragraph; nothing is treated as HTML.
 
 ## Formats
 
@@ -267,6 +280,19 @@ A manifest is a JSON file in `/etc/kymo-lab/manifests/` that describes one image
 
 `artifact` is the image reference the challenge uses. The manifest decides the port and limits; the platform can only ask for less. It can set only the environment variables named in `env_allow`. `deploy/lab/manifests/` has examples for the demo images. `KYMO_LAB_MODE=open` accepts any valid image within the caps instead, which is convenient on a private network and weaker.
 
+### Containers that need a real login
+
+A container is started with **no capabilities**, **no new privileges** and a read-only root. That is what keeps a broken-into challenge on a shared machine from reaching the lab host, and it also means `sshd`, `sudo` or a group of services cannot run in it. When a challenge needs them, the organizer can relax it **per image, in the manifest only** (the platform cannot ask for it); see `deploy/lab/manifests/container-with-login.json.example`, which explains each field in comments.
+
+| Manifest field | Meaning |
+| --- | --- |
+| `cap_add` | Capabilities added back after all are dropped. Only Docker's default set is allowed: `AUDIT_WRITE`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `MKNOD`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`. Anything else is refused when the manifest loads |
+| `no_new_privileges` | `false` lets setuid programs such as `sudo` and `su` work. Default `true` |
+| `read_only` | `false` lets the container write to its own filesystem. Default `true` |
+| `hostname` | The container's host name (1 to 63 characters: lowercase letters, digits, `-`), instead of Docker's random id. It relaxes nothing |
+
+What stays locked whatever the manifest says: the container is never privileged and has no devices, no host mounts, no Docker socket and no host namespaces; its limits (memory, CPU, processes) apply; it sits on the player's private lab network with no route out; and `SYS_ADMIN`, `NET_ADMIN`, `SYS_PTRACE`, `SYS_MODULE`, `DAC_READ_SEARCH` and the other powerful capabilities cannot be granted at all. `kymo-lab check` prints a warning for every image that relaxes anything. Even so, a container shares the host's kernel, so keep a lab host that runs such images a machine of its own, and prefer a virtual machine (`runtime` `vm`) when you can.
+
 ### Configuration of the lab host
 
 The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` documents every variable.
@@ -291,6 +317,8 @@ The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` docum
 | `KYMO_LAB_VPN_IMAGE` | `localhost/kymo/vpn-gateway:1` | The gateway image (the installer builds it from `deploy/vpn-gateway`) |
 | `KYMO_LAB_DATA` | `/var/lib/kymo-lab` | State file and certificate |
 | `KYMO_LAB_MANIFESTS` | `/etc/kymo-lab/manifests` | Manifest directory |
+| `KYMO_LAB_VERIFIERS` | `/etc/kymo-lab/verifiers` | Verifier definitions, one directory per definition |
+| `KYMO_LAB_VERIFIER_IMAGE` | `localhost/kymo/verifier:1` | The Verifier container image (the installer builds it) |
 
 Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab prepare` unpacks virtual machine images now, `kymo-lab fingerprint` prints the certificate fingerprint, `kymo-lab version`.
 
@@ -380,6 +408,52 @@ curl -sk -H "Authorization: Bearer $TOKEN" https://203.0.113.7:7400/v1/instances
 ```
 
 The platform side is the admin API (`/api/v1/admin/labs`: list, add, update, delete, test, list instances, reconcile, and `PUT /admin/events/{id}/lab` to choose a lab host for an event), and the same operations are in the **Lab hosts** page.
+
+## Dynamic flags and several flags
+
+By default a challenge has one static flag that every player submits. Two options change that, both for **instance challenges** and both chosen per challenge in the *New challenge* form:
+
+- **Dynamic flags.** Kymo generates a different flag for every instance run: the *prefix* and *closing text* you type, with a random hex part (4 to 32 characters, default 8) between them, for example `NDH{b2r_user_9f3a1c7d}`. The flag is handed to the lab host in the create request and put into the instance, so a flag from another player never works. A wrong flag that was generated for someone else leaves a `flag_shared` note in the audit log, naming both players (never the flag). A flag from any earlier run of the same player or team stays valid after a reset, once per flag.
+- **Several flags** (for example `user` and `root` of a boot2root machine). Players use the same flag input for all of them and see a `found/total` count. Each flag has a weight, and the challenge's points are split between the flags by weight (static points only). Hint costs are taken from the awards in the order the flags are found. The challenge counts as solved with its last flag. Static flags work in a multi flag challenge too.
+
+Once a run or a solve exists, the flags of a challenge can no longer change, only their labels. A lab host must be version 0.4.0 or later to hand out flags; Kymo refuses to start such a challenge on an older one rather than start it without its flag. Dynamic flags, several flags and Responders are for Jeopardy events, not tournaments.
+
+### Where the lab host puts the flags
+
+The platform sends the flags; the **manifest** says where each goes, so the platform never knows paths or credentials. Examples are in `deploy/lab/manifests/` (`dynamic-flag.json.example`, `boot2root.json.example`, `responder.json.example`).
+
+```json
+"inject": {
+  "port": 22,
+  "user": "root",
+  "ssh_key": "/etc/kymo-lab/keys/boot2root-box.key",
+  "ssh_password": "optional, tried only if the key is refused",
+  "flags": [
+    { "name": "user", "path": "/home/ctf/user.txt", "owner": "ctf:ctf", "mode": "0640" },
+    { "name": "root", "path": "/root/root.txt", "owner": "root:root", "mode": "0600" }
+  ]
+}
+```
+
+- **Containers** put a flag in an environment variable (`{ "name": "flag", "env": "FLAG" }`).
+- **Virtual machines** get a file written over SSH after the guest answers (VirtualBox exports, `.ova`, `.qcow2` and the other image types work the same). If both a key and a password are declared the key is used first. The value is sent on standard input, never in a command line. The instance reports as starting until every file is written, and is removed if it cannot be done in time, so no player gets a machine without its flag.
+- The flag names in the challenge must match the manifest's. A name the manifest has no place for is refused.
+- Manifests may hold an SSH password, so the installer makes them readable by the service group only. Keep keys in `/etc/kymo-lab/keys/`.
+
+## Responder challenges and the Verifier
+
+A **Responder** is an instance challenge where the player *patches* a machine instead of attacking it. A **Verifier** checks the repair, and when every check passes it shows the flag, which the player pastes into the usual flag input. Tick *Responder* under *Instance* in the challenge form.
+
+- **Two addresses.** The player sees the machine and the Verifier, both on their own private VPN lab network. Nothing is public and there is no login: only that player's (or team's) tunnel can reach their lab. The Verifier takes a second address from the lab network, allocated by Kymo like the machine's.
+- **One Verifier per instance.** The lab host starts a container next to each instance and removes it with the instance. It is read-only, has no capabilities and no route out.
+- **The flag stays off the machine.** A Responder has exactly one flag, static or dynamic. The lab host holds it and only the Verifier container can show it, and only while the latest run had every check fixed.
+- **You write the checks.** Each challenge has a Verifier definition: a directory with `verifier.json` and the scripts it names, under `/etc/kymo-lab/verifiers/`. A check has an id, the title players see, a language (`bash`, `python` or `exec` for any prebuilt program), a file and function, an optional health function and a timeout. The function's exit status is the answer: 0 fixed, 1 the weakness is still there, 2 broken (a crash or timeout counts as broken). Copy `deploy/lab/verifiers/template` (installed as `/etc/kymo-lab/verifiers/template`) and see `docs/schema/verifier.schema.json`.
+- **Name it in the manifest:** `"verifier": { "definition": "ghost-files", "port": 8080 }`.
+- **Test it with no player:** `kymo-lab verifier test /etc/kymo-lab/verifiers/ghost-files --target 10.77.0.42 --ports 22,80` shows each check red on a fresh machine and green after your fix. `kymo-lab check` finds mistakes in the definitions and the manifests first.
+- **A player with root can lie.** Checks that only read a file over SSH can be fooled by a determined player. Prefer checks that repeat the original attack from the Verifier and expect it to fail.
+- **See what happened.** On the event's *Instances* tab, *Details* shows the flags generated for a run (the reading is audited) and what the Verifier recorded.
+
+The lab host needs Docker, the VPN gateway and the Verifier image (the installer builds it). The installer also adds a firewall rule that keeps the lab networks away from the lab host itself, because a player may have root in a challenge machine on a bridge whose address is that host. The full design is in `docs/DYNAMIC_FLAGS_AND_RESPONDER.md`.
 
 ## Backup and restore
 
@@ -522,6 +596,7 @@ crates/kymo-engine     pure bracket logic: generation, results, standings, Swiss
 crates/kymo-core       pure event rules: lifecycle states, schedule windows, roles, team rosters
 crates/kymo-jeopardy   pure Jeopardy rules: flags, static and dynamic scoring, ranking, rate limits
 crates/kymo-instances  challenge container lifecycle: policy, runtime interface, Docker and Podman
+crates/kymo-verifier   the Verifier: definition format, check runner and the web service players open
 crates/kymo-monitor    pure request rules: per endpoint limits, automatic bans, ban expiry
 crates/kymo-vpn        per player OpenVPN: certificate authority, profiles, firewall rules, gateway
 crates/kymo-lab        the lab host (binary `kymo-lab`) and the client the platform uses to reach it
