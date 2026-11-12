@@ -3,6 +3,14 @@ import type { ChallengeSettings, Tournament } from './types'
 import type {
   AdminChallenge,
   AdminVpn,
+  AlertDetails,
+  AlertPage,
+  Detector,
+  DetectorConfig,
+  Heat,
+  HotLists,
+  MonitorAlert,
+  MonitorSeries,
   EventRules,
   HomeContent,
   PublicEvent,
@@ -253,8 +261,20 @@ export const platform = {
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),
 
   // monitor
-  requests: (params: { page?: number; ip?: string; user_id?: number; route?: string; status?: number }) =>
+  requests: (params: { page?: number; ip?: string; user_id?: number; route?: string; status?: number; since?: number; until?: number }) =>
     request<LogPage>('GET', `/admin/monitor/requests${query({ per_page: 50, ...params })}`),
+  monitorSeries: (minutes: number) => request<MonitorSeries>('GET', `/admin/monitor/series${query({ minutes })}`),
+  monitorHot: (minutes = 5) => request<HotLists>('GET', `/admin/monitor/hot${query({ minutes })}`),
+  monitorHeat: () => request<Heat>('GET', '/admin/monitor/heatmap'),
+  alerts: (params: { status?: 'open' | 'handled' | 'all'; who?: 'players' | 'all'; page?: number; per_page?: number }) =>
+    request<AlertPage>('GET', `/admin/monitor/alerts${query(params)}`),
+  alertDetails: (id: number) => request<AlertDetails>('GET', `/admin/monitor/alerts/${id}`),
+  dismissAlert: (id: number, note: string) => request<MonitorAlert>('POST', `/admin/monitor/alerts/${id}/dismiss`, { note }),
+  banFromAlert: (id: number, body: { kind: 'user' | 'ip'; duration_secs?: number; reason?: string }) =>
+    request<MonitorAlert>('POST', `/admin/monitor/alerts/${id}/ban`, body),
+  detectors: () => request<{ detectors: Detector[] }>('GET', '/admin/monitor/detectors'),
+  saveDetector: (kind: string, config: DetectorConfig) => request<{ detectors: Detector[] }>('PUT', `/admin/monitor/detectors/${kind}`, config),
+  resetDetector: (kind: string) => request<{ detectors: Detector[] }>('DELETE', `/admin/monitor/detectors/${kind}`),
   monitorSummary: (minutes: number) => request<MonitorSummary>('GET', `/admin/monitor/summary${query({ minutes })}`),
   rules: () => request<{ rules: RateRule[] }>('GET', '/admin/monitor/rules'),
   createRule: (body: RateRuleBody) => request<RateRule>('POST', '/admin/monitor/rules', body),

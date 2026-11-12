@@ -161,3 +161,12 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] Per event rules (`event_rules`, `GET /events/{slug}/rules`, `PUT /admin/events/{id}/rules`) in a dialog on the event page
 - [x] Header and links: Tournaments entry removed, back links go to Events, tournament creation and samples moved to Manage events
 - [ ] Playwright specs still assume the old home page (tournament list and create form at `/`) and were not rerun; update them when e2e can run
+
+## Monitor: live graphs and attack alerts (2026-11-12)
+- [x] `kymo-monitor::detect` (pure): six detectors (scan, admin probe, attack strings, scanner tool, brute force, flood), per detector settings, percent decoding for double encoded payloads. 8 unit tests
+- [x] Migration 0034: `request_log` gets query, user agent and a staff flag; tables `detector` (the organizer's changes only) and `alert`
+- [x] `monitor_alerts.rs`: `run_once` every 30 s (alerts, auto-ban of signed in players at the ban level, expiry of temporary player bans), series, hot lists, heat map; routes under `/admin/monitor`; 6 integration tests in `tests/alerts.rs`
+- [x] Web: Live and Alerts tabs on the Monitor page, SVG charts (no library), alert dialog, detection settings, badge in the account menu
+- [x] Fixed: a temporary ban of a player never lifted the account's banned flag
+- [ ] Players scanning the lab host from inside the VPN (needs lab host counters, separate step)
+- [ ] Not looked at in a browser; no Playwright spec for the new tabs

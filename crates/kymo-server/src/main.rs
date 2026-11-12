@@ -69,6 +69,7 @@ async fn run() -> Result<(), String> {
     }
     state = state.with_trusted_proxy(env::var("KYMO_TRUST_PROXY").as_deref() == Ok("1"));
     spawn_maintenance(state.clone());
+    spawn_detection(state.clone());
     spawn_match_sweep(state.clone());
     // `docker` runs challenge containers on this machine (and still lets events use lab hosts);
     // `labs` runs none here and leaves everything to the lab hosts added in the admin pages.
@@ -171,6 +172,19 @@ fn spawn_match_sweep(state: AppState) {
             tick.tick().await;
             if let Err(e) = kymo_server::duel::sweep(&state).await {
                 tracing::warn!("match sweep failed: {e:?}");
+            }
+        }
+    });
+}
+
+/// Looks for attacks on the platform every 30 seconds and ends expired bans of players.
+fn spawn_detection(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            tick.tick().await;
+            if let Err(e) = kymo_server::monitor_alerts::run_once(&state).await {
+                tracing::warn!("attack detection failed: {e:?}");
             }
         }
     });

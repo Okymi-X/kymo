@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
 use axum::extract::{MatchedPath, OriginalUri, Request, State};
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, USER_AGENT};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use kymo_core::Permission;
@@ -345,6 +345,21 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
         .chars()
         .take(200)
         .collect();
+    let query: String = request
+        .uri()
+        .query()
+        .unwrap_or_default()
+        .chars()
+        .take(300)
+        .collect();
+    let ua: String = request
+        .headers()
+        .get(USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .chars()
+        .take(200)
+        .collect();
     let secret = request
         .headers()
         .get(AUTHORIZATION)
@@ -375,6 +390,9 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
                 ip: ip.to_string(),
                 user_id,
                 ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+                query,
+                ua,
+                staff,
             },
         );
     }

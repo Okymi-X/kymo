@@ -22,6 +22,7 @@ pub mod lab_store;
 pub mod labs;
 pub mod ladder;
 pub mod monitor;
+pub mod monitor_alerts;
 pub mod monitor_store;
 pub mod ops;
 pub mod passwords;

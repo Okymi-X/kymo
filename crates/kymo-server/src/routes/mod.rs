@@ -217,6 +217,24 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/admin/monitor/bans/{id}", delete(monitor::lift_ban))
         .route("/admin/monitor/audit", get(monitor::audit))
+        .route("/admin/monitor/series", get(monitor::series))
+        .route("/admin/monitor/hot", get(monitor::hot))
+        .route("/admin/monitor/heatmap", get(monitor::heatmap))
+        .route("/admin/monitor/alerts", get(monitor::list_alerts))
+        .route("/admin/monitor/alerts/{id}", get(monitor::alert_details))
+        .route(
+            "/admin/monitor/alerts/{id}/dismiss",
+            post(monitor::dismiss_alert),
+        )
+        .route(
+            "/admin/monitor/alerts/{id}/ban",
+            post(monitor::ban_from_alert),
+        )
+        .route("/admin/monitor/detectors", get(monitor::list_detectors))
+        .route(
+            "/admin/monitor/detectors/{kind}",
+            put(monitor::save_detector).delete(monitor::reset_detector),
+        )
         .route("/events/{slug}/scoreboard", get(scoreboard::scoreboard))
         .route(
             "/events/{slug}/scoreboard/timeline",
