@@ -27,7 +27,9 @@ async function record(page: Page, match: string, a: string, b: string) {
 test('organizer runs a four team knockout to a champion', async ({ page, browser }) => {
   await signIn(page)
 
-  await page.getByLabel('New tournament').fill('E2E Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+
+  await page.getByLabel('New event').fill('E2E Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByRole('heading', { name: 'E2E Cup' })).toBeVisible()
 
@@ -57,7 +59,8 @@ test('wrong password is rejected', async ({ page }) => {
 
 test('command palette jumps to a tournament from the keyboard', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Palette Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Palette Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page.getByRole('heading', { name: 'Palette Cup' })).toBeVisible()
 
@@ -70,7 +73,8 @@ test('command palette jumps to a tournament from the keyboard', async ({ page })
 
 test('organizer awards a match by forfeit and can undo it', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Walkover Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Walkover Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -90,7 +94,8 @@ test('organizer awards a match by forfeit and can undo it', async ({ page }) => 
 
 test('third place match is played after the semifinals', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Bronze Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Bronze Cup')
   await page.getByLabel('Third place match').check()
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
@@ -126,7 +131,8 @@ test('appearance changes are saved for everyone and can be restored', async ({ p
 
 test('standings, matches and team views show the same results', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Data Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Data Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha, 900\nBravo, 800\nCharlie, 700\nDelta, 600')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -158,7 +164,8 @@ test('standings, matches and team views show the same results', async ({ page })
 
 test('start errors stay visible and saving the roster keeps the editor state', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Bronze Guard')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Bronze Guard')
   await page.getByLabel('Third place match').check()
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo')
@@ -196,7 +203,8 @@ test('sign out ends the session on the server', async ({ page, request }) => {
 
 test('round robin plays with a draw and crowns the table leader', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('League Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('League Cup')
   await page.getByLabel('Format').selectOption('round_robin')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie')
@@ -232,7 +240,8 @@ test('round robin plays with a draw and crowns the table leader', async ({ page 
 
 test('groups then knockout plays the groups, fills the knockout and crowns a champion', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Worlds')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Worlds')
   await page.getByLabel('Format').selectOption('group_knockout')
   await page.getByLabel(/^Groups/).selectOption('2')
   await page.getByLabel(/^Advance per group/).selectOption('1')
@@ -317,7 +326,8 @@ test('organizer menu opens, is keyboard friendly and leads to the settings pages
 
 test('the header shows the tournament once its title scrolls away', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Nav Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Nav Cup')
   await page.getByLabel('Format').selectOption('double_elimination')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill(Array.from({ length: 16 }, (_, i) => `N${i + 1}`).join('\n'))
@@ -337,7 +347,8 @@ test('the header shows the tournament once its title scrolls away', async ({ pag
 
 test('activity log, following a team and the remembered choice', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Log Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Log Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -367,7 +378,8 @@ test('activity log, following a team and the remembered choice', async ({ page }
 
 test('stage mode shows what is next, live results and the champion', async ({ page, browser }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Stage Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Stage Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -396,7 +408,8 @@ test('stage mode shows what is next, live results and the champion', async ({ pa
 
 test('a match can be scheduled, shows on the lists and the follow chip, and is exported', async ({ page, request }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Plan Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Plan Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -429,7 +442,8 @@ test('a match can be scheduled, shows on the lists and the follow chip, and is e
 
 test('nav bar: live badge, search bar, light and dark switch that is remembered', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Live Badge Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Live Badge Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -454,7 +468,8 @@ test('nav bar: live badge, search bar, light and dark switch that is remembered'
 
 test('embed: dialog builds the snippet and the page works inside a real iframe', async ({ page, context }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Embed Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Embed Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -498,7 +513,8 @@ async function mapTransform(page: Page) {
 
 test('the bracket is a map: drag, zoom at the cursor, keys, minimap, and no accidental clicks', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Map Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Map Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   const names = Array.from({ length: 16 }, (_, i) => `Team${String.fromCharCode(65 + i)}`).join('\n')
   await page.getByLabel(/Add teams/).fill(names)
@@ -554,7 +570,8 @@ test('the bracket is a map: drag, zoom at the cursor, keys, minimap, and no acci
 
 test('an organizer can rename a tournament, and unknown pages show a 404', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Old Name')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Old Name')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByRole('button', { name: 'Rename' }).click()
   await page.getByLabel('Tournament name').fill('Fresh Name')
@@ -586,7 +603,8 @@ test('a logo can be uploaded in appearance and shows in the header', async ({ pa
 
 test('an organizer can decide a tie in a round robin table', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Tie League')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Tie League')
   await page.getByLabel('Format').selectOption('round_robin')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie')
@@ -611,7 +629,8 @@ test('an organizer can decide a tie in a round robin table', async ({ page }) =>
 
 test('a Swiss tournament plans the next round once a round is played', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Swiss Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Swiss Cup')
   await page.getByLabel('Format').selectOption('swiss')
   await page.getByLabel('Rounds').selectOption('2')
   await page.getByRole('button', { name: 'Create' }).click()
@@ -636,7 +655,8 @@ test('a Swiss tournament plans the next round once a round is played', async ({ 
 
 test('a tournament can get its own color and drop it again', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Colored Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Colored Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByRole('button', { name: 'Color', exact: true }).click()
   await page.getByLabel('Hex color').fill('#aa2200')
@@ -654,7 +674,8 @@ test('a tournament can get its own color and drop it again', async ({ page }) =>
 
 test('a tournament can be duplicated and a setup file imported', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Original Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Original Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -674,7 +695,8 @@ test('a tournament can be duplicated and a setup file imported', async ({ page }
 
 test('the newest result can be undone from the activity log', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Undo Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Undo Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -690,7 +712,8 @@ test('the newest result can be undone from the activity log', async ({ page }) =
 
 test('the tab title follows the page and a skip link reaches the content', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Title Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Title Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await expect(page).toHaveTitle(/^Title Cup · /)
   await page.goto('/settings')
@@ -718,7 +741,8 @@ test('a webhook can be added, tested and removed without showing its secret path
 
 test('a referee token signs in, records results and sees no organizer tools', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Referee Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Referee Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -750,7 +774,8 @@ test('a referee token signs in, records results and sees no organizer tools', as
 
 test('a best of 3 series is entered game by game and decides the match', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Series Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Series Cup')
   await page.locator('select').filter({ hasText: 'Best of 3' }).selectOption('3')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
@@ -775,7 +800,8 @@ test('a best of 3 series is entered game by game and decides the match', async (
 
 test('a match that is overdue shows in Late matches and can be awarded to the team that came', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Late Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Late Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -795,7 +821,8 @@ test('a match that is overdue shows in Late matches and can be awarded to the te
 
 test('a captain reports a score from a private link and the organizer approves it', async ({ page, browser }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Captain Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Captain Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -830,7 +857,8 @@ test('the ladder adds results across tournaments', async ({ page }) => {
   await signIn(page)
   for (const name of ['Ladder One', 'Ladder Two']) {
     await page.goto('/')
-    await page.getByLabel('New tournament').fill(name)
+    await page.getByLabel('Type').selectOption('tournament')
+    await page.getByLabel('New event').fill(name)
     await page.getByRole('button', { name: 'Create' }).click()
     await page.getByLabel(/Add teams/).fill('Ladybug\nOther' + name.slice(-3))
     await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -844,7 +872,8 @@ test('the ladder adds results across tournaments', async ({ page }) => {
 
 test('the bracket can be saved as an image', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Image Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Image Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -860,7 +889,8 @@ test('the bracket can be saved as an image', async ({ page }) => {
 
 test('a match marked as playing shows live and the result clears it', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Live Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Live Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -881,7 +911,8 @@ test('a match marked as playing shows live and the result clears it', async ({ p
 
 test('a match saved from the Matches tab leaves Playing now at once and appears under Played', async ({ page }) => {
   await signIn(page)
-  await page.getByLabel('New tournament').fill('Playing Cup')
+  await page.getByLabel('Type').selectOption('tournament')
+  await page.getByLabel('New event').fill('Playing Cup')
   await page.getByRole('button', { name: 'Create' }).click()
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()

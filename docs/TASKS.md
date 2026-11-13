@@ -160,6 +160,7 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] `/s/<event>` public scoreboard page; `GET /public/events/{slug}`; tournaments with a public scoreboard stay readable for embed, stage and calendar
 - [x] Per event rules (`event_rules`, `GET /events/{slug}/rules`, `PUT /admin/events/{id}/rules`) in a dialog on the event page
 - [x] Header and links: Tournaments entry removed, back links go to Events, tournament creation and samples moved to Manage events
+- [x] Manage events has one create form: Type picks Jeopardy CTF (players, lab host) or Tournament (format, match, rounds, third place, Import setup); `TournamentCreate` is now `TournamentFields`, `ImportSetup`, `useCreateTournament`. The organizer e2e specs select Type first and use the "New event" label (not run: needs Chrome)
 - [ ] Playwright specs still assume the old home page (tournament list and create form at `/`) and were not rerun; update them when e2e can run
 
 ## Monitor: live graphs and attack alerts (2026-11-12)
