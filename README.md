@@ -224,7 +224,7 @@ players ──► platform (web, accounts, scores)  ──── HTTPS + token �
 Published ports are the weak point of a CTF server: every instance is a vulnerable machine on an open port, reachable by anyone on the internet who finds it. A lab host avoids that with a **gateway of its own**. It is on by default in the installer (`--no-vpn` turns it off).
 
 ```
-player ── OpenVPN (UDP 1194) ──► lab host gateway ──► the player's private lab network ──► their instances
+player ── OpenVPN (UDP 1194 by default) ──► lab host gateway ──► the player's private lab network ──► their instances
                                       (nothing else is open; no instance has a public port)
 ```
 
@@ -236,7 +236,7 @@ player ── OpenVPN (UDP 1194) ──► lab host gateway ──► the player
 - **Virtual machines need a rootful Docker** on the lab host and the right to make a network device: the installer's service unit grants exactly `CAP_NET_ADMIN` and `CAP_NET_RAW`. With rootless Podman the lab network's bridge lives inside the user's network namespace, out of reach. Containers work with either. The DHCP exchange is read from a packet socket, so no host firewall rule is needed.
 - **Players** open the event, download the profile for it (`POST /vpn/profile?lab_host=ID`, shown on the event page), connect, and start an instance; its private address appears when it answers.
 - **VPN only**: a lab host with a gateway refuses to publish a port at all (`KYMO_LAB_VPN_ONLY`, default on), so a mistake in an event's settings cannot expose a machine. The Lab hosts page shows each host's gateway, and the event settings choose the host and the network mode together.
-- **Firewall**: open UDP 1194 to players and TCP 7400 to the platform. Nothing else needs opening.
+- **Firewall**: open the UDP port printed by the installer (1194 by default) to players and TCP 7400 to the platform. Nothing else needs opening.
 - **Platform setup**: `KYMO_VPN=1` works with `KYMO_INSTANCES=labs` (no gateway on the platform itself, so no `KYMO_VPN_HOST` needed). The platform's `KYMO_VPN_LABS` must lie inside the lab host's `KYMO_LAB_VPN_POOL`; the platform says so if it does not.
 
 ### Install a lab host
@@ -258,9 +258,16 @@ Public address:          203.0.113.7
 
 In the platform open **Lab hosts**, **Add a lab host** and paste those four values. It is saved and tested at once, and the answer says plainly what is wrong if the lab host cannot be reached. Running the installer again upgrades the program and keeps the token, certificate and manifests. `sudo ./install-lab.sh --uninstall [--purge]` removes it.
 
+On a separate lab machine, the VPN keeps the default UDP port 1194. If the platform and lab host
+share one machine and 1194 is already occupied, a fresh lab install automatically selects the next
+free UDP port and prints it. Rerunning the installer also detects and repairs an existing collision.
+`--vpn-port PORT` makes the first-install choice explicit and refuses to overwrite an existing
+listener. If the lab host was installed first, configure the platform's `KYMO_VPN_PORT` to a
+different port before enabling its local gateway; the lab host's printed port stays unchanged.
+
 Then, on the lab host:
 
-1. **Open the ports.** TCP 7400 (the API) to the platform only, and UDP 1194 (the VPN gateway) to players. That is all: with the VPN no instance is published on any port. Only if you installed with `--no-vpn` do instance ports (Docker's high range, `cat /proc/sys/net/ipv4/ip_local_port_range`) have to be opened to players, and then anyone who reaches the machine can reach them.
+1. **Open the ports.** TCP 7400 (the API) to the platform only, and the VPN gateway's UDP port printed by the installer (1194 by default) to players. That is all: with the VPN no instance is published on any port. Only if you installed with `--no-vpn` do instance ports (Docker's high range, `cat /proc/sys/net/ipv4/ip_local_port_range`) have to be opened to players, and then anyone who reaches the machine can reach them.
 2. **Put the challenge images there** (`docker pull`, or `docker build -t localhost/kymo-lab/flag-server:1 lab/flag-server`) and describe each in a **manifest**, then restart the service. `kymo-lab check` verifies the settings, Docker access and manifests.
 
 ### Manifests

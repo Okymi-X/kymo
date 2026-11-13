@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, DeviceMapping, ExecConfig, HostConfig, NetworkConnectRequest,
-    NetworkDisconnectRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    ContainerCreateBody, ContainerInspectResponse, DeviceMapping, ExecConfig, HostConfig,
+    NetworkConnectRequest, NetworkDisconnectRequest, PortBinding, RestartPolicy,
+    RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, InspectContainerOptions, StartContainerOptions,
@@ -114,22 +115,52 @@ fn status_is(e: &bollard::errors::Error, codes: &[u16]) -> bool {
     matches!(e, bollard::errors::Error::DockerResponseServerError { status_code, .. } if codes.contains(status_code))
 }
 
+fn published_on(
+    info: &ContainerInspectResponse,
+    port_key: &str,
+    host_ip: &str,
+    host_port: u16,
+) -> bool {
+    let expected_port = host_port.to_string();
+    info.network_settings
+        .as_ref()
+        .and_then(|settings| settings.ports.as_ref())
+        .and_then(|ports| ports.get(port_key))
+        .and_then(Option::as_ref)
+        .is_some_and(|bindings| {
+            bindings.iter().any(|binding| {
+                let ip_matches = binding.host_ip.as_deref() == Some(host_ip)
+                    || (host_ip == "0.0.0.0"
+                        && binding.host_ip.as_deref().is_none_or(str::is_empty));
+                ip_matches && binding.host_port.as_deref() == Some(expected_port.as_str())
+            })
+        })
+}
+
 #[async_trait]
 impl Gateway for DockerGateway {
     async fn ensure_running(&self, config: &GatewayConfig) -> Result<(), GatewayError> {
         *self.name.lock().await = Some(config.name.clone());
+        let port_key = format!("{INNER_PORT}/udp");
         let existing = self
             .docker
             .inspect_container(&config.name, None::<InspectContainerOptions>)
             .await;
         match existing {
             Ok(info) => {
-                if info.state.and_then(|s| s.running).unwrap_or(false) {
+                if info.state.as_ref().and_then(|s| s.running).unwrap_or(false)
+                    && published_on(&info, &port_key, &config.publish_ip, config.publish_port)
+                {
                     return Ok(());
+                }
+                if info.state.and_then(|s| s.running).unwrap_or(false) {
+                    return Err(GatewayError::Failed(format!(
+                        "the gateway is running but UDP {}:{} is not published; another service may own the port. Choose a different VPN port, remove {}, and restart",
+                        config.publish_ip, config.publish_port, config.name
+                    )));
                 }
             }
             Err(e) if status_is(&e, &[404]) => {
-                let port_key = format!("{INNER_PORT}/udp");
                 let dir = config.dir.to_str().ok_or_else(|| {
                     GatewayError::Failed("the VPN directory is not valid text".into())
                 })?;
@@ -311,7 +342,11 @@ impl Gateway for DockerGateway {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_connected;
+    use std::collections::HashMap;
+
+    use bollard::models::{ContainerInspectResponse, NetworkSettings, PortBinding};
+
+    use super::{parse_connected, published_on};
 
     #[test]
     fn only_client_lines_with_a_valid_name_count_as_connected() {
@@ -324,5 +359,26 @@ HEADER,ROUTING_TABLE,Virtual Address\r\nROUTING_TABLE,10.8.0.2,u15\r\nEND\r\n";
         assert_eq!(parse_connected(status), vec!["u15", "u7"]);
         assert!(parse_connected("").is_empty());
         assert!(parse_connected("HEADER,CLIENT_LIST,Common Name\nEND").is_empty());
+    }
+
+    #[test]
+    fn the_gateway_port_must_really_be_published() {
+        let mut info = ContainerInspectResponse {
+            network_settings: Some(NetworkSettings {
+                ports: Some(HashMap::from([(
+                    "1194/udp".to_owned(),
+                    Some(vec![PortBinding {
+                        host_ip: Some("0.0.0.0".into()),
+                        host_port: Some("1194".into()),
+                    }]),
+                )])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(published_on(&info, "1194/udp", "0.0.0.0", 1194));
+        assert!(!published_on(&info, "1194/udp", "0.0.0.0", 1195));
+        info.network_settings.as_mut().unwrap().ports = None;
+        assert!(!published_on(&info, "1194/udp", "0.0.0.0", 1194));
     }
 }

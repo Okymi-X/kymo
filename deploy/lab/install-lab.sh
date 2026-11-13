@@ -3,7 +3,7 @@
 # platform. Run it as root from the unpacked release. Safe to run again to upgrade.
 #
 #   sudo ./install-lab.sh [--public-host ADDRESS] [--port 7400] [--allow-from CIDR] [--mode manifest|open]
-#                         [--with-vm] [--runtimes docker,vm] [--vpn-host ADDRESS] [--vpn-port 1194] [--no-vpn]
+#                         [--with-vm] [--runtimes docker,vm] [--vpn-host ADDRESS] [--vpn-port PORT] [--no-vpn]
 #   sudo ./install-lab.sh --uninstall [--purge]
 #
 # Containers need Docker. Virtual machines need QEMU: --with-vm installs it (Debian, Ubuntu, Fedora,
@@ -26,11 +26,61 @@ RUNTIMES=""
 VPN=1
 VPN_HOST=""
 VPN_PORT=1194
+VPN_PORT_EXPLICIT=0
 VPN_POOL=10.77.0.0/16
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 die() { echo "install-lab: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
+
+udp_port_in_use() {
+    if command -v ss >/dev/null 2>&1; then
+        [ -n "$(ss -H -lun "sport = :$1" 2>/dev/null)" ]
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -lun 2>/dev/null | awk 'NR > 2 { print $4 }' | grep -Eq "(^|:)$1$"
+    else
+        return 1
+    fi
+}
+
+lab_gateway_owns_port() {
+    command -v docker >/dev/null 2>&1 || return 1
+    docker port kymo-lab-vpn-gateway 1194/udp 2>/dev/null | grep -Eq ":$1$"
+}
+
+choose_vpn_port() {
+    case "$VPN_PORT" in
+        ''|*[!0-9]*) die "--vpn-port must be a number from 1 to 65535" ;;
+    esac
+    [ "$VPN_PORT" -ge 1 ] && [ "$VPN_PORT" -le 65535 ] || die "--vpn-port must be a number from 1 to 65535"
+    if ! udp_port_in_use "$VPN_PORT" || lab_gateway_owns_port "$VPN_PORT"; then
+        return
+    fi
+    if [ "$VPN_PORT_EXPLICIT" -eq 1 ]; then
+        die "UDP $VPN_PORT is already in use on this machine; choose another --vpn-port"
+    fi
+    candidate=$((VPN_PORT + 1))
+    while [ "$candidate" -le 65535 ] && udp_port_in_use "$candidate"; do
+        candidate=$((candidate + 1))
+    done
+    [ "$candidate" -le 65535 ] || die "could not find a free UDP port for the VPN gateway"
+    say "UDP $VPN_PORT is already in use; using $candidate for this lab host's VPN gateway"
+    VPN_PORT=$candidate
+}
+
+save_existing_vpn_port() {
+    env_file=/etc/kymo-lab/lab.env
+    temp=$(mktemp /etc/kymo-lab/lab.env.XXXXXX)
+    if grep -q '^KYMO_LAB_VPN_PORT=' "$env_file"; then
+        sed "s/^KYMO_LAB_VPN_PORT=.*/KYMO_LAB_VPN_PORT=$VPN_PORT/" "$env_file" > "$temp"
+    else
+        cp "$env_file" "$temp"
+        printf 'KYMO_LAB_VPN_PORT=%s\n' "$VPN_PORT" >> "$temp"
+    fi
+    chown root:kymo-lab "$temp"
+    chmod 0640 "$temp"
+    mv "$temp" "$env_file"
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -41,7 +91,7 @@ while [ $# -gt 0 ]; do
         --with-vm) WITH_VM=1; shift ;;
         --runtimes) RUNTIMES=${2:?--runtimes needs a value}; shift 2 ;;
         --vpn-host) VPN_HOST=${2:?--vpn-host needs a value}; shift 2 ;;
-        --vpn-port) VPN_PORT=${2:?--vpn-port needs a value}; shift 2 ;;
+        --vpn-port) VPN_PORT=${2:?--vpn-port needs a value}; VPN_PORT_EXPLICIT=1; shift 2 ;;
         --no-vpn) VPN=0; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         --purge) PURGE=1; shift ;;
@@ -200,7 +250,23 @@ fi
 
 if [ -f /etc/kymo-lab/lab.env ]; then
     say "Keeping the existing settings and token in /etc/kymo-lab/lab.env"
+    VPN_HOST=$(sed -n 's/^KYMO_LAB_VPN_HOST=//p' /etc/kymo-lab/lab.env | head -n 1)
+    if [ -n "$VPN_HOST" ]; then
+        VPN=1
+        VPN_PORT=$(sed -n 's/^KYMO_LAB_VPN_PORT=//p' /etc/kymo-lab/lab.env | head -n 1)
+        [ -n "$VPN_PORT" ] || VPN_PORT=1194
+        VPN_PORT_EXPLICIT=0
+        configured_port=$VPN_PORT
+        choose_vpn_port
+        if [ "$VPN_PORT" -ne "$configured_port" ]; then
+            save_existing_vpn_port
+            say "Updated /etc/kymo-lab/lab.env to use UDP $VPN_PORT"
+        fi
+    else
+        VPN=0
+    fi
 else
+    [ "$VPN" -eq 0 ] || choose_vpn_port
     say "Writing /etc/kymo-lab/lab.env with a new token"
     TOKEN=$(openssl rand -hex 24)
     {
