@@ -9,6 +9,7 @@ use crate::error::ApiError;
 use crate::event_store::{self, EventRow};
 use crate::flag_set;
 use crate::jeopardy_store::{self, Board, NewSubmission, Scorer};
+use crate::sharing::{self, SharingNotice};
 use crate::state::AppState;
 
 pub const MAX_SUBMITTED_FLAG: usize = 500;
@@ -107,6 +108,8 @@ pub struct Outcome {
     pub attempts_remaining: Option<u32>,
     /// Flags found and flags in all, for a challenge with several flags.
     pub flags: Option<(u32, u32)>,
+    /// Set when the player submitted a flag generated for somebody else.
+    pub sharing: Option<SharingNotice>,
 }
 
 /// Checks the flag and records the submission, and the solve when it is correct.
@@ -180,9 +183,11 @@ pub async fn run(
         jeopardy_store::insert_solve(&mut tx, &record, hints_cost).await?;
     }
     tx.commit().await?;
-    if dynamic && verdict == Verdict::Incorrect {
-        note_sharing(state, challenge, scorer, attempt).await?;
-    }
+    let sharing = if dynamic && verdict == Verdict::Incorrect {
+        note_sharing(state, play, challenge, scorer, attempt).await?
+    } else {
+        None
+    };
 
     let points = if verdict == Verdict::Correct {
         state.notify(&play.event.slug);
@@ -207,6 +212,7 @@ pub async fn run(
             .attempt_cap()
             .remaining(used.saturating_add(counted)),
         flags: None,
+        sharing,
     })
 }
 
@@ -286,6 +292,7 @@ pub async fn run_item(
         points: (verdict == Verdict::Correct).then_some(item.points),
         attempts_remaining: cap.remaining(used.saturating_add(1)),
         flags: None,
+        sharing: None,
     })
 }
 
@@ -325,20 +332,21 @@ async fn judge_dynamic(
 }
 
 /// A wrong flag that was generated for somebody else is a sign of sharing: leave a note for the
-/// organizers. The flag value is never written to the note.
+/// organizers and apply the event's warning rule. The flag value is never written to the note.
 async fn note_sharing(
     state: &AppState,
+    play: &Play,
     challenge: &ChallengeRow,
     scorer: Scorer,
     attempt: &Attempt<'_>,
-) -> Result<(), ApiError> {
+) -> Result<Option<SharingNotice>, ApiError> {
     let Some((kind, id)) =
         flag_set::owner_of_value(&state.pool, challenge.id, attempt.flag.trim()).await?
     else {
-        return Ok(());
+        return Ok(None);
     };
     if kind == scorer.kind() && id == scorer.id() {
-        return Ok(());
+        return Ok(None);
     }
     crate::monitor_store::audit_from(
         &state.pool,
@@ -353,6 +361,16 @@ async fn note_sharing(
             "submitted a flag that was generated for {kind} {id} on challenge {}",
             challenge.id
         ),
+    )
+    .await?;
+    let settings = jeopardy_store::settings(&state.pool, play.event.id).await?;
+    sharing::strike(
+        state,
+        play.event.id,
+        attempt.user_id,
+        challenge.id,
+        settings.sharing_action,
+        settings.sharing_warnings,
     )
     .await
 }
@@ -463,9 +481,11 @@ async fn run_multi(
         award = Some(points);
     }
     tx.commit().await?;
-    if award.is_none() && verdict == Verdict::Incorrect {
-        note_sharing(state, challenge, scorer, attempt).await?;
-    }
+    let sharing = if award.is_none() && verdict == Verdict::Incorrect {
+        note_sharing(state, play, challenge, scorer, attempt).await?
+    } else {
+        None
+    };
     if award.is_some() {
         state.notify(&play.event.slug);
     }
@@ -475,5 +495,6 @@ async fn run_multi(
         points: award,
         attempts_remaining: challenge.attempt_cap().remaining(wrong_now),
         flags: Some((found_after, total)),
+        sharing,
     })
 }

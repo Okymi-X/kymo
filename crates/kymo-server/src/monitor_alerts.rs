@@ -469,6 +469,45 @@ pub async fn run_once(state: &AppState) -> Result<DetectionReport, ApiError> {
     Ok(report)
 }
 
+/// Bans a player account automatically and ends their sessions. None when they are staff or
+/// already banned, otherwise the id of the ban made.
+pub async fn ban_player(
+    state: &AppState,
+    user_id: i64,
+    reason: &str,
+    expires_at: Option<i64>,
+    now: i64,
+) -> Result<Option<i64>, ApiError> {
+    let Ok(target) = users::by_id(&state.pool, user_id).await else {
+        return Ok(None);
+    };
+    let Ok(role) = target.role.parse::<kymo_core::Role>() else {
+        return Ok(None);
+    };
+    if target.banned || state.can(role, kymo_core::Permission::Monitor).await? {
+        return Ok(None);
+    }
+    let subject = user_id.to_string();
+    let ban_id = store::insert_ban(
+        &state.pool,
+        &NewBan {
+            kind: BanKind::User,
+            subject: &subject,
+            reason,
+            auto: true,
+            created_by: None,
+            now,
+            expires_at,
+        },
+    )
+    .await?;
+    users::moderate(&state.pool, user_id, None, Some(true)).await?;
+    store::audit(&state.pool, now, None, "auto_ban", "user", &subject, reason).await?;
+    crate::monitor::reload(state).await?;
+    crate::vpn::sync_quiet(state).await;
+    Ok(Some(ban_id))
+}
+
 /// Bans the player for the detector's duration. False when they are staff or already banned.
 async fn auto_ban(
     state: &AppState,
@@ -479,32 +518,11 @@ async fn auto_ban(
     count: u32,
     now: i64,
 ) -> Result<bool, ApiError> {
-    let Ok(target) = users::by_id(&state.pool, user_id).await else {
-        return Ok(false);
-    };
-    let Ok(role) = target.role.parse::<kymo_core::Role>() else {
-        return Ok(false);
-    };
-    if target.banned || state.can(role, kymo_core::Permission::Monitor).await? {
-        return Ok(false);
-    }
-    let subject = user_id.to_string();
-    let expires_at = config.ban_secs.map(|s| now + s);
     let reason = format!("{} ({count} counted): banned automatically", kind.label());
-    let ban_id = store::insert_ban(
-        &state.pool,
-        &NewBan {
-            kind: BanKind::User,
-            subject: &subject,
-            reason: &reason,
-            auto: true,
-            created_by: None,
-            now,
-            expires_at,
-        },
-    )
-    .await?;
-    users::moderate(&state.pool, user_id, None, Some(true)).await?;
+    let expires_at = config.ban_secs.map(|s| now + s);
+    let Some(ban_id) = ban_player(state, user_id, &reason, expires_at, now).await? else {
+        return Ok(false);
+    };
     close_alert(
         &state.pool,
         alert_id,
@@ -515,18 +533,6 @@ async fn auto_ban(
         now,
     )
     .await?;
-    store::audit(
-        &state.pool,
-        now,
-        None,
-        "auto_ban",
-        "user",
-        &subject,
-        &reason,
-    )
-    .await?;
-    crate::monitor::reload(state).await?;
-    crate::vpn::sync_quiet(state).await;
     Ok(true)
 }
 

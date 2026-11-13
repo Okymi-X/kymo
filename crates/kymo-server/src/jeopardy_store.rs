@@ -11,6 +11,7 @@ use sqlx::{FromRow, Sqlite, SqlitePool, Transaction};
 use crate::challenge_store;
 use crate::error::ApiError;
 use crate::event_store::{self, EventRow};
+use crate::sharing::{MAX_WARNINGS, SharingAction};
 use crate::team_store;
 use kymo_core::Mode;
 
@@ -32,6 +33,20 @@ pub struct JeopardySettings {
     /// Staff keep seeing the live board and play carries on. None means no freeze.
     #[serde(default)]
     pub freeze_at: Option<i64>,
+    /// What happens to a player who submits a dynamic flag generated for somebody else.
+    #[serde(default = "default_sharing_action")]
+    pub sharing_action: SharingAction,
+    /// Such submissions that only warn, before the action applies.
+    #[serde(default = "default_sharing_warnings")]
+    pub sharing_warnings: u32,
+}
+
+fn default_sharing_action() -> SharingAction {
+    SharingAction::AutoBan
+}
+
+fn default_sharing_warnings() -> u32 {
+    1
 }
 
 impl Default for JeopardySettings {
@@ -42,6 +57,8 @@ impl Default for JeopardySettings {
             rate_window_secs: 60,
             rate_lockout_secs: 60,
             freeze_at: None,
+            sharing_action: default_sharing_action(),
+            sharing_warnings: default_sharing_warnings(),
         }
     }
 }
@@ -72,6 +89,9 @@ impl JeopardySettings {
         {
             return bad("freeze_at is a unix time between 2000 and 2100");
         }
+        if self.sharing_warnings > MAX_WARNINGS {
+            return bad("sharing_warnings is 0 to 10");
+        }
         Ok(())
     }
 
@@ -98,11 +118,13 @@ struct SettingsRow {
     rate_window_secs: i64,
     rate_lockout_secs: i64,
     freeze_at: Option<i64>,
+    sharing_action: String,
+    sharing_warnings: i64,
 }
 
 pub async fn settings(pool: &SqlitePool, event_id: i64) -> Result<JeopardySettings, ApiError> {
     let row: Option<SettingsRow> = sqlx::query_as(
-        "SELECT tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at FROM event_jeopardy WHERE event_id = ?",
+        "SELECT tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at, sharing_action, sharing_warnings FROM event_jeopardy WHERE event_id = ?",
     )
     .bind(event_id)
     .fetch_optional(pool)
@@ -116,6 +138,9 @@ pub async fn settings(pool: &SqlitePool, event_id: i64) -> Result<JeopardySettin
         rate_window_secs: row.rate_window_secs,
         rate_lockout_secs: row.rate_lockout_secs,
         freeze_at: row.freeze_at,
+        sharing_action: serde_json::from_value(serde_json::Value::String(row.sharing_action))
+            .map_err(|_| ApiError::Internal)?,
+        sharing_warnings: u32::try_from(row.sharing_warnings).map_err(|_| ApiError::Internal)?,
     })
 }
 
@@ -125,9 +150,14 @@ pub async fn save_settings(
     settings: &JeopardySettings,
 ) -> Result<(), ApiError> {
     let tie_breaks = serde_json::to_string(&settings.tie_breaks).map_err(|_| ApiError::Internal)?;
+    let action = match settings.sharing_action {
+        SharingAction::Off => "off",
+        SharingAction::Manual => "manual",
+        SharingAction::AutoBan => "auto_ban",
+    };
     sqlx::query(
-        "INSERT INTO event_jeopardy (event_id, tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
-         ON CONFLICT(event_id) DO UPDATE SET tie_breaks = ?2, rate_max_attempts = ?3, rate_window_secs = ?4, rate_lockout_secs = ?5, freeze_at = ?6",
+        "INSERT INTO event_jeopardy (event_id, tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at, sharing_action, sharing_warnings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+         ON CONFLICT(event_id) DO UPDATE SET tie_breaks = ?2, rate_max_attempts = ?3, rate_window_secs = ?4, rate_lockout_secs = ?5, freeze_at = ?6, sharing_action = ?7, sharing_warnings = ?8",
     )
     .bind(event_id)
     .bind(tie_breaks)
@@ -135,6 +165,8 @@ pub async fn save_settings(
     .bind(settings.rate_window_secs)
     .bind(settings.rate_lockout_secs)
     .bind(settings.freeze_at)
+    .bind(action)
+    .bind(i64::from(settings.sharing_warnings))
     .execute(pool)
     .await?;
     Ok(())

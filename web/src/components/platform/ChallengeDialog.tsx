@@ -239,6 +239,15 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
                   {result.attempts_remaining !== null && ` ${result.attempts_remaining} ${result.attempts_remaining === 1 ? 'attempt' : 'attempts'} left.`}
                 </span>
               )}
+              {result?.sharing && (
+                <p className="mt-1 text-danger">
+                  {result.sharing.status === 'warning'
+                    ? 'That flag belongs to another player. Sharing flags is against the rules; doing it again can get you banned.'
+                    : result.sharing.status === 'banned'
+                      ? 'That flag belongs to another player. Your account has been banned for sharing flags.'
+                      : 'That flag belongs to another player. The organizers have been told.'}
+                </p>
+              )}
               {!result && challenge.max_attempts !== null && challenge.attempts_remaining !== null && (
                 <span className="text-muted">{challenge.attempts_remaining} attempts left on this challenge.</span>
               )}

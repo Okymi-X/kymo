@@ -403,6 +403,18 @@ function JeopardySettingsForm({ eventId }: { eventId: number }) {
             )}
           </span>
         </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="When a player submits another player's flag" hint="Applies to dynamic flags, which differ for every player or team.">
+            <Select value={s.sharing_action} onChange={(e) => setS({ ...s, sharing_action: e.target.value as JeopardySettings['sharing_action'] })}>
+              <option value="off">Do nothing</option>
+              <option value="manual">Warn, then report to the organizers</option>
+              <option value="auto_ban">Warn, then ban</option>
+            </Select>
+          </Field>
+          <Field label="Warnings before the action">
+            <Input type="number" min={0} max={10} value={s.sharing_warnings} disabled={s.sharing_action === 'off'} onChange={(e) => setS({ ...s, sharing_warnings: Math.trunc(Number(e.target.value)) })} className="font-mono" />
+          </Field>
+        </div>
         <p className="text-sm text-muted">Wrong-format flags never count as an attempt. Dynamic challenges lose points for earlier solvers too, the board always recomputes.</p>
         <ErrorText error={save.error} />
         <div className="flex items-center gap-3">

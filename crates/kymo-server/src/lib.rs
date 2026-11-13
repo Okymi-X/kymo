@@ -33,6 +33,7 @@ pub mod routes;
 pub mod rules;
 pub mod run_flags;
 pub mod settings;
+pub mod sharing;
 pub mod state;
 pub mod submit;
 pub mod team_store;

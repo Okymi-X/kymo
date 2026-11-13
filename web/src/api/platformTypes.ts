@@ -168,6 +168,8 @@ export interface SubmitResult {
   /** Only for a challenge with several flags. */
   flags_found?: number
   flags_total?: number
+  /** Set when the flag submitted was generated for somebody else. */
+  sharing?: { status: 'warning' | 'reported' | 'banned'; strikes: number; warnings: number }
 }
 
 export interface HintUnlock {
@@ -390,6 +392,10 @@ export interface JeopardySettings {
   rate_lockout_secs: number
   /** From this moment the public scoreboard stops moving until the event ends; null means no freeze. */
   freeze_at: number | null
+  /** What happens to a player who submits a dynamic flag generated for somebody else. */
+  sharing_action: 'off' | 'manual' | 'auto_ban'
+  /** Such submissions that only warn before the action applies. */
+  sharing_warnings: number
 }
 
 export interface EventBody {
