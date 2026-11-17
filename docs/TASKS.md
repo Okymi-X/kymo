@@ -250,3 +250,9 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] Fixed: the console nav and the event filter widened the page on a phone; anonymous answers were served stale after a change (the public cache is cleared on every notify)
 - [x] e2e specs brought up to date with the organizer console, the Infrastructure tab, the sign-in gate and the redesigned cards; all specs pass locally on Chromium
 
+## Documentation and manifests (2026-11-17, 0.5.1)
+- [x] README is now the front door: what Kymo is, a start-here table, grouped features, quickstart, running a tournament and a Jeopardy event, configuration. The long material moved to `docs/CHALLENGES.md` (coding, dynamic flags, Responder, integrity), `docs/LAB_HOST.md` (instances, lab host, VMs, manifests, lab API) and `docs/OPERATIONS.md` (monitor, deploy, Docker, backups, VPN). Every Markdown link and anchor was checked
+- [x] All sample manifests carry a `_comment` saying what they are for; `vm-example` shows `disk`, `nic`, `firmware` and `display`; two new tests keep it that way (every `Manifest` field appears in an example, every example explains itself)
+- [x] `deploy/lab/lab.env.example` and `deploy/kymo.env.example` list every variable (judge, name prefix, VPN directory and bind options, backups, VPN ranges); the lab host guide table matches
+- [x] Release archives include the guides; messages that said "see the README" point at the right guide
+

@@ -75,6 +75,8 @@ jobs:
           cp target/release/kymo-server target/release/kymo-lab "$name/"
           cp -r deploy "$name/deploy"
           cp README.md LICENSE "$name/"
+          mkdir "$name/docs"
+          cp docs/CHALLENGES.md docs/LAB_HOST.md docs/OPERATIONS.md docs/DYNAMIC_FLAGS_AND_RESPONDER.md "$name/docs/"
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
           # Just the lab host, for the machine that runs the challenge containers.
@@ -91,6 +93,8 @@ jobs:
           cp deploy/verifier/Dockerfile target/release/kymo-verifier "$lab/verifier/"
           cp -r crates/kymo-verifier/lib "$lab/verifier/lib"
           cp README.md LICENSE "$lab/"
+          mkdir "$lab/docs"
+          cp docs/LAB_HOST.md docs/CHALLENGES.md "$lab/docs/"
           tar czf "$lab.tar.gz" "$lab"
           sha256sum "$lab.tar.gz" > "$lab.tar.gz.sha256"
           echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"

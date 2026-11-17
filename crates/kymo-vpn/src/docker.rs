@@ -217,7 +217,7 @@ impl Gateway for DockerGateway {
                     .map_err(|e| {
                         if status_is(&e, &[404]) {
                             GatewayError::Failed(format!(
-                                "the gateway image {} does not exist; build it first (see the README)",
+                                "the gateway image {} does not exist; build it first (see docs/OPERATIONS.md)",
                                 config.image
                             ))
                         } else {

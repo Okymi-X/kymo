@@ -1,9 +1,15 @@
 {
+  "_comment": "A container that receives its flag as the environment variable FLAG when it starts, so every player or team gets their own value. Your image has to read FLAG (the sample flag-server image does not; it only shows how the delivery is declared). The flag name must match a flag of the challenge, and the challenge's flag mode must be dynamic.",
   "artifact": "localhost/kymo-lab/flag-server:1",
   "runtime": "docker",
   "port": 8000,
   "inject": {
-    "flags": [ { "name": "flag", "env": "FLAG" } ]
+    "flags": [
+      {
+        "name": "flag",
+        "env": "FLAG"
+      }
+    ]
   },
   "cpu_millis": 500,
   "memory_mb": 128,

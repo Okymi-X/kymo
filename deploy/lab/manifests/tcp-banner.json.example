@@ -1,4 +1,5 @@
 {
+  "_comment": "A container with a raw TCP service on one port, for a challenge answered with a client such as nc. Build the image from lab/tcp-banner. Small limits suit a service that does almost nothing.",
   "artifact": "localhost/kymo-lab/tcp-banner:1",
   "runtime": "docker",
   "port": 9000,

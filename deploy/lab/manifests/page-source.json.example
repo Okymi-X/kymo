@@ -1,4 +1,5 @@
 {
+  "_comment": "A container serving a static page, for a challenge where the flag is found in the page source or in a linked file. Build the image from lab/page-source. The flag is part of the page, not given to the container at start.",
   "artifact": "localhost/kymo-lab/page-source:1",
   "runtime": "docker",
   "port": 8000,

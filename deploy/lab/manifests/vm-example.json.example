@@ -1,9 +1,14 @@
 {
+  "_comment": "A virtual machine players attack like a HackTheBox machine. Copy the disk image (.ova, .vmdk, .vdi, .qcow2, .img or .raw) to /var/lib/kymo-lab/images/ and name it in file. Needs QEMU on the lab host; KVM makes it fast. disk, nic and firmware only matter when an image does not boot with the defaults shown here: sata or ide or virtio for the disk, e1000 or virtio or rtl8139 for the card, bios or uefi for the firmware. display machine shows players just the address with every port open; service shows an address and one port.",
   "artifact": "gaara",
   "runtime": "vm",
   "file": "Gaara.ova",
   "memory_mb": 1024,
   "cpu_millis": 2000,
   "boot_timeout_secs": 240,
-  "max_ttl_secs": 3600
+  "max_ttl_secs": 3600,
+  "disk": "sata",
+  "nic": "e1000",
+  "firmware": "bios",
+  "display": "machine"
 }

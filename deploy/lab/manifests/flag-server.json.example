@@ -1,4 +1,5 @@
 {
+  "_comment": "A container challenge: players get the address of one port. This image (lab/flag-server) is a small static web server that serves the files under its www directory, so the flag is a file in the image. Build it, then name it in artifact. The limits are per instance, and the lab host never allows more than its own caps.",
   "artifact": "localhost/kymo-lab/flag-server:1",
   "runtime": "docker",
   "port": 8000,

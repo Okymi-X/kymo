@@ -14,7 +14,7 @@ Wants=network-online.target
 User=kymo
 Group=kymo
 # Only needed for challenge instances and the VPN: this group can use the container socket.
-# Membership of the docker group is equivalent to root on the machine, see the README.
+# Membership of the docker group is equivalent to root on the machine, see docs/OPERATIONS.md.
 SupplementaryGroups=docker
 EnvironmentFile=/etc/kymo/kymo.env
 WorkingDirectory=/var/lib/kymo

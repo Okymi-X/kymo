@@ -112,3 +112,5 @@
 
 - 2026-11-17: 0.5.0 = everything since 0.4.0 plus `origin/update` 4044440 (migration renumbered to 0041). A release is automatic: bump `version` in `Cargo.toml`, refresh `Cargo.lock` (CI uses `--locked`), push to main. Anonymous public answers are cached 5 s but cleared by `AppState::notify`
 
+- 2026-11-17: the README was split into guides on purpose (the user asked for separate explanation files): `docs/CHALLENGES.md`, `docs/LAB_HOST.md`, `docs/OPERATIONS.md`. Keep new long explanations in the matching guide and link them from the README table; check links with a script before pushing
+

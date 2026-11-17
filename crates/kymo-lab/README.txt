@@ -24,4 +24,8 @@ Environment:
   KYMO_LAB_VERIFIERS      Verifier definitions directory (default /etc/kymo-lab/verifiers)
   KYMO_LAB_VERIFIER_IMAGE the Verifier container image (default localhost/kymo/verifier:1)
 
-See the Kymo README, "Separate lab host".
+  KYMO_LAB_JUDGE_DIR      where coding submissions are unpacked (default /var/lib/kymo-lab/judge)
+  KYMO_LAB_JUDGE_PARALLEL how many submissions run at once (default 2)
+  KYMO_LAB_JUDGE_RUNTIME  a sandboxed OCI runtime for submissions, such as runsc
+
+See docs/LAB_HOST.md in the release (or the Kymo repository) for the full guide.

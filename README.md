@@ -4,33 +4,58 @@
 [![Release](https://img.shields.io/github/v/release/Okymi-X/kymo)](https://github.com/Okymi-X/kymo/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Open source tournament manager for CTF events. Run a knockout, double elimination, round robin, groups then knockout or Swiss tournament, show it live on a projector, and embed it on any site. A Rust API with a React interface and SQLite storage, in one small binary.
+Kymo runs CTF events. It is two things in one small program:
+
+- **Jeopardy CTFs**: categories, flags, hints, scoring, a live scoreboard, and challenges that start a private machine for every player or team.
+- **Tournaments**: knockout, double elimination, round robin, groups then knockout and Swiss brackets, with a projector view and an embeddable bracket.
+
+It is a Rust API with a React interface and SQLite storage, built into one binary. You host it yourself.
 
 ![Tournaments home with eight sample tournaments](docs/screenshots/tournaments.png)
 
-## Contents
+## Start here
 
-- [Why Kymo](#why-kymo)
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Quickstart](#quickstart)
-- [Configuration](#configuration)
-- [Running an event](#running-an-event)
-- [Use the API from a script](#use-the-api-from-a-script)
-- [Formats](#formats)
-- [Challenge instances with Docker or Podman](#challenge-instances-with-docker-or-podman)
-- [Separate lab host](#separate-lab-host)
-- [Coding challenges](#coding-challenges)
-- [Integrity and disqualification](#integrity-and-disqualification)
-- [Dynamic flags and several flags](#dynamic-flags-and-several-flags)
-- [Responder challenges and the Verifier](#responder-challenges-and-the-verifier)
-- [Backup and restore](#backup-and-restore)
-- [Private VPN for every player](#private-vpn-for-every-player)
-- [Deploying on your own server](#deploying-on-your-own-server)
-- [Run with Docker](#run-with-docker)
-- [Development](#development)
-- [Project layout](#project-layout)
-- [Credits and license](#credits-and-license)
+| I want to... | Read |
+| --- | --- |
+| Try it on my machine in five minutes | [Quickstart](#quickstart) |
+| Run a bracket tournament | [Running an event](#running-an-event) and [Formats](#formats) |
+| Build a Jeopardy CTF | [Challenge guide](docs/CHALLENGES.md) |
+| Give every player their own machine | [Lab host guide](docs/LAB_HOST.md) |
+| Put it on a server for real players | [Operations guide](docs/OPERATIONS.md) |
+| Script it or change the code | [Use the API from a script](#use-the-api-from-a-script) and [Development](#development) |
+
+## Guides
+
+| Guide | What is in it |
+| --- | --- |
+| [Challenge guide](docs/CHALLENGES.md) | Coding challenges judged automatically, dynamic flags, several flags, Responder challenges, cheating detection and disqualification |
+| [Lab host guide](docs/LAB_HOST.md) | Docker and Podman instances, separate lab hosts, virtual machines, manifests, the lab API and its security |
+| [Operations guide](docs/OPERATIONS.md) | The monitor and alerts, deploying, Docker, backups, the private VPN per player |
+| [Design of dynamic flags and the Responder](docs/DYNAMIC_FLAGS_AND_RESPONDER.md) | The full design, protocol and security reasoning |
+| [Architecture](docs/ARCHITECTURE.md) and [Product notes](docs/PRD.md) | How the pieces fit, and what Kymo is for |
+| [Sample manifests](deploy/lab/manifests) and [Verifier template](deploy/lab/verifiers/template) | Files to copy when you add a challenge machine, a judge language or a Responder |
+
+## What it does
+
+**Run events**
+- Jeopardy events and tournaments side by side, solo or in teams, with registration, time windows, a draft to live to ended lifecycle and a launch checklist that says what still blocks going live.
+- Five bracket formats, any of them best of 1, 3, 5 or 7, a live bracket map, standings, schedule, activity log, Stage mode for a projector and embeds.
+- A scoreboard that can stay hidden until you publish it, with a freeze, a score over time chart and a ladder across tournaments.
+
+**Build challenges**
+- Flag, instance, virtual machine, DFIR questions, coding challenges that are judged on a lab host, and Responder challenges where players patch a machine and a Verifier hands out the flag. Every kind can use a dynamic flag, so each player gets their own.
+- Hints with a point cost, attachments, flag formats and regex flags, attempt limits, static or dynamic points, scheduled release.
+- Private containers per player with CPU, memory, process and lifetime limits, on this machine or on separate lab hosts, optionally behind a private VPN per player.
+
+**Keep it fair and safe**
+- Sharing a dynamic flag is detected and reported, near identical code is flagged for review, and an organizer can disqualify a participant from one event without banning the account. Every step is in the audit log.
+- A live monitor with graphs and attack alerts, per endpoint rate limits with automatic and manual bans, a request log, health and backup tools, and event bundles you can export and import.
+- Roles for visitors, players, referees, monitors and admins, configurable permissions, API tokens with an expiry, and referee tokens that can only record results.
+
+**Make it yours**
+- A front page you shape (edited texts or your own HTML and CSS), site name, logo, colors for light and dark, type and density, link previews and an installable app on phones.
+- Webhooks to Discord, Slack or any URL, a calendar feed for scheduled matches, and live updates without refreshing.
+- Accessible by default: keyboard operation, visible focus, a skip link, screen reader announcements and themes that follow the device.
 
 ## Why Kymo
 
@@ -39,36 +64,6 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 - Every result, correction and forfeit goes into a public activity log with its time.
 - Players can follow their team and see their next match, time and room.
 - The projector view is a separate page with no controls, so nothing private is ever on screen.
-
-## Features
-
-- **Jeopardy CTFs, solo or in teams:** categories, static or dynamic points, hints with a point cost, attachments, flag formats and regex flags, attempt limits, a scoreboard that stays hidden until you publish it, and per teammate progress. Players sign up, form teams with invite codes, register for an event and play in the browser.
-- **Challenge instances:** a challenge can start a private Docker container per player or team, with CPU, memory, process and lifetime limits, an expiry reaper and cleanup of orphaned containers.
-- **Every kind of challenge:** flag, instance, virtual machine, DFIR questions, coding challenges judged on a lab host, and Responder challenges where players patch a machine and a Verifier releases the flag. Every kind can use a dynamic flag, so each player gets their own.
-- **Integrity:** per player flags catch flag sharing, near identical code solutions are flagged for review, and an organizer can disqualify a participant from one event without banning the account. Every step is in the audit log.
-- **Organizer console:** a launch readiness list that says what blocks going live, an event state stepper, per challenge checks in the editor, and instance details with the generated flags and the Verifier log.
-- **A front page you shape:** `/` is a home page with sign in and sign up. The default page is built from texts the organizer edits (headline, buttons, banner, about, footer); the organizer can instead write their own HTML and CSS. Signed in players see a greeting, their running instance and their events on top. See "Home page, sign in and public scoreboards".
-- **A live monitor:** live graphs (requests by outcome, sign ins, flag submissions, instances started, players online, response time, a week heat map, the busiest players and addresses) that refresh every 5 seconds with automatic peak marks, and attack alerts for players who go after the platform instead of the challenges. See "Monitor: live graphs and attack alerts".
-- **Roles and safety:** visitors, players, referees, monitors and admins; per endpoint rate limits with automatic and manual bans, a request log, a moderation audit trail, health and backup tools, and event bundles you can export and import.
-- **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss. Any of them can be best of 1, 3, 5 or 7, entered game by game.
-- **Organizer tools:** enter and correct scores, forfeits, undo the newest result, schedule matches with a place, drag teams into seeding order, seed by qualifier score or at random, decide ties by hand, rename, duplicate, back up as JSON, import a setup file.
-- **A live map of the bracket:** drag it, zoom at the cursor, jump with the minimap. Every format has a Bracket tab.
-- **Standings, schedule, matches, teams, activity:** all paginated with search, so a 100 team event stays readable.
-- **Stage mode** at `/t/{slug}/stage`: a rotating projector view with the current round, standings and the latest results. It fits one screen with no scrolling.
-- **Embeds** at `/embed/{slug}`: copy an iframe snippet from the Embed button. Only these pages may be framed.
-- **Calendar feed** at `/api/v1/tournaments/{slug}/calendar.ics` for scheduled matches.
-- **Appearance in the database:** site name, logo, colors for light and dark, type, corner radius, density, page tint, bracket line style and team avatars. A tournament can also carry its own accent color.
-- **Live updates** over server sent events, with no page refresh.
-- **Webhooks** that post results, corrections, forfeits and schedules to Discord, Slack or any URL that accepts JSON.
-- **Referee tokens**: a token that can only record results and schedules for the tournaments you choose, with its own sign in.
-- **Captain reporting**: each team can get a private link to submit its score, which waits for your approval.
-- **Playing now**: mark a match as started, and spectators see a LIVE badge while chat gets a message.
-- **Bracket image**: save the whole bracket as a PNG or SVG to post or print.
-- **Late match panel**: planned matches that should have started, with one click forfeits.
-- **Ladder** at `/ladder`: points across every tournament on the site.
-- **Link previews** when a tournament link is pasted in chat, and an installable app on phones.
-- **API tokens** with an expiry for scripts and score importers.
-- **Accessible by default:** keyboard operation, visible focus, a skip link, screen reader announcements while reordering teams, and light and dark themes that follow the device.
 
 ## Screenshots
 
@@ -135,7 +130,7 @@ Open http://127.0.0.1:8787 and sign in as organizer with that password.
 | `KYMO_BACKUP_DIR` | off | Directory for scheduled database backups (created private) |
 | `KYMO_BACKUP_EVERY_HOURS` | `24` | Hours between scheduled backups |
 | `KYMO_BACKUP_KEEP` | `7` | Backups to keep |
-| `KYMO_INSTANCES` | off | `docker` runs challenge containers on this machine (events can still use lab hosts); `labs` runs none here and leaves everything to [lab hosts](#separate-lab-host) |
+| `KYMO_INSTANCES` | off | `docker` runs challenge containers on this machine (events can still use lab hosts); `labs` runs none here and leaves everything to [lab hosts](docs/LAB_HOST.md#separate-lab-host) |
 | `KYMO_INSTANCE_HOST` | `127.0.0.1` | Host name players are told to connect to |
 | `KYMO_INSTANCE_BIND` | `0.0.0.0` | Address container ports are published on |
 | `KYMO_VPN` | off | Set to `1` for a private VPN network per player (needs `KYMO_INSTANCES=docker`) |
@@ -160,6 +155,15 @@ Everything else, including the look of the site, is stored in the database and c
 5. **Show it**: open Stage mode on the projector, share the tournament link with players, or embed it on your site.
 
 If a result was wrong, correct it from the same dialog. A correction is refused when a later match already depends on it, so the bracket never ends up inconsistent. The newest result can also be undone from the Activity tab.
+
+### Running a Jeopardy event
+
+1. **Create** an event from the Organizer area (Events): choose the type *Jeopardy CTF*, solo or teams, and a name.
+2. **Add categories** and **challenges** on the Challenges tab. A challenge needs a title, a category, the way it is delivered (nothing to start, a container, a virtual machine, a coding challenge, a Responder), a flag and points. See the [challenge guide](docs/CHALLENGES.md).
+3. **Publish** each challenge when it is ready, and try it with the flag test in the editor.
+4. Check the **launch checklist** on the Overview tab: it lists what still blocks going live, such as a challenge that needs an instance but has no lab host.
+5. **Open registration**, then **Go live** when it is time. Players register, play in the browser, and the scoreboard updates as they solve.
+6. While it runs, watch the Monitor and the Integrity tab, then **End event** and, later, **Archive** it.
 
 ## Use the API from a script
 
@@ -190,29 +194,6 @@ Everything needs a session (an API token counts) except the sign in pages and th
 
 **Rules.** Each event can have its own rules (Manage events, the event, Rules): a title and a text. Players open them from a button on the event page. A line starting with `#` is a heading, `-` a list item, and a blank line a new paragraph; nothing is treated as HTML.
 
-## Monitor: live graphs and attack alerts
-
-**Live tab** (the default). Requests per bucket stacked by outcome (succeeded, refused or not found, rate limited, server error), what people do (sign ins, failed sign ins, new accounts, flag submissions, instances started), players and addresses online, response time, the busiest players and addresses of the last 5 minutes with a trend line, and a week heat map. The range is 15 minutes, 1 hour, 1 day or 1 week, and the view refreshes every 5 seconds. A bucket far above the rest (over three standard deviations above the mean, at least twice the mean and at least 10 requests) is marked as a peak. Click a bar or point to open the Traffic tab on the requests of that moment; red triangles mark alerts and open them.
-
-**Alerts tab.** A check every 30 seconds runs six detectors over the recent request log. Each counts one kind of behaviour per signed in player (or per address when nobody is signed in) inside its own time window:
-
-| Detector | Counts | Alert at | Auto-ban at |
-| --- | --- | --- | --- |
-| Path scanning | different unknown or missing addresses | 25 in 2 min | 120 |
-| Admin probing | refusals on admin routes (a visitor counts each different address once) | 5 in 5 min | 25 |
-| Attack strings | requests with `../`, injection or script strings, or probes for `.env` and `.git` | 2 in 5 min | 10 |
-| Scanner tool | user agents such as sqlmap, nikto, gobuster, ffuf, nmap | 1 in 5 min | 20 |
-| Failed sign ins | failed sign ins from one address | 8 in 5 min | 40 |
-| Request flood | all requests | 600 in 1 min | 2000 |
-
-Reaching the alert level raises an alert (high when the ban level was reached, medium for a signed in player below it, low for a visitor). Reaching the ban level bans a **signed in player** automatically, by default for 15 minutes. An address is never banned automatically, because it can be a whole network; you can ban it by hand. Staff are never counted. Every number is editable under Detection settings (alert level, ban level or never, window, ban length from 5 minutes to permanent), per detector, with a restore button. An alert shows the examples, a per minute chart around it and the requests behind it, and you can ban the player for 5 minutes, 15 minutes, 1 hour, 1 day or permanently, ban the address, or dismiss it with a note. Behaviour you dismissed is not raised again; new behaviour after that is. The Monitor entry in the account menu shows a badge with the open alerts about players.
-
-**What is stored.** The request log now also keeps the query string (up to 300 characters) and the user agent (up to 200), so the detectors can see attack strings and scanner tools. Request bodies, passwords and session tokens are never stored. Keep secrets out of URLs. Rows are deleted after 7 days.
-
-**Temporary bans of players now end.** A ban with a length used to set the account's banned flag for good; a sweep (every 30 seconds) now ends the ban and lifts the flag when the time is up, unless another ban on the same player still applies.
-
-**API.** `GET /admin/monitor/series?minutes=`, `/hot`, `/heatmap`, `/alerts?status=&who=&page=`, `/alerts/{id}`, `POST /alerts/{id}/dismiss`, `POST /alerts/{id}/ban`, `GET /detectors`, `PUT` and `DELETE /detectors/{kind}`. Reading needs the monitor permission; banning, dismissing and changing detectors need the moderation one. The VPN side (players scanning the lab host from inside the VPN) is not covered yet.
-
 ## Formats
 
 | Format | Teams | Notes |
@@ -224,436 +205,6 @@ Reaching the alert level raises an alert (high when the ban level was reached, m
 | Swiss | 4 to 256 | 1 to 12 rounds, or log2 of the team count. Each round is paired once the last one is played, with no rematches and one bye at most per team. |
 
 Teams level on points, difference and goals are ordered by the organizer's tiebreak list, then by seed. In a groups tournament that order also decides who qualifies.
-
-## Challenge instances with Docker or Podman
-
-Set `KYMO_INSTANCES=docker`, `KYMO_INSTANCE_HOST` (what players connect to) and `KYMO_INSTANCE_BIND` (where container ports are published; `127.0.0.1` for a local test). The server talks to the Docker API. With Docker, your user needs access to its socket (the `docker` group). With rootless Podman, run `systemctl --user enable --now podman.socket` and set `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`.
-
-An instance is shown to the player as *starting* until its port really accepts connections (checked through the gateway for a private lab); if it never does, or the container later exits, it is stopped, marked failed with a reason and does not use the player's start budget. `lab/` holds three tiny example challenge images (busybox web servers and a raw TCP service). Build them with `podman build -t localhost/kymo-lab/flag-server:1 lab/flag-server` (or `docker build`), and likewise `page-source`, then point a challenge's instance image at them. To check the runtime against a real daemon: `KYMO_TEST_IMAGE=localhost/kymo-lab/flag-server:1 cargo test -p kymo-instances --features docker --test docker`.
-
-## Separate lab host
-
-By default the machine that runs Kymo also runs the challenge containers. A challenge is software that players attack, so if one is broken into, the attacker is on the machine that holds your accounts, flags and database. A **lab host** moves the containers to another machine. The platform asks it, over an authenticated and encrypted API, to start and stop them, and an event chooses where its instances run.
-
-```
-players ──► platform (web, accounts, scores)  ──── HTTPS + token ────►  lab host (Docker, challenge images)
-   └──────────────────── connect to the instance on the lab host's public address ───────────────────►
-```
-
-- **Same host** (the default): the event uses this machine's own runtime and address.
-- **Separate host**: add the lab host in the admin pages (Lab hosts) and pick it in the event's *Where instances run*. Players are told the lab host's address.
-- **Lab hosts are global**: you add each lab host once (Lab hosts page) and it is available to every event. Each Jeopardy event then picks where its instances run (this server or any lab host), so different events can use different hosts. Any number of lab hosts. An event on a lab host can be moved only while none of its instances run.
-- **Per event or per challenge.** An event picks one host for all its instances (*Instances run on*). A single challenge can override it (*Runs on* in the challenge editor), so different challenges of the same event run on different lab hosts; "Same as the event" follows the event again. The event's network mode has to work on every host it uses (a VPN event needs a gateway on each), and a challenge moves only while none of its instances run. Players are told which host a challenge uses, so they fetch that host's VPN profile when they start it.
-- **Choosing the host is the organizer's call.** Pick it when you create a Jeopardy event (*Instances run on*) or later on the event's Overview. Each choice shows how busy that host is (events using it, instances running), so you can put several events on one host that has resources to spare, or give a big event a host of its own. A host never takes more than its `KYMO_LAB_MAX_INSTANCES` at once (further starts get "the lab host is full") and clamps every instance to its memory and CPU caps, so events sharing a host cannot starve it.
-- **Solo and team events** behave the same; only the owner of an instance changes.
-- **Private VPN on a lab host**: see [Players reach a lab host through its VPN](#players-reach-a-lab-host-through-its-vpn). With it nothing vulnerable is published on the internet.
-
-### What each kind of challenge needs
-
-Most challenges need nothing from a lab host. Only a challenge that runs something does. This is the whole list, so you know what to prepare before an event:
-
-| Challenge | What you prepare | On the lab host | Manifest |
-| --- | --- | --- | --- |
-| **Flag only**, **multi-question** | Files to attach. No lab host. | Nothing | None |
-| **Dynamic flag, no instance** | A text file with `{{flag}}` in it, attached as a per-player template | Nothing | None |
-| **Container** (Docker or Podman) | A built image: a `Dockerfile` (see `lab/`) | The image, built or pulled there (`docker build -t localhost/ctf/web:1 .`) | `artifact` (the image name), `port`, limits. `deploy/lab/manifests/flag-server.json.example` |
-| **Virtual machine** | A disk image: `.ova`, `.vmdk`, `.vdi`, `.qcow2`, `.img` or `.raw` | QEMU installed, the file in `/var/lib/kymo-lab/images/`. KVM makes it fast | `runtime: "vm"`, `file`. `vm-example.json.example` |
-| **Dynamic flag in an instance** | Where the flag goes (an environment variable, or a file in the machine) | Same as the container or machine | add `inject`. `dynamic-flag.json.example`, `boot2root.json.example` |
-| **Responder** (patch the machine, a Verifier gives the flag) | The machine or container, and a Verifier definition: a folder with `verifier.json` and check scripts | The folder in `/etc/kymo-lab/verifiers/`, the Verifier image | add `verifier`. `responder.json.example` |
-| **Coding** | One image per language (`lab/judge/`) | The language images, built or pulled there | `judge` block: source file, compile and run commands. `judge-python.json.example`, `judge-cpp.json.example` |
-
-The artifact name in the manifest is the name a challenge uses, and in `manifest` mode (the default) the lab host runs **only** what a manifest lists. `kymo-lab check` tells you what is missing, and the Lab hosts page shows each manifest's runtime and whether it is ready.
-
-### Players reach a lab host through its VPN
-
-Published ports are the weak point of a CTF server: every instance is a vulnerable machine on an open port, reachable by anyone on the internet who finds it. A lab host avoids that with a **gateway of its own**. It is on by default in the installer (`--no-vpn` turns it off).
-
-```
-player ── OpenVPN (UDP 1194 by default) ──► lab host gateway ──► the player's private lab network ──► their instances
-                                      (nothing else is open; no instance has a public port)
-```
-
-- **One port faces players**: the gateway's UDP port. The platform's API port is for the platform only. Instances, containers and virtual machines alike, sit on a private network per player or team that no one else can reach, and are not published on any port.
-- **The platform keeps the authority**: it issues each player's certificate, decides who may reach which lab, and pushes the result to the lab host (`PUT /v1/vpn/files`, attach, firewall rules, kick). The lab host only runs the gateway container and checks every value it is given (paths, network names, address range).
-- **One authority per lab host.** A certificate for one lab host opens nothing on another, and a new profile for one host does not revoke your profile for another.
-- **Machines are machines.** On a lab network a virtual machine is a tap device on the network's bridge with the address the platform reserved for it (a small built-in DHCP server hands the guest that address). Every port, TCP and UDP, and ping, is open on that one address, so players scan it with `nmap` like a HackTheBox machine; nothing is mapped or listed. A manifest chooses how it is shown with `"display"`: `machine` (just the address, the default for a virtual machine) or `service` (address and port, the default for a container, like a HackTheBox challenge). A container always has its own address on the network and every port it listens on is reachable.
-- **Audit**: every instance start, restart and stop (and every failure), and every VPN profile download, is recorded with the player, the address it came from, the challenge, the lab host and the private address given. Monitor, Audit has search (address, player, challenge), a filter fed by what was recorded, and paging.
-- **Virtual machines need a rootful Docker** on the lab host and the right to make a network device: the installer's service unit grants exactly `CAP_NET_ADMIN` and `CAP_NET_RAW`. With rootless Podman the lab network's bridge lives inside the user's network namespace, out of reach. Containers work with either. The DHCP exchange is read from a packet socket, so no host firewall rule is needed.
-- **Players** open the event, download the profile for it (`POST /vpn/profile?lab_host=ID`, shown on the event page), connect, and start an instance; its private address appears when it answers.
-- **VPN only**: a lab host with a gateway refuses to publish a port at all (`KYMO_LAB_VPN_ONLY`, default on), so a mistake in an event's settings cannot expose a machine. The Lab hosts page shows each host's gateway, and the event settings choose the host and the network mode together.
-- **Firewall**: open the UDP port printed by the installer (1194 by default) to players and TCP 7400 to the platform. Nothing else needs opening.
-- **Platform setup**: `KYMO_VPN=1` works with `KYMO_INSTANCES=labs` (no gateway on the platform itself, so no `KYMO_VPN_HOST` needed). The platform's `KYMO_VPN_LABS` must lie inside the lab host's `KYMO_LAB_VPN_POOL`; the platform says so if it does not.
-
-### Install a lab host
-
-On the new machine (Linux with Docker and systemd) download `kymo-lab-vX.Y.Z-linux-x86_64.tar.gz` from the releases page, unpack it and run the installer:
-
-```sh
-sudo ./install-lab.sh --public-host 203.0.113.7 --allow-from 198.51.100.10
-```
-
-`--public-host` is the lab host's address as players reach it, `--allow-from` is the platform's address (the API then answers only that address; omit it to allow any address that has the token). The installer creates a service user, a self-signed certificate and a token, installs and starts the `kymo-lab` service, and prints what to enter in the platform:
-
-```
-API address:             https://203.0.113.7:7400
-Token:                   ...
-Certificate fingerprint: A4:7C:...
-Public address:          203.0.113.7
-```
-
-In the platform open **Lab hosts**, **Add a lab host** and paste those four values. It is saved and tested at once, and the answer says plainly what is wrong if the lab host cannot be reached. Running the installer again upgrades the program and keeps the token, certificate and manifests. `sudo ./install-lab.sh --uninstall [--purge]` removes it.
-
-On a separate lab machine, the VPN keeps the default UDP port 1194. If the platform and lab host
-share one machine and 1194 is already occupied, a fresh lab install automatically selects the next
-free UDP port and prints it. Rerunning the installer also detects and repairs an existing collision.
-`--vpn-port PORT` makes the first-install choice explicit and refuses to overwrite an existing
-listener. If the lab host was installed first, configure the platform's `KYMO_VPN_PORT` to a
-different port before enabling its local gateway; the lab host's printed port stays unchanged.
-
-Then, on the lab host:
-
-1. **Open the ports.** TCP 7400 (the API) to the platform only, and the VPN gateway's UDP port printed by the installer (1194 by default) to players. That is all: with the VPN no instance is published on any port. Only if you installed with `--no-vpn` do instance ports (Docker's high range, `cat /proc/sys/net/ipv4/ip_local_port_range`) have to be opened to players, and then anyone who reaches the machine can reach them.
-2. **Put the challenge images there** (`docker pull`, or `docker build -t localhost/kymo-lab/flag-server:1 lab/flag-server`) and describe each in a **manifest**, then restart the service. `kymo-lab check` verifies the settings, Docker access and manifests.
-
-### Manifests
-
-A manifest is a JSON file in `/etc/kymo-lab/manifests/` that describes one image. In the default `manifest` mode the lab host runs **only** images it has a manifest for, so even a stolen platform token cannot make it run something else:
-
-```json
-{
-  "artifact": "localhost/kymo-lab/flag-server:1",
-  "runtime": "docker",
-  "port": 8000,
-  "env": { "MODE": "ctf" },
-  "env_allow": ["FLAG"],
-  "cpu_millis": 500, "memory_mb": 128, "pids": 64, "max_ttl_secs": 3600
-}
-```
-
-`artifact` is the image reference the challenge uses. The manifest decides the port and limits; the platform can only ask for less. It can set only the environment variables named in `env_allow`. `deploy/lab/manifests/` has examples for the demo images. `KYMO_LAB_MODE=open` accepts any valid image within the caps instead, which is convenient on a private network and weaker.
-
-### Containers that need a real login
-
-A container is started with **no capabilities**, **no new privileges** and a read-only root. That is what keeps a broken-into challenge on a shared machine from reaching the lab host, and it also means `sshd`, `sudo` or a group of services cannot run in it. When a challenge needs them, the organizer can relax it **per image, in the manifest only** (the platform cannot ask for it); see `deploy/lab/manifests/container-with-login.json.example`, which explains each field in comments.
-
-| Manifest field | Meaning |
-| --- | --- |
-| `cap_add` | Capabilities added back after all are dropped. Only Docker's default set is allowed: `AUDIT_WRITE`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `MKNOD`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`. Anything else is refused when the manifest loads |
-| `no_new_privileges` | `false` lets setuid programs such as `sudo` and `su` work. Default `true` |
-| `read_only` | `false` lets the container write to its own filesystem. Default `true` |
-| `hostname` | The container's host name (1 to 63 characters: lowercase letters, digits, `-`), instead of Docker's random id. It relaxes nothing |
-
-What stays locked whatever the manifest says: the container is never privileged and has no devices, no host mounts, no Docker socket and no host namespaces; its limits (memory, CPU, processes) apply; it sits on the player's private lab network with no route out; and `SYS_ADMIN`, `NET_ADMIN`, `SYS_PTRACE`, `SYS_MODULE`, `DAC_READ_SEARCH` and the other powerful capabilities cannot be granted at all. `kymo-lab check` prints a warning for every image that relaxes anything. Even so, a container shares the host's kernel, so keep a lab host that runs such images a machine of its own, and prefer a virtual machine (`runtime` `vm`) when you can.
-
-### Configuration of the lab host
-
-The installer writes `/etc/kymo-lab/lab.env`; `deploy/lab/lab.env.example` documents every variable.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `KYMO_LAB_TOKEN` | required | At least 24 characters; the platform authenticates with it (`KYMO_LAB_TOKEN_FILE` reads it from a file) |
-| `KYMO_LAB_ADDR` | `0.0.0.0:7400` | Where the API listens |
-| `KYMO_LAB_NAME` | hostname | Name shown in the platform |
-| `KYMO_LAB_MODE` | `manifest` | `manifest` or `open` |
-| `KYMO_LAB_RUNTIMES` | what is installed | `docker`, `vm` or both |
-| `KYMO_LAB_MAX_INSTANCES` | `100` | Most instances at once; further starts get "the lab host is full" |
-| `KYMO_LAB_ALLOW_FROM` | any | Comma separated addresses or CIDR ranges allowed to call the API |
-| `KYMO_LAB_TLS` | `on` | `off` serves plain http, only behind a proxy or on a private network |
-| `KYMO_LAB_TLS_NAMES` | hostname | Extra names and addresses for the generated certificate |
-| `KYMO_LAB_TLS_CERT`, `KYMO_LAB_TLS_KEY` | generated | Use your own certificate and key |
-| `KYMO_LAB_BIND` | `0.0.0.0` | Address instance ports are published on (without the VPN) |
-| `KYMO_LAB_VPN_HOST` | off | Set it to run the lab host's own VPN gateway: the name or address players connect to |
-| `KYMO_LAB_VPN_PORT` | `1194` | The gateway's UDP port |
-| `KYMO_LAB_VPN_POOL` | `10.77.0.0/16` | The range lab networks are made from |
-| `KYMO_LAB_VPN_ONLY` | `1` | Refuse every instance that is not on a lab network |
-| `KYMO_LAB_VPN_IMAGE` | `localhost/kymo/vpn-gateway:1` | The gateway image (the installer builds it from `deploy/vpn-gateway`) |
-| `KYMO_LAB_DATA` | `/var/lib/kymo-lab` | State file and certificate |
-| `KYMO_LAB_MANIFESTS` | `/etc/kymo-lab/manifests` | Manifest directory |
-| `KYMO_LAB_VERIFIERS` | `/etc/kymo-lab/verifiers` | Verifier definitions, one directory per definition |
-| `KYMO_LAB_VERIFIER_IMAGE` | `localhost/kymo/verifier:1` | The Verifier container image (the installer builds it) |
-
-Commands: `kymo-lab` runs it, `kymo-lab check` verifies the setup, `kymo-lab prepare` unpacks virtual machine images now, `kymo-lab fingerprint` prints the certificate fingerprint, `kymo-lab version`.
-
-### Virtual machines
-
-A lab host can also run whole machines, such as the OVA exports of VulnHub boxes, with QEMU (KVM-accelerated when the host has it). A challenge's instance then gives each player or team a private, pristine copy of the machine, and on the VPN players are given **just its address**: every port is open on it, and they scan it to find what runs there, like a HackTheBox machine. You never list its ports.
-
-Set it up on the lab host:
-
-1. Install QEMU: `sudo ./install-lab.sh --with-vm` does it on Debian, Ubuntu, Fedora and Arch (it also adds the service user to the `kvm` group). On a cloud server KVM needs nested virtualization; without `/dev/kvm` machines still run, in plain emulation that is many times slower, and the Lab hosts page says so.
-2. Copy the image (`.ova`, `.vmdk`, `.vdi`, `.qcow2`, `.img` or `.raw`) to `/var/lib/kymo-lab/images/`.
-3. Describe it in a manifest, `runtime` `vm`:
-
-```json
-{
-  "artifact": "gaara",
-  "runtime": "vm",
-  "file": "Gaara.ova",
-  "memory_mb": 1024,
-  "cpu_millis": 2000,
-  "boot_timeout_secs": 240,
-  "max_ttl_secs": 3600
-}
-```
-
-4. Restart the service. The image is unpacked once, in the background (`kymo-lab prepare` does it on the spot; about ten seconds for a 1 GB OVA); until then a start is "try again shortly" and costs the player nothing. `kymo-lab check` shows what is ready.
-5. In the challenge, set the instance image to the **artifact name** (`gaara`). The manifest decides the rest (the port in the challenge's instance settings is ignored for a machine). On the VPN nothing else is needed. The machine port range (`KYMO_LAB_VM_PORTS`) only matters for a lab host without a gateway.
-
-| Manifest field | Meaning |
-| --- | --- |
-| `file` | The image, a plain file name in the images directory |
-| `ports` | **Not needed for a machine.** Leave it out and the machine has no listed ports: it is given as an address with everything open, and counts as ready once it answers on the network. List up to 8 services only when `display` is `service`, or for a lab host without a gateway, where they are what gets published (primary first) |
-| `memory_mb`, `cpu_millis` | Memory and CPU cores (1000 per core), clamped to the lab host's caps (`KYMO_LAB_MAX_MEMORY_MB`, `KYMO_LAB_MAX_CPUS`) |
-| `boot_timeout_secs` | How long the platform waits for the machine to answer (10 to 1800, default 180) |
-| `disk` | `sata` (default, works with nearly everything), `ide` or `virtio` (fastest, needs guest drivers) |
-| `nic` | `e1000` (default), `virtio` or `rtl8139` |
-| `firmware` | `bios` (default, what VirtualBox exports use) or `uefi` |
-| `display` | `machine` (players get just the address, every port open on it, no ports in the manifest: the default for a virtual machine) or `service` (address and port, like a HackTheBox challenge: the default for a container, which keeps its `port`) |
-
-How it behaves:
-
-- **Every instance is disposable.** The image is converted once into a base that is never written to, and each instance runs from its own copy-on-write overlay that is deleted when it ends. A player can wreck the machine; the next start is pristine, and starting costs almost nothing.
-- **A machine is shown as ready only when its guest is really on the network.** On the VPN the gateway checks the machine's address (it answers ARP once its address is up, whatever it blocks above that), or, when the manifest lists a port, that the port accepts a connection; the platform waits for that (up to `boot_timeout_secs`). Players see "starting" until then. Without a gateway, the lab host asks QEMU whether the guest took a connection on a forwarded port.
-- **Isolation.** On a lab network the machine sits on the player's own private network, which has no route to the internet and which no other player can reach. Without a gateway it runs in QEMU's user mode with `restrict=on`: only the listed ports lead in and the guest reaches nothing. Machines run as the unprivileged service user.
-- **VirtualBox exports just work.** The network card is placed where VirtualBox puts it, so a guest that configures `enp0s3` (the usual VulnHub case) finds it and gets its address.
-- **See what the guest is doing.** In the Lab hosts page, *What is running*, a machine has a **Console** button with a screenshot of its screen. A login prompt means it booted; anything else tells you where it is stuck.
-- **Time limits and restarts.** The lab host enforces the machine's time limit itself. Machines survive a restart of the `kymo-lab` service and are found again.
-- **Limits today.** The first disk of an image is used; one machine is one instance (no private network between several); CPU is the number of cores given to the guest, not a hard share of the host.
-
-### How the platform and the lab host cooperate
-
-- **The platform builds the name** of every instance (`kymo-c<challenge>-<u|t><owner>-<random>`) and records the run in its database *before* asking the lab host to start it. The lab host validates the name (characters, prefix, not in use) and the request, and refuses anything else.
-- **Nothing is shown to a player until the service answers.** The platform connects to the lab host's public address and port, the way a player will, so a firewall in the way is caught too. If it never answers, the run fails with a reason and does not use the player's start budget.
-- **Reconciliation.** The platform decides what should run; the lab host knows what does run. Every 30 seconds the platform's reaper removes lab host containers it has no run for (listing first and reading its runs second, so a start under way is never taken for an orphan), and **Clean up** on a lab host card does it on demand. The lab host also enforces expiry on its own clock, so a platform that is down cannot leave containers running, and it remembers its instances across restarts.
-- **Isolation on the lab host.** Each instance has its own network and runs with no capabilities, no privilege escalation, a read-only root and CPU, memory and process limits. The lab host labels its containers in its own namespace (`kymo.managed=lab`), so it can share a Docker daemon with a platform without either touching the other's containers.
-- **Health.** The platform checks every lab host every 30 seconds. Operations lists them and counts an unreachable one as *degraded*.
-
-### Security
-
-- The API needs the bearer token (compared in constant time); ten wrong tokens from an address lock it out for a minute; `KYMO_LAB_ALLOW_FROM` restricts the source addresses.
-- The connection is HTTPS. The installer's certificate is self-signed, so the platform **pins its fingerprint** instead of trusting a certificate authority: nobody can stand in for the lab host, and no domain name is needed. A lab host behind a proxy with an ordinary certificate needs no fingerprint. The platform warns on any unencrypted connection.
-- The token is stored in the platform's database (back-ups include it, treat them as secrets) and is never shown again once saved.
-- The service user belongs to the `docker` group, which is equivalent to root on that machine. That is why a lab host should be a machine of its own that holds nothing but challenges.
-
-### The lab API
-
-Everything the platform does is available to scripts. JSON over HTTPS, `Authorization: Bearer <token>`, `-k` or `--pinnedpubkey` for the self-signed certificate:
-
-| Request | Does |
-| --- | --- |
-| `GET /healthz` | Liveness, no token |
-| `GET /v1/health` | Version, runtime, mode, load, uptime |
-| `GET /v1/artifacts` | The images this lab host will run, with their ports and (for machines) whether the image is ready |
-| `POST /v1/instances` | Create and start `{name, instance_id, spec, meta}`; `201` with the instance, `409` for a used name, `400` for a refused request, `503` when full |
-| `GET /v1/instances` | Every instance with its state, port, owner metadata and expiry |
-| `GET /v1/instances/{id}` | One instance, by name, container id or platform instance id |
-| `POST /v1/instances/{id}/restart` | Remove it and start it again under the same name |
-| `GET /v1/instances/{id}/screen` | A virtual machine's screen as a PNG |
-| `GET /v1/ready?port=N` | Whether the service behind a published port answers (for a machine, whether the guest took a connection) |
-| `POST /v1/instances/{id}/stop`, `DELETE /v1/instances/{id}` | Remove it; removing a missing instance succeeds |
-| `POST /v1/reconcile` | `{keep: [instance ids], grace_secs}`: remove everything not listed |
-| `POST /v1/cleanup` | Remove expired instances now |
-| `GET /v1/log` | The lab host's recent actions |
-
-```sh
-curl -sk -H "Authorization: Bearer $TOKEN" https://203.0.113.7:7400/v1/instances
-```
-
-The platform side is the admin API (`/api/v1/admin/labs`: list, add, update, delete, test, list instances, reconcile, and `PUT /admin/events/{id}/lab` to choose a lab host for an event), and the same operations are in the **Lab hosts** page.
-
-## Coding challenges
-
-A coding challenge needs a lab host of version 0.5.0 or later. It gives players a text box, a language and a set of tests. They write a program that reads standard input and prints standard output; Kymo runs it against every test on a lab host and the challenge is solved when all of them pass. It is scored like any other challenge (fixed or dynamic points, attempt limit, hints).
-
-**Languages come from the lab host.** A language is an image plus a manifest with a `judge` block. The platform only names the manifest's artifact, so it can never choose an image or a command. Samples are in `lab/judge/` (Python, Node, C, C++) and `deploy/lab/manifests/judge-*.json.example`:
-
-```json
-{
-  "artifact": "localhost/kymo-judge/cpp:1",
-  "runtime": "docker",
-  "judge": {
-    "label": "C++ (g++)",
-    "file": "main.cpp",
-    "compile": ["g++", "-O2", "-std=c++20", "-o", "main", "main.cpp"],
-    "run": ["./main"]
-  }
-}
-```
-
-Build the image on the lab host (`docker build -t localhost/kymo-judge/cpp:1 lab/judge/cpp`), copy the manifest to `/etc/kymo-lab/manifests/`, restart, and the language shows up in the challenge editor. An interpreted language leaves `compile` out; the official `python` and `node` images work as they are. Run Python with `-u` (unbuffered): a program killed at its time limit otherwise loses everything it printed, and the player sees an empty output.
-
-**The author** sets the languages, the tests (input and expected output; up to five can be shown to players as examples, the rest stay hidden), the time and memory per test and how output is compared (by line, by word, exactly). *Try a reference solution* runs a program against the saved tests, hidden ones included, and records nothing. A coding challenge cannot be published before it has tests, and its event needs a lab host.
-
-**What keeps it safe.** Every run is a disposable container: no network, a read-only root, all capabilities dropped, `no-new-privileges`, an unprivileged user, and hard limits on memory, CPU, processes, open files, file size and output. The program is killed at its time limit, and a program that hits a limit is not run on the remaining tests. The container is always removed, a crashed lab host removes leftovers when it restarts, and the source lives in a private directory that is emptied after each run. A player can run one submission at a time; a compile error does not use an attempt.
-
-On the lab host, `KYMO_LAB_JUDGE_DIR` is where submissions are unpacked (default `/var/lib/kymo-lab/judge`) and `KYMO_LAB_JUDGE_PARALLEL` how many run at once (default 2). A busy lab host answers "try again in a moment" instead of queueing without end.
-
-Submissions run in containers with no network, no capabilities, a read-only root, a stricter seccomp profile than Docker's default (no `ptrace`, `process_vm_readv` or `process_vm_writev`) and a private IPC namespace. They still share the host kernel. For a public event set `KYMO_LAB_JUDGE_RUNTIME` to a sandboxed OCI runtime the Docker daemon knows, such as `runsc` (gVisor) or a Kata runtime, and keep `KYMO_LAB_JUDGE_DIR` a generic directory: a submission can read its own mount path.
-
-## Dynamic flags and several flags
-
-By default a challenge has one static flag that every player submits. Two options change that, both for **instance challenges** and both chosen per challenge in the *New challenge* form:
-
-- **Dynamic flags.** Kymo generates a different flag for every instance run: the *prefix* and *closing text* you type, with a random hex part (4 to 32 characters, default 8) between them, for example `NDH{b2r_user_9f3a1c7d}`. The flag is handed to the lab host in the create request and put into the instance, so a flag from another player never works. A wrong flag that was generated for someone else leaves a `flag_shared` note in the audit log, naming both players (never the flag). A flag from any earlier run of the same player or team stays valid after a reset, once per flag.
-- **Several flags** (for example `user` and `root` of a boot2root machine). Players use the same flag input for all of them and see a `found/total` count. Each flag has a weight, and the challenge's points are split between the flags by weight (static points only). Hint costs are taken from the awards in the order the flags are found. The challenge counts as solved with its last flag. Static flags work in a multi flag challenge too.
-
-Once a run or a solve exists, the flags of a challenge can no longer change, only their labels. A lab host must be version 0.4.0 or later to hand out flags; Kymo refuses to start such a challenge on an older one rather than start it without its flag. In tournament matches a challenge can use dynamic flags, several flags and be a Responder: each side gets its own run of the instance and its own flags. Each flag is worth the points the organizer sets on it (1 by default), found once per side, and the match goes to the side with the most points.
-
-### Where the lab host puts the flags
-
-The platform sends the flags; the **manifest** says where each goes, so the platform never knows paths or credentials. Examples are in `deploy/lab/manifests/` (`dynamic-flag.json.example`, `boot2root.json.example`, `responder.json.example`).
-
-```json
-"inject": {
-  "port": 22,
-  "user": "root",
-  "ssh_key": "/etc/kymo-lab/keys/boot2root-box.key",
-  "ssh_password": "optional, tried only if the key is refused",
-  "flags": [
-    { "name": "user", "path": "/home/ctf/user.txt", "owner": "ctf:ctf", "mode": "0640" },
-    { "name": "root", "path": "/root/root.txt", "owner": "root:root", "mode": "0600" }
-  ]
-}
-```
-
-- **Containers** put a flag in an environment variable (`{ "name": "flag", "env": "FLAG" }`).
-- **Virtual machines** get a file written over SSH after the guest answers (VirtualBox exports, `.ova`, `.qcow2` and the other image types work the same). If both a key and a password are declared the key is used first. The value is sent on standard input, never in a command line. The instance reports as starting until every file is written, and is removed if it cannot be done in time, so no player gets a machine without its flag.
-- The flag names in the challenge must match the manifest's. A name the manifest has no place for is refused.
-- Manifests may hold an SSH password, so the installer makes them readable by the service group only. Keep keys in `/etc/kymo-lab/keys/`.
-
-## Responder challenges and the Verifier
-
-A **Responder** is an instance challenge where the player *patches* a machine instead of attacking it. A **Verifier** checks the repair, and when every check passes it shows the flag, which the player pastes into the usual flag input. Tick *Responder* under *Instance* in the challenge form.
-
-- **Two addresses.** The player sees the machine and the Verifier, both on their own private VPN lab network. Nothing is public and there is no login: only that player's (or team's) tunnel can reach their lab. The Verifier takes a second address from the lab network, allocated by Kymo like the machine's.
-- **One Verifier per instance.** The lab host starts a container next to each instance and removes it with the instance. It is read-only, has no capabilities and no route out.
-- **The flag stays off the machine.** A Responder has exactly one flag, static or dynamic. The lab host holds it and only the Verifier container can show it, and only while the latest run had every check fixed.
-- **You write the checks.** Each challenge has a Verifier definition: a directory with `verifier.json` and the scripts it names, under `/etc/kymo-lab/verifiers/`. A check has an id, the title players see, a language (`bash`, `python` or `exec` for any prebuilt program), a file and function, an optional health function and a timeout. The function's exit status is the answer: 0 fixed, 1 the weakness is still there, 2 broken (a crash or timeout counts as broken). Copy `deploy/lab/verifiers/template` (installed as `/etc/kymo-lab/verifiers/template`) and see `docs/schema/verifier.schema.json`.
-- **Name it in the manifest:** `"verifier": { "definition": "ghost-files", "port": 8080 }`.
-- **Test it with no player:** `kymo-lab verifier test /etc/kymo-lab/verifiers/ghost-files --target 10.77.0.42 --ports 22,80` shows each check red on a fresh machine and green after your fix. `kymo-lab check` finds mistakes in the definitions and the manifests first.
-- **A player with root can lie.** Checks that only read a file over SSH can be fooled by a determined player. Prefer checks that repeat the original attack from the Verifier and expect it to fail.
-- **See what happened.** On the event's *Instances* tab, *Details* shows the flags generated for a run (the reading is audited) and what the Verifier recorded.
-
-The lab host needs Docker, the VPN gateway and the Verifier image (the installer builds it). The installer also adds a firewall rule that keeps the lab networks away from the lab host itself, because a player may have root in a challenge machine on a bridge whose address is that host. The full design is in `docs/DYNAMIC_FLAGS_AND_RESPONDER.md`.
-
-## Integrity and disqualification
-
-Kymo reports suspicion and leaves the decision to an organizer.
-
-- **Flag sharing.** With dynamic flags each player or team has their own value. Submitting another participant's flag is recorded as sharing, and the player is told so.
-- **Copy detection.** Accepted coding solutions are fingerprinted, so renamed variables and changed spacing do not hide a copy. Pairs of different participants above a similarity threshold appear under Integrity in the event, with both programs side by side, and can be dismissed or acted on.
-- **Disqualify.** An organizer can remove a participant from one event with a reason. They leave the scoreboard and cannot play it any more, they are told why, and their account stays. It can be reversed. Every disqualification, dismissal and flag read is in the audit log.
-
-## Backup and restore
-
-`GET /api/v1/admin/ops/backup/download` (organizer) returns a consistent snapshot of the whole database. To restore, stop the server and run `kymo-server restore backup.db`; the current database is kept as `<name>.pre-restore-<time>`. A single Jeopardy event can be exported and imported as a bundle with `GET /api/v1/admin/events/{id}/export` and `POST /api/v1/admin/events/import`.
-
-## Private VPN for every player
-
-By default an instance gets a port on the server, and anyone who can reach the server can reach it. In **VPN mode** an event's instances live on private networks instead:
-
-```
- player's laptop                         your server
- +--------------+    UDP 1194     +---------------------------+
- | OpenVPN      |  ============>  | gateway container         |
- | (own profile)|                 |  one tunnel address each  |
- +--------------+                 |  firewall: default deny   |
-                                  +--+-----------+-----------+
-                                     | allowed   | not allowed
-                              +------v----+  +---v-------+
-                              | lab of    |  | lab of    |
-                              | player A  |  | player B  |   no route out,
-                              | (private) |  | (private) |   no route between labs
-                              +-----------+  +-----------+
-```
-
-- Every player (or team, in team events) gets an **isolated lab network** with no route to the internet and no route to other labs. Their instances start inside it at a private address, with nothing published on the host.
-- Every account gets its **own OpenVPN profile** (one file, certificate and key inside). The gateway gives each profile a fixed tunnel address and a firewall that allows that address to reach **only its own lab**. Players cannot reach each other's tunnels or labs.
-- Teammates share the team's lab, each with their own profile. Leaving or being removed from a team closes the lab to that player immediately.
-- Downloading a new profile revokes the old one. A ban or the admin's *Revoke* removes the player's access and drops their session. Certificates are also on a revocation list.
-
-### Setting it up
-
-You need a Linux host, a container platform the Kymo server can talk to (rootful Docker, or Podman through its Docker compatible socket), the `/dev/net/tun` device, and one UDP port reachable from your players (default 1194).
-
-1. **Build the gateway image** (a small Alpine image with OpenVPN and iptables; it holds no secrets):
-
-   ```sh
-   docker build -t localhost/kymo/vpn-gateway:1 deploy/vpn-gateway     # or: podman build ...
-   ```
-
-2. **Turn it on** in the server environment, next to the instance settings:
-
-   ```sh
-   KYMO_INSTANCES=docker
-   KYMO_VPN=1
-   KYMO_VPN_HOST=vpn.example.org      # what players connect to; a DNS name or an IPv4 address
-   KYMO_VPN_DIR=/var/lib/kymo/vpn     # an absolute path on the host
-   ```
-
-   On first start Kymo creates its own certificate authority, writes the gateway's config and certificates into `KYMO_VPN_DIR`, starts the container `kymo-vpn-gateway`, and logs `vpn ready`. If the gateway cannot start (image missing, platform down) the server still starts, the *Operations* page shows what is wrong, and the maintenance task retries every 10 minutes.
-
-3. **Open the UDP port** in your firewall (`ufw allow 1194/udp`). Only this port needs to be reachable.
-
-4. **Switch an event to VPN mode:** *Manage events*, open the event, **Overview**, **Instance network**, choose *Private VPN*. Do this while no instance is running.
-
-5. **Players** open the event page, follow *Your private network* (install OpenVPN 2.5 or newer, download the profile, connect), then start their instances. The challenge shows the private address, for example `10.77.0.10:8000`.
-
-6. **Check it** on *Operations*: the gateway should say *Running*, with the private networks and players it knows. *Sync the gateway now* repairs any drift. The same page can revoke a player's VPN by user id.
-
-### Things to know
-
-- **Run Kymo on the host** (the systemd unit in `deploy/`), not inside a container, when you use the VPN. The gateway's directory is mounted by the container platform, which resolves the path on the host.
-- **Do not run other containers on the networks Kymo creates**, and keep untrusted containers off the host's default network. Isolation between labs relies on them being separate networks; Kymo attaches only the gateway to them. Challenge containers run with no capabilities, no new privileges and CPU, memory and process limits.
-- **The certificate authority's private key is stored in the database** (setting `vpn_ca`), so a database backup restores every issued profile. Treat backups as secrets. Losing the database means players download new profiles.
-- **Unused labs are removed** 10 minutes after their last instance stops, and as soon as the event ends. They are created again on demand.
-- **Limits:** by default 2048 private networks (one /27 each, 21 instances per network) and about 65,000 players. Change the ranges with `KYMO_VPN_TUNNEL` and `KYMO_VPN_LABS` before the first start. How many labs a single gateway handles comfortably has not been measured here; each lab adds one network interface to the gateway, so very large events may want several servers.
-- **Rootless Podman** is fine for trying it out. The gateway disables OpenVPN's kernel fast path (DCO), which rootless containers cannot use; player profiles do not need to, because players run OpenVPN on their own machines. On rootless Podman, containers on the host's default network can still route to lab addresses, so use rootful Docker or a dedicated host for real events.
-- **Verify a setup yourself** with the integration test, which starts a gateway, two labs and two VPN clients and checks reach, isolation and revocation:
-
-  ```sh
-  KYMO_TEST_CLI=docker \
-  KYMO_TEST_GATEWAY_IMAGE=localhost/kymo/vpn-gateway:1 \
-  KYMO_TEST_IMAGE=localhost/kymo-lab/flag-server:1 \
-  cargo test -p kymo-vpn --features docker --test gateway -- --nocapture
-  ```
-
-## Deploying on your own server
-
-A complete setup is one binary, one SQLite file and, optionally, a container platform for instances. The files in `deploy/` are starting points.
-
-1. **Build.** You need Rust (stable), Node 22 and pnpm. The web interface is embedded in the binary, so build it first:
-
-   ```sh
-   cd web && pnpm install --frozen-lockfile && pnpm build && cd ..
-   cargo build --release -p kymo-server        # target/release/kymo-server
-   ```
-
-   Or build the container image with `docker build -t kymo .` (it does both steps).
-
-2. **Configure.** Copy `deploy/kymo.env.example` to `/etc/kymo/kymo.env` and edit it. At least set `KYMO_ADMIN_PASSWORD`. Keep the file readable only by root and the service user.
-
-3. **Run as a service.** `deploy/kymo.service` is a hardened systemd unit (dedicated user, read-only system, writable state directory only). The install commands are in its header.
-
-4. **Put HTTPS in front.** Run Kymo on `127.0.0.1:8080` and use a reverse proxy: `deploy/Caddyfile.example` (automatic certificates) or `deploy/nginx.conf.example`. Set `KYMO_TRUST_PROXY=1` so rate limits and bans use the real client address, and make sure the proxy does not buffer `text/event-stream` responses (live updates). Without `KYMO_TRUST_PROXY` every player would share the proxy's address and one automatic ban could lock everyone out.
-
-5. **Instances and the VPN (optional).** Add the service user to the `docker` group, or use Podman as described above. **Membership of the docker group is equivalent to root** on that machine, so run a dedicated server for the event, and do not expose the Docker socket to Kymo in a container on a shared host.
-
-6. **First sign in.** Open `/login` with the organizer password, set the look of the site under *Appearance*, then *Manage events*. Players create their own accounts; you can close sign-ups under *Users*.
-
-7. **Back up.** Set `KYMO_BACKUP_DIR` for scheduled snapshots and copy them off the machine; the *Operations* page also downloads one on demand. To restore, stop the service and run `kymo-server restore backup.db`.
-
-8. **Update.** Take a backup, install the new binary, restart. Database migrations run on start. A backup from an older version restores into a newer binary; the reverse is refused.
-
-**Security checklist before the event:** a long organizer password; HTTPS in front; `KYMO_TRUST_PROXY` matching your proxy; the firewall allows only 443 (and the VPN UDP port or the instance port range if you use them); backups copied off the server and treated as secrets; the container platform socket reachable only by the service user; a test event played end to end with a spare account.
-
-## Run with Docker
-
-```sh
-KYMO_ADMIN_PASSWORD='at least 12 characters' docker compose up --build
-```
-
-The app serves the interface and the API on port 8080. Data lives in the `kymo-data` volume. This image is for tournaments and plain events; challenge instances and the VPN need the container platform's socket and host paths, so run the binary on the host for those (see above).
 
 ## Development
 
@@ -693,7 +244,7 @@ crates/kymo-server     Axum API, SQLite storage, live updates, serves the built 
 web/                   React, TypeScript, Vite and Tailwind interface, with Playwright tests
 deploy/                systemd unit, reverse proxy examples, the VPN gateway image, the lab host installer
 lab/                   small example challenge images used by the tests and the demo lab
-docs/                  product, architecture, design notes, import schema and screenshots
+docs/                  guides (challenges, lab host, operations), product, architecture, design notes, schema, screenshots
 ```
 
 ## Credits and license
@@ -704,4 +255,4 @@ Released under the MIT license, see `LICENSE`.
 
 ## Releases
 
-Releases are automatic. When `version` in `Cargo.toml` has no matching tag, the next push to `main` builds the web app and the server on Ubuntu 22.04 and publishes a GitHub release `vX.Y.Z` with a Linux x86_64 tarball (the server with the web app embedded, plus `deploy/`) and a SHA-256 checksum. To release: bump the version, commit, push. Pushing a `v*` tag by hand or running the workflow from the Actions tab works too. Check a download with `sha256sum -c kymo-vX.Y.Z-linux-x86_64.tar.gz.sha256`.
+Releases are automatic. When `version` in `Cargo.toml` has no matching tag, the next push to `main` builds the web app and the server on Ubuntu 22.04 and publishes a GitHub release `vX.Y.Z` with a Linux x86_64 tarball (the server with the web app embedded, plus `deploy/` and the guides in `docs/`), a separate lab host tarball with its manifests, Verifier template and guides, and a SHA-256 checksum for each. To release: bump the version, commit, push. Pushing a `v*` tag by hand or running the workflow from the Actions tab works too. Check a download with `sha256sum -c kymo-vX.Y.Z-linux-x86_64.tar.gz.sha256`.

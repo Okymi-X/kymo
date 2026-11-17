@@ -105,3 +105,44 @@ fn the_language_examples_declare_a_judge_and_the_instance_examples_do_not() {
         );
     }
 }
+
+#[test]
+fn every_manifest_field_is_shown_in_at_least_one_example() {
+    // A new field that no example uses is easy to miss, so the examples must keep up with the
+    // manifest. The field names are read from the struct's source.
+    let source = include_str!("../src/manifest.rs");
+    let start = source.find("pub struct Manifest").unwrap();
+    let end = start + source[start..].find("\n}\n").unwrap();
+    let fields: Vec<&str> = source[start..end]
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("pub "))
+        .filter(|l| !l.starts_with("struct"))
+        .filter_map(|l| l.split(':').next())
+        .collect();
+    assert!(fields.len() > 15, "{fields:?}");
+    let all: String = examples()
+        .iter()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect();
+    let missing: Vec<&&str> = fields
+        .iter()
+        .filter(|f| !all.contains(&format!("\"{f}\"")))
+        .collect();
+    assert!(missing.is_empty(), "no example shows: {missing:?}");
+}
+
+#[test]
+fn every_example_says_what_it_is_for() {
+    for path in examples() {
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let has_comment = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .any(|k| k.starts_with("_comment"));
+        // The judge samples are short on purpose: the file name and the label say it all.
+        let judge = value.get("judge").is_some();
+        assert!(has_comment || judge, "{} has no _comment", path.display());
+    }
+}
