@@ -136,7 +136,7 @@ export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
   const dfir = d.kind === 'dfir'
   const scoring: Scoring =
     d.scoring === 'static' || fixedPoints || dfir || isMulti(d)
-      ? { kind: 'static', points: int(d.points) }
+      ? { kind: 'static', points: fixedPoints && isMulti(d) && !dfir ? d.rows.slice(0, Math.max(1, int(d.flagCount))).reduce((sum, r) => sum + (int(r.weight) || 1), 0) : int(d.points) }
       : { kind: 'dynamic', initial: int(d.initial), minimum: int(d.minimum), decay: int(d.decay), curve: d.curve }
   const flag: FlagSpec =
     d.flagKind === 'static' ? { kind: 'static', value: d.flagValue } : d.flagKind === 'regex' ? { kind: 'regex', pattern: d.flagValue } : { kind: 'per_team', expected: d.flagValue }
@@ -186,7 +186,7 @@ export function validate(d: Draft, fixedPoints = false): Problems {
   if (d.title.trim() === '') p.title = 'Give the challenge a title.'
   if (d.category_id === 0) p.category_id = 'Add a category first.'
   if (d.scoring === 'static' || fixedPoints || dfir || isMulti(d)) {
-    if (!inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
+    if (!(fixedPoints && isMulti(d) && !dfir) && !inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
   } else {
     if (!inRange(d.initial, 1, 100000)) p.initial = 'A whole number, 1 or more.'
     if (!inRange(d.minimum, 0, 100000)) p.minimum = 'A whole number, 0 or more.'
@@ -285,7 +285,7 @@ function dynamicSummary(d: Draft): string {
 }
 
 /** The flags of a dynamic or multi flag challenge: one card each, with the share of the points a weight gives. */
-function FlagRows({ d, set, shown, locked }: { d: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; shown?: string; locked: boolean }) {
+function FlagRows({ d, set, shown, locked, tournament }: { tournament: boolean; d: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; shown?: string; locked: boolean }) {
   const dynamic = d.flagMode === 'dynamic'
   const count = Math.max(1, Math.min(MAX_FLAGS, int(d.flagCount) || 1))
   const rows = d.rows.slice(0, count)
@@ -309,7 +309,7 @@ function FlagRows({ d, set, shown, locked }: { d: Draft; set: <K extends keyof D
                 <Input value={r.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={i === 0 ? 'User flag' : ''} maxLength={60} />
               </Field>
               {several && (
-                <Field label="Weight" error={bad.weight} hint={Number.isFinite(shares[i]) && d.points !== '' ? `${shares[i]} pts` : undefined}>
+                <Field label={tournament ? 'Points' : 'Weight'} error={bad.weight} hint={tournament ? 'Default 1.' : Number.isFinite(shares[i]) && d.points !== '' ? `${shares[i]} pts` : undefined}>
                   <Input type="number" min={1} value={r.weight} onChange={(e) => update(i, { weight: e.target.value })} disabled={locked} className="font-mono" aria-invalid={bad.weight ? true : undefined} />
                 </Field>
               )}
@@ -470,7 +470,7 @@ interface Props {
 export function ChallengeEditor({ eventId, eventKind, categories, challenge, onClose }: Props) {
   const tournament = eventKind === 'tournament'
   const client = useQueryClient()
-  const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : blank(categories[0]?.id ?? 0)))
+  const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : { ...blank(categories[0]?.id ?? 0), ...(tournament ? { points: '1' } : {}) }))
   const [d, setD] = useState<Draft>(start)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setD((prev) => ({ ...prev, [key]: value }))
   const dirty = JSON.stringify(d) !== JSON.stringify(start)
@@ -587,7 +587,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
                   <Num label="Processes" value={d.pids} onChange={(v) => set('pids', v)} min={1} error={shown.pids} hint="At most." />
                   <Num label="Lifetime" value={d.ttl} onChange={(v) => set('ttl', v)} min={1} error={shown.ttl} hint="Seconds." />
                 </div>
-                {!tournament && (
+                {(
                   <div className="flex flex-col gap-1">
                     <Toggle label="Responder: players fix the machine and a Verifier gives the flag" checked={d.responder} onChange={setResponder} disabled={flagsLocked} />
                     {d.responder && <p className="text-xs text-muted">The machine and the Verifier each get their own address on the player's private network. The flag is held by the lab host and shown by the Verifier only when every check passes. A Responder has exactly one flag.</p>}
@@ -600,7 +600,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
 
           {!dfir && (
           <Section title={multi ? 'Flags' : 'Flag'} help="What a player must submit, and the shape that is accepted before it is even compared.">
-            {!tournament && (
+            {(
               <>
                 <div className="grid gap-4 sm:grid-cols-[14rem_10rem_1fr] sm:items-start">
                   <Field label="Flag mode" hint={d.requiresInstance ? undefined : 'Dynamic needs an instance.'}>
@@ -614,7 +614,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
                     {d.flagMode === 'dynamic'
                       ? 'Kymo generates a different flag for every instance run: your prefix, a random part, your closing text. A flag from another player never works.'
                       : multi
-                        ? 'Players find each flag once. Points are split between the flags by weight.'
+                        ? tournament ? 'Each flag is found once and scores its own points. The side with the most points wins the match.' : 'Players find each flag once. Points are split between the flags by weight.'
                         : 'One flag for everybody.'}
                   </p>
                 </div>
@@ -622,7 +622,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
               </>
             )}
             {rowsMode ? (
-              <FlagRows d={d} set={set} shown={shown.rows} locked={flagsLocked} />
+              <FlagRows d={d} set={set} shown={shown.rows} locked={flagsLocked} tournament={tournament} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
                 <Field label="Kind">
@@ -655,13 +655,15 @@ export function ChallengeEditor({ eventId, eventKind, categories, challenge, onC
 
           <Section title="Points">
             <div className="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-start">
-              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : multi ? 'The total, split between the flags by weight.' : 'A match score is the points earned.') : undefined}>
+              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : multi ? (tournament ? 'The sum of the points of the flags.' : 'The total, split between the flags by weight.') : 'A match score is the points earned.') : undefined}>
                 <Select value={fixedPoints ? 'static' : d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type" disabled={fixedPoints}>
                   <option value="static">Fixed points</option>
                   <option value="dynamic">Dynamic points</option>
                 </Select>
               </Field>
-              {fixedPoints || d.scoring === 'static' ? (
+              {tournament && multi && !dfir ? (
+                <p className="text-sm text-muted sm:pt-6">Worth {d.rows.slice(0, Math.max(1, int(d.flagCount))).reduce((sum, r) => sum + (int(r.weight) || 1), 0)} points in all: set the points of each flag above.</p>
+              ) : fixedPoints || d.scoring === 'static' ? (
                 <Num label="Points" value={d.points} onChange={(v) => set('points', v)} error={shown.points} />
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
