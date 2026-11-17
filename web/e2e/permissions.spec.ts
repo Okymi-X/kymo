@@ -11,8 +11,7 @@ async function organizer(page: Page) {
 
 test('an organizer edits what each role may do, and it sticks', async ({ page }) => {
   await organizer(page)
-  await page.getByRole('button', { name: 'Organizer menu' }).click()
-  await page.getByRole('menuitem', { name: 'Permissions' }).click()
+  await page.getByRole('navigation', { name: 'Organizer' }).getByRole('link', { name: 'Permissions' }).click()
   await expect(page.getByRole('heading', { name: 'Permissions' })).toBeVisible()
 
   // Admin and visitor are fixed, and public viewing cannot be switched off for anyone.
@@ -58,8 +57,6 @@ test('an organizer edits what each role may do, and it sticks', async ({ page })
 })
 
 test('a player does not see the permissions page', async ({ page }) => {
-  await page.goto('/signin')
-  await page.getByRole('tab', { name: 'Create account' }).click().catch(() => undefined)
   await page.goto('/organizer/permissions')
   await expect(page.getByRole('heading', { name: 'Permissions' })).toHaveCount(0)
 })

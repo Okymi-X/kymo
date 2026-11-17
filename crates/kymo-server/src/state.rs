@@ -262,6 +262,12 @@ impl AppState {
     }
 
     pub fn notify(&self, slug: &str) {
+        // The answers kept for anonymous visitors are older than this change. Without this a
+        // stage screen is told to refetch and is handed the same stale body again.
+        self.public_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let _ = self.events.send(slug.to_owned());
     }
 }

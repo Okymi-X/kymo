@@ -49,7 +49,7 @@ export function OrganizerShell() {
       </header>
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 lg:flex-row lg:gap-8">
         <nav aria-label="Organizer" className="no-print lg:sticky lg:top-20 lg:w-52 lg:shrink-0 lg:self-start">
-          <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
+          <ul className="relative flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
             {GROUPS.map((group) => {
               const items = links.filter((l) => l.group === group)
               if (items.length === 0) return null

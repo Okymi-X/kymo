@@ -19,6 +19,7 @@ struct Site {
     app: Router,
     pool: SqlitePool,
     clock: Arc<AtomicI64>,
+    state: AppState,
 }
 
 impl Site {
@@ -30,9 +31,10 @@ impl Site {
             .unwrap()
             .with_clock(Arc::new(move || shared.load(Ordering::SeqCst)));
         Self {
-            app: router(state),
+            app: router(state.clone()),
             pool,
             clock,
+            state,
         }
     }
 
@@ -353,6 +355,27 @@ async fn answers_to_visitors_are_reused_for_a_few_seconds() {
     site.clock.store(T0 + 6, Ordering::SeqCst);
     let (_, fresh) = site.call("GET", &path, None, None).await;
     assert_eq!(fresh["name"], "Second Name");
+}
+
+#[tokio::test]
+async fn a_change_makes_the_next_visitor_answer_fresh() {
+    // A stage screen is told to refetch when something changes; it must not be handed the
+    // answer from before the change.
+    let site = Site::new().await;
+    let admin = site.admin().await;
+    let (id, slug) = site.event(&admin, "First Name", "live", true).await;
+    let path = format!("/public/events/{slug}");
+    let (_, first) = site.call("GET", &path, None, None).await;
+    assert_eq!(first["name"], "First Name");
+    sqlx::query("UPDATE event SET name = 'Second Name' WHERE id = ?")
+        .bind(id)
+        .execute(&site.pool)
+        .await
+        .unwrap();
+    site.clock.store(T0 + 1, Ordering::SeqCst);
+    site.state.notify(&slug);
+    let (_, after) = site.call("GET", &path, None, None).await;
+    assert_eq!(after["name"], "Second Name");
 }
 
 #[tokio::test]

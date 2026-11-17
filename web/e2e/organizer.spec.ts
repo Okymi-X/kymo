@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Browser, type Page } from '@playwright/test'
 import { PASSWORD } from './constants.js'
 
 async function signIn(page: Page) {
@@ -9,6 +9,28 @@ async function signIn(page: Page) {
   await expect(page.getByRole('heading', { name: 'Organizer', exact: true })).toBeVisible()
   // Sign in lands on the dashboard; these tests start from the events list, where events are made.
   await page.goto('/organizer/events')
+}
+
+/** A tournament is hidden from visitors until its event has a public scoreboard; this turns that on. */
+async function makePublic(page: Page, slug: string) {
+  const token = await page.evaluate(() => localStorage.getItem('kymo.token'))
+  const headers = { authorization: `Bearer ${token}` }
+  const events = (await (await page.request.get('/api/v1/admin/events', { headers })).json()) as { id: number; slug: string }[]
+  const event = events.find((e) => e.slug === slug)
+  expect(event, `event ${slug}`).toBeTruthy()
+  const done = await page.request.put(`/api/v1/admin/events/${event!.id}`, { headers, data: { scoreboard_public: true } })
+  expect(done.ok()).toBe(true)
+}
+
+/** A signed in player with no part in the event: everything beyond the front page needs a session. */
+async function spectator(browser: Browser, username: string) {
+  const page = await (await browser.newContext()).newPage()
+  await page.goto('/signin?mode=register')
+  await page.getByLabel('Username').fill(username)
+  await page.getByLabel(/^Password/).fill('a long player password')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
+  return page
 }
 
 /** The schedule shows one round at a time; this reveals every round when there are several. */
@@ -39,6 +61,7 @@ test('organizer runs a four team knockout to a champion', async ({ page, browser
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
+  await makePublic(page, 'e2e-cup')
 
   await record(page, 'Edit result for Alpha versus Delta', '3', '1')
   await record(page, 'Edit result for Bravo versus Charlie', '0', '2')
@@ -46,7 +69,7 @@ test('organizer runs a four team knockout to a champion', async ({ page, browser
   await expect(page.getByText('Champion')).toBeVisible()
   await expect(page.getByRole('main').getByText('Finished')).toBeVisible()
 
-  const visitor = await browser.newPage()
+  const visitor = await spectator(browser, 'onlooker')
   await visitor.goto('/t/e2e-cup')
   await expect(visitor.getByText('Champion')).toBeVisible()
   await expect(visitor.getByRole('button', { name: /Edit result/ })).toHaveCount(0)
@@ -198,9 +221,8 @@ test('sign out ends the session on the server', async ({ page, request }) => {
   const token = await page.evaluate(() => localStorage.getItem('kymo.token'))
   const before = await request.get('/api/v1/admin/tokens', { headers: { authorization: `Bearer ${token}` } })
   expect(before.status()).toBe(200)
-  await page.getByRole('button', { name: 'Organizer menu' }).click()
-  await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await expect(page.getByRole('link', { name: /Sign in|Organizer sign in/ }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(page).toHaveURL(/\/organizer\/login/)
   const after = await request.get('/api/v1/admin/tokens', { headers: { authorization: `Bearer ${token}` } })
   expect(after.status()).toBe(401)
 })
@@ -309,23 +331,17 @@ test('a saved look is in the very first paint, so a refresh never flips', async 
   await expect(page.getByRole('link', { name: 'Kymo Organizer' })).toBeVisible()
 })
 
-test('organizer menu opens, is keyboard friendly and leads to the settings pages', async ({ page }) => {
+test('the console navigation leads to the settings pages and back to the player site', async ({ page }) => {
   await signIn(page)
-  const trigger = page.getByRole('button', { name: 'Organizer menu' })
-  await trigger.click()
-  await expect(page.getByRole('menuitem', { name: 'Appearance' })).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(page.getByRole('menuitem', { name: 'API tokens' })).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('menu')).toHaveCount(0)
-  await expect(trigger).toBeFocused()
-
-  await trigger.click()
-  await page.getByRole('menuitem', { name: 'Appearance' }).click()
-  await expect(page).toHaveURL(/\/settings$/)
-  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Tournaments' })).not.toHaveAttribute('aria-current', 'page')
-  await page.goto('/')
-  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Tournaments' })).toHaveAttribute('aria-current', 'page')
+  const nav = page.getByRole('navigation', { name: 'Organizer' })
+  await nav.getByRole('link', { name: 'Appearance' }).click()
+  await expect(page).toHaveURL(/\/organizer\/appearance$/)
+  await nav.getByRole('link', { name: 'API tokens' }).click()
+  await expect(page).toHaveURL(/\/organizer\/tokens$/)
+  await expect(nav.getByRole('link', { name: 'API tokens' })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('link', { name: 'Appearance' })).not.toHaveAttribute('aria-current', 'page')
+  await page.goto('/events')
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Events' })).toHaveAttribute('aria-current', 'page')
 })
 
 test('the header shows the tournament once its title scrolls away', async ({ page }) => {
@@ -388,6 +404,7 @@ test('stage mode shows what is next, live results and the champion', async ({ pa
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
+  await makePublic(page, 'stage-cup')
   await record(page, 'Edit result for Alpha versus Delta', '3', '1')
 
   const screen = await browser.newPage({ viewport: { width: 1600, height: 900 } })
@@ -418,6 +435,7 @@ test('a match can be scheduled, shows on the lists and the follow chip, and is e
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
+  await makePublic(page, 'plan-cup')
 
   await page.getByRole('button', { name: 'Edit result for Alpha versus Delta' }).click()
   const soon = new Date(Date.now() + 30 * 60_000)
@@ -452,13 +470,13 @@ test('nav bar: live badge, search bar, light and dark switch that is remembered'
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo')
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
+  await makePublic(page, 'live-badge-cup')
   await page.goto('/')
 
   const live = page.getByRole('link', { name: /tournaments? live now/ })
   await expect(live).toBeVisible()
   await live.click()
-  await expect(page).toHaveURL(/status=live/)
-  await expect(page.getByRole('button', { name: 'Live', exact: false }).first()).toHaveAttribute('aria-pressed', 'true')
+  await expect(page).toHaveURL(/\/events$/)
 
   await expect(page.getByRole('button', { name: 'Open command palette' })).toContainText('Search Kymo')
 
@@ -696,7 +714,8 @@ test('a tournament can be duplicated and a setup file imported', async ({ page }
   await expect(page.getByRole('heading', { name: 'Original Cup copy', level: 1 })).toBeVisible()
   await expect(page.getByText(/4 teams/)).toBeVisible()
 
-  await page.goto('/')
+  await page.goto('/organizer/events')
+  await page.getByLabel('Type').selectOption('tournament')
   const setup = JSON.stringify({ name: 'From File', format: 'swiss', teams: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }] })
   await page.getByLabel('Import a tournament setup file').setInputFiles({ name: 'setup.json', mimeType: 'application/json', buffer: Buffer.from(setup) })
   await expect(page.getByRole('heading', { name: 'From File', level: 1 })).toBeVisible()
@@ -756,6 +775,7 @@ test('a referee token signs in, records results and sees no organizer tools', as
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
+  await makePublic(page, 'referee-cup')
   await expect(page.getByRole('tab', { name: 'Standings' })).toBeVisible()
 
   await page.goto('/tokens')
@@ -766,8 +786,7 @@ test('a referee token signs in, records results and sees no organizer tools', as
   const secret = (await page.getByRole('status').locator('code').innerText()).trim()
   await expect(page.getByText(/Referee, 1 tournament/)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Organizer menu' }).click()
-  await page.getByRole('menuitem', { name: 'Sign out' }).click()
+  await page.getByRole('button', { name: 'Sign out' }).click()
   await page.goto('/organizer/login')
   await page.getByRole('radio', { name: 'Referee' }).click()
   await page.getByLabel('Referee token').fill(secret)
@@ -865,7 +884,7 @@ test('a captain reports a score from a private link and the organizer approves i
 test('the ladder adds results across tournaments', async ({ page }) => {
   await signIn(page)
   for (const name of ['Ladder One', 'Ladder Two']) {
-    await page.goto('/')
+    await page.goto('/organizer/events')
     await page.getByLabel('Type').selectOption('tournament')
     await page.getByLabel('New event').fill(name)
     await page.getByRole('button', { name: 'Create' }).click()
@@ -874,7 +893,7 @@ test('the ladder adds results across tournaments', async ({ page }) => {
     await page.getByRole('button', { name: 'Start tournament' }).click()
     await record(page, `Edit result for Ladybug versus Other${name.slice(-3)}`, '2', '1')
   }
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Ladder' }).click()
+  await page.goto('/ladder')
   const row = page.getByRole('row', { name: /Ladybug/ })
   await expect(row).toContainText('26')
 })

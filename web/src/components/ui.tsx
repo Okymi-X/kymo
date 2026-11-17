@@ -113,7 +113,7 @@ interface SegmentedProps<T extends string> {
 /** A single choice among a few options, shown as one pill with a sliding highlight. */
 export function Segmented<T extends string>({ label, value, options, onChange }: SegmentedProps<T>) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex gap-0.5 self-start rounded-control border border-field-line bg-field p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex max-w-full gap-0.5 self-start overflow-x-auto rounded-control border border-field-line bg-field p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -121,7 +121,7 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
           role="radio"
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
-          className={`h-9 rounded-[calc(var(--radius-control)-2px)] px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-150 ${value === o.value ? 'bg-ink text-bg shadow-[var(--shadow-card)]' : 'text-muted hover:text-ink'}`}
+          className={`h-9 shrink-0 whitespace-nowrap rounded-[calc(var(--radius-control)-2px)] px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-150 ${value === o.value ? 'bg-ink text-bg shadow-[var(--shadow-card)]' : 'text-muted hover:text-ink'}`}
         >
           {o.label}
         </button>
