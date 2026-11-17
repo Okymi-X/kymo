@@ -10,6 +10,8 @@ use crate::protocol::LabPlacement;
 
 const MAX_NAME: usize = 32;
 const MAX_PATH: usize = 200;
+const MAX_COMMAND: usize = 500;
+const MAX_COMMANDS: usize = 8;
 const DEFAULT_SSH_PORT: u16 = 22;
 const DEFAULT_VERIFIER_PORT: u16 = 8080;
 const DEFAULT_VERIFIER_MEMORY_MB: u32 = 128;
@@ -38,6 +40,14 @@ pub struct Inject {
     /// Write through `sudo -n`.
     #[serde(default)]
     pub sudo: bool,
+    /// Commands run on the machine before any flag is written, in order, for example to start
+    /// a service. A virtual machine only.
+    #[serde(default)]
+    pub before: Vec<String>,
+    /// Commands run after every flag is written, in order, for example to copy a flag file into
+    /// a container inside the machine. A virtual machine only.
+    #[serde(default)]
+    pub after: Vec<String>,
     pub flags: Vec<FlagTarget>,
 }
 
@@ -49,6 +59,14 @@ pub struct FlagTarget {
     pub env: Option<String>,
     /// A virtual machine: the absolute path of the file.
     pub path: Option<String>,
+    /// A virtual machine, instead of a path: a command that receives the flag on its standard
+    /// input, for example `docker exec -i web sh -c 'cat > /flag.txt'`. The flag never touches
+    /// the machine's disk and never appears in a command line.
+    pub command: Option<String>,
+    /// With a path: delete the file once the `after` commands have run, whether or not they
+    /// succeeded, so the flag does not stay on the machine's disk.
+    #[serde(default)]
+    pub remove: bool,
     /// `user` or `user:group`, applied after the file is written.
     pub owner: Option<String>,
     /// Octal permissions, for example `0640`. Defaults to `0600`.
@@ -143,6 +161,15 @@ fn owner_ok(owner: &str) -> bool {
     }
 }
 
+/// A command for the machine's shell: one line of printable text. It comes from the manifest,
+/// which only the lab host's administrator writes, so it may use the shell; it is still kept to a
+/// sane size and to a single line.
+fn command_ok(command: &str) -> bool {
+    !command.trim().is_empty()
+        && command.len() <= MAX_COMMAND
+        && !command.chars().any(char::is_control)
+}
+
 fn mode_ok(mode: &str) -> bool {
     (3..=4).contains(&mode.len()) && mode.chars().all(|c| ('0'..='7').contains(&c))
 }
@@ -168,27 +195,56 @@ impl Inject {
             if vm {
                 if flag.env.is_some() {
                     return Err(format!(
-                        "flag {}: a virtual machine takes a path, not an env variable",
+                        "flag {}: a virtual machine takes a path or a command, not an env variable",
                         flag.name
                     ));
                 }
-                let Some(path) = &flag.path else {
-                    return Err(format!("flag {} needs a path", flag.name));
-                };
-                if !path_ok(path) {
-                    return Err(format!(
-                        "flag {}: the path is absolute, without .. and with only letters, digits and / . _ -",
-                        flag.name
-                    ));
-                }
-                if flag.owner.as_deref().is_some_and(|o| !owner_ok(o)) {
-                    return Err(format!("flag {}: owner is user or user:group", flag.name));
-                }
-                if flag.mode.as_deref().is_some_and(|m| !mode_ok(m)) {
-                    return Err(format!("flag {}: mode is octal, like 0640", flag.name));
+                match (&flag.path, &flag.command) {
+                    (Some(_), Some(_)) => {
+                        return Err(format!(
+                            "flag {}: give a path or a command, not both",
+                            flag.name
+                        ));
+                    }
+                    (None, None) => {
+                        return Err(format!("flag {} needs a path or a command", flag.name));
+                    }
+                    (Some(path), None) => {
+                        if !path_ok(path) {
+                            return Err(format!(
+                                "flag {}: the path is absolute, without .. and with only letters, digits and / . _ -",
+                                flag.name
+                            ));
+                        }
+                        if flag.owner.as_deref().is_some_and(|o| !owner_ok(o)) {
+                            return Err(format!("flag {}: owner is user or user:group", flag.name));
+                        }
+                        if flag.mode.as_deref().is_some_and(|m| !mode_ok(m)) {
+                            return Err(format!("flag {}: mode is octal, like 0640", flag.name));
+                        }
+                    }
+                    (None, Some(command)) => {
+                        if !command_ok(command) {
+                            return Err(format!(
+                                "flag {}: the command is one line, up to {MAX_COMMAND} characters",
+                                flag.name
+                            ));
+                        }
+                        if flag.owner.is_some() || flag.mode.is_some() || flag.remove {
+                            return Err(format!(
+                                "flag {}: owner, mode and remove belong to a path; a command writes the flag itself",
+                                flag.name
+                            ));
+                        }
+                    }
                 }
             } else {
-                if flag.path.is_some() || flag.owner.is_some() || flag.mode.is_some() {
+                if flag.path.is_some()
+                    || flag.owner.is_some()
+                    || flag.mode.is_some()
+                    || flag.command.is_some()
+                    || flag.remove
+                {
                     return Err(format!(
                         "flag {}: a container takes an env variable; paths are for virtual machines",
                         flag.name
@@ -209,6 +265,21 @@ impl Inject {
                         flag.name
                     ));
                 }
+            }
+        }
+        for (label, list) in [("before", &self.before), ("after", &self.after)] {
+            if !vm && !list.is_empty() {
+                return Err(format!("inject.{label} is for virtual machines"));
+            }
+            if list.len() > MAX_COMMANDS {
+                return Err(format!(
+                    "inject.{label} lists at most {MAX_COMMANDS} commands"
+                ));
+            }
+            if list.iter().any(|c| !command_ok(c)) {
+                return Err(format!(
+                    "inject.{label}: each command is one line, up to {MAX_COMMAND} characters"
+                ));
             }
         }
         if vm {
@@ -235,6 +306,8 @@ pub struct FileWrite {
     pub owner: Option<String>,
     pub mode: String,
     pub value: String,
+    /// Delete the file after the `after` commands, success or not.
+    pub remove: bool,
 }
 
 impl std::fmt::Debug for FileWrite {
@@ -243,8 +316,51 @@ impl std::fmt::Debug for FileWrite {
             .field("path", &self.path)
             .field("owner", &self.owner)
             .field("mode", &self.mode)
+            .field("remove", &self.remove)
             .field("value", &"<hidden>")
             .finish()
+    }
+}
+
+/// A flag handed to a command on its standard input. The value is a secret and stays out of `Debug`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Pipe {
+    pub command: String,
+    pub value: String,
+}
+
+impl std::fmt::Debug for Pipe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pipe")
+            .field("command", &self.command)
+            .field("value", &"<hidden>")
+            .finish()
+    }
+}
+
+/// Everything to do inside a virtual machine for one run, in order: `before` commands, the files
+/// and piped flags, `after` commands, then the files marked for removal are deleted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuestPlan {
+    pub before: Vec<String>,
+    pub files: Vec<FileWrite>,
+    pub pipes: Vec<Pipe>,
+    pub after: Vec<String>,
+}
+
+impl GuestPlan {
+    /// Whether there is anything to do inside the machine.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.pipes.is_empty()
+    }
+
+    /// Every flag value in the plan, so output can be scrubbed before it is shown.
+    pub fn secrets(&self) -> Vec<&str> {
+        self.files
+            .iter()
+            .map(|f| f.value.as_str())
+            .chain(self.pipes.iter().map(|p| p.value.as_str()))
+            .collect()
     }
 }
 
@@ -255,6 +371,11 @@ pub struct FlagPlan {
     pub env: Vec<(String, String)>,
     /// Files for a virtual machine.
     pub files: Vec<FileWrite>,
+    /// Flags handed to a command inside a virtual machine.
+    pub pipes: Vec<Pipe>,
+    /// Commands run inside the machine before and after the flags are placed.
+    pub before: Vec<String>,
+    pub after: Vec<String>,
     /// Flags only the Verifier may release.
     pub held: Vec<RunFlag>,
     /// Whether a Verifier container starts with this run.
@@ -306,15 +427,23 @@ pub fn plan_flags(
                         ))
                     })?;
                 if vm {
-                    plan.files.push(FileWrite {
-                        path: target
-                            .path
-                            .clone()
-                            .ok_or_else(|| refuse("flag has no path"))?,
-                        owner: target.owner.clone(),
-                        mode: target.mode.clone().unwrap_or_else(|| "0600".into()),
-                        value: flag.value.clone(),
-                    });
+                    if let Some(command) = &target.command {
+                        plan.pipes.push(Pipe {
+                            command: command.clone(),
+                            value: flag.value.clone(),
+                        });
+                    } else {
+                        plan.files.push(FileWrite {
+                            path: target
+                                .path
+                                .clone()
+                                .ok_or_else(|| refuse("flag has no path or command"))?,
+                            owner: target.owner.clone(),
+                            mode: target.mode.clone().unwrap_or_else(|| "0600".into()),
+                            value: flag.value.clone(),
+                            remove: target.remove,
+                        });
+                    }
                 } else {
                     plan.env.push((
                         target
@@ -327,7 +456,28 @@ pub fn plan_flags(
             }
         }
     }
+    if vm && let Some(inject) = inject {
+        plan.before = inject.before.clone();
+        plan.after = inject.after.clone();
+    }
     Ok(plan)
+}
+
+impl FlagPlan {
+    /// What to do inside the machine, or none when nothing is injected into it.
+    pub fn guest(&self) -> GuestPlan {
+        GuestPlan {
+            before: self.before.clone(),
+            files: self.files.clone(),
+            pipes: self.pipes.clone(),
+            after: self.after.clone(),
+        }
+    }
+
+    /// Whether a machine has to be reached over SSH before it counts as ready.
+    pub fn has_guest_work(&self) -> bool {
+        !self.files.is_empty() || !self.pipes.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -362,6 +512,111 @@ mod tests {
             bind: "10.77.0.33".into(),
             verifier_ip: verifier_ip.map(str::to_owned),
         }
+    }
+
+    fn nested() -> Inject {
+        serde_json::from_str(
+            r#"{"user":"ctf","ssh_password":"pw","sudo":true,
+                "before":["docker start web"],
+                "after":["docker cp /srv/flags/user.txt web:/home/ctf/user.txt"],
+                "flags":[
+                  {"name":"user","path":"/srv/flags/user.txt","remove":true},
+                  {"name":"root","command":"docker exec -i web sh -c 'cat > /root/root.txt'"}]}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_machine_can_run_commands_around_its_flags_and_pipe_one_into_a_container() {
+        let i = nested();
+        assert_eq!(i.check(true, &[]), Ok(()));
+        let flags = [
+            flag("user", FlagDelivery::Inject),
+            flag("root", FlagDelivery::Inject),
+        ];
+        let plan = plan_flags(&flags, Some(&i), None, true, None).unwrap();
+        assert_eq!(plan.before, vec!["docker start web"]);
+        assert_eq!(
+            plan.after,
+            vec!["docker cp /srv/flags/user.txt web:/home/ctf/user.txt"]
+        );
+        assert_eq!(plan.files.len(), 1);
+        assert!(plan.files[0].remove);
+        assert_eq!(plan.pipes.len(), 1);
+        assert_eq!(
+            plan.pipes[0].command,
+            "docker exec -i web sh -c 'cat > /root/root.txt'"
+        );
+        assert!(plan.has_guest_work());
+        let guest = plan.guest();
+        assert_eq!(guest.secrets(), vec!["KYMO{user}", "KYMO{root}"]);
+        // The flag values never show in a debug print.
+        assert!(!format!("{guest:?}").contains("KYMO{"), "{guest:?}");
+        // Only commands and no flag in the machine: nothing to do inside it.
+        let only_held = plan_flags(&[], Some(&i), None, true, None).unwrap();
+        assert!(!only_held.has_guest_work());
+    }
+
+    #[test]
+    fn a_flag_has_a_path_or_a_command_and_the_commands_are_checked() {
+        let check =
+            |json: &str, vm: bool| serde_json::from_str::<Inject>(json).unwrap().check(vm, &[]);
+        let both =
+            r#"{"user":"u","ssh_password":"p","flags":[{"name":"a","path":"/f","command":"x"}]}"#;
+        assert!(check(both, true).unwrap_err().contains("not both"));
+        let neither = r#"{"user":"u","ssh_password":"p","flags":[{"name":"a"}]}"#;
+        assert!(
+            check(neither, true)
+                .unwrap_err()
+                .contains("path or a command")
+        );
+        let owner_on_command =
+            r#"{"user":"u","ssh_password":"p","flags":[{"name":"a","command":"x","mode":"0600"}]}"#;
+        assert!(
+            check(owner_on_command, true)
+                .unwrap_err()
+                .contains("belong to a path")
+        );
+        let remove_on_command =
+            r#"{"user":"u","ssh_password":"p","flags":[{"name":"a","command":"x","remove":true}]}"#;
+        assert!(check(remove_on_command, true).is_err());
+        let two_lines =
+            r#"{"user":"u","ssh_password":"p","flags":[{"name":"a","command":"x\ny"}]}"#;
+        assert!(check(two_lines, true).unwrap_err().contains("one line"));
+        let long = format!(
+            r#"{{"user":"u","ssh_password":"p","flags":[{{"name":"a","command":"{}"}}]}}"#,
+            "x".repeat(501)
+        );
+        assert!(check(&long, true).is_err());
+        let many = format!(
+            r#"{{"user":"u","ssh_password":"p","before":[{}],"flags":[{{"name":"a","path":"/f"}}]}}"#,
+            ["\"true\""; 9].join(",")
+        );
+        assert!(check(&many, true).unwrap_err().contains("at most 8"));
+        let empty =
+            r#"{"user":"u","ssh_password":"p","after":["  "],"flags":[{"name":"a","path":"/f"}]}"#;
+        assert!(check(empty, true).is_err());
+    }
+
+    #[test]
+    fn commands_paths_and_removal_are_for_machines_only() {
+        for json in [
+            r#"{"before":["true"],"flags":[{"name":"a","env":"FLAG"}]}"#,
+            r#"{"after":["true"],"flags":[{"name":"a","env":"FLAG"}]}"#,
+            r#"{"flags":[{"name":"a","env":"FLAG","command":"x"}]}"#,
+            r#"{"flags":[{"name":"a","env":"FLAG","remove":true}]}"#,
+        ] {
+            let inject: Inject = serde_json::from_str(json).unwrap();
+            assert!(inject.check(false, &[]).is_err(), "{json}");
+        }
+        // A machine still cannot use an environment variable.
+        let env = r#"{"user":"u","ssh_password":"p","flags":[{"name":"a","env":"FLAG"}]}"#;
+        assert!(
+            serde_json::from_str::<Inject>(env)
+                .unwrap()
+                .check(true, &[])
+                .is_err()
+        );
     }
 
     #[test]

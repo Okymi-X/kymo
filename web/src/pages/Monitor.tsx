@@ -3,6 +3,10 @@ import { useDeferredValue, useState, type FormEvent } from 'react'
 import { useIsAdmin, useWho } from '../api/client'
 import { platform } from '../api/platform'
 import type { RateRule, RateRuleBody } from '../api/platformTypes'
+import { AlertDialog } from '../components/monitor/AlertDialog'
+import { AlertsTab } from '../components/monitor/AlertsTab'
+import { LiveTab } from '../components/monitor/LiveTab'
+import { useOpenAlerts } from '../components/monitor/useOpenAlerts'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, Stat, TD, Toggle } from '../components/platform/bits'
 import { Pager } from '../components/Pager'
@@ -12,7 +16,16 @@ import { shortDuration } from '../lib/platform'
 import { timeAgo } from '../lib/time'
 import { usePageTitle } from '../lib/usePageTitle'
 
-type View = 'traffic' | 'rules' | 'bans' | 'audit'
+type View = 'live' | 'alerts' | 'traffic' | 'rules' | 'bans' | 'audit'
+
+/** What the request log is narrowed to when a graph or a list sends you there. */
+interface Focus {
+  since?: number
+  until?: number
+  ip?: string
+  userId?: number
+  label: string
+}
 
 function statusTone(status: number): string {
   return status >= 500 ? 'text-danger' : status === 429 || status === 403 ? 'text-danger' : status >= 400 ? 'text-muted' : ''
@@ -40,7 +53,7 @@ function Top({ title, rows }: { title: string; rows: { key: string; count: numbe
   )
 }
 
-function Traffic() {
+function Traffic({ focus, onClear }: { focus: Focus | null; onClear: () => void }) {
   const [minutes, setMinutes] = useState(60)
   const summary = useQuery({ queryKey: ['monitor-summary', minutes], queryFn: () => platform.monitorSummary(minutes), refetchInterval: 20_000 })
   const [ip, setIp] = useState('')
@@ -48,8 +61,17 @@ function Traffic() {
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const log = useQuery({
-    queryKey: ['monitor-requests', ip, route, status, page],
-    queryFn: () => platform.requests({ page, ip: ip.trim() || undefined, route: route.trim() || undefined, status: status ? Number(status) : undefined }),
+    queryKey: ['monitor-requests', ip, route, status, page, focus],
+    queryFn: () =>
+      platform.requests({
+        page,
+        ip: focus?.ip ?? (ip.trim() || undefined),
+        user_id: focus?.userId,
+        route: route.trim() || undefined,
+        status: status ? Number(status) : undefined,
+        since: focus?.since,
+        until: focus?.until,
+      }),
     refetchInterval: 20_000,
   })
   const s = summary.data
@@ -60,6 +82,14 @@ function Traffic() {
   }
   return (
     <div className="flex flex-col gap-6">
+      {focus && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-accent/40 bg-accent/10 px-4 py-2.5 text-sm">
+          <span>Showing {focus.label}</span>
+          <Button variant="ghost" onClick={onClear} className="h-8 px-2">
+            Show everything
+          </Button>
+        </p>
+      )}
       <Select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} aria-label="Time range" className="self-start">
         <option value={15}>Last 15 minutes</option>
         <option value={60}>Last hour</option>
@@ -102,8 +132,9 @@ function Traffic() {
                 <td className={`${TD} whitespace-nowrap text-muted`} title={new Date(r.at * 1000).toLocaleString()}>
                   {timeAgo(r.at)}
                 </td>
-                <td className={`${TD} font-mono text-xs`}>
+                <td className={`${TD} break-all font-mono text-xs`}>
                   {r.method} {r.path}
+                  {r.query ? `?${r.query}` : ''}
                 </td>
                 <td className={`${TD} font-mono ${statusTone(r.status)}`}>{r.status}</td>
                 <td className={`${TD} font-mono text-xs`}>{r.ip}</td>
@@ -464,12 +495,22 @@ function Audit() {
 }
 
 function Body() {
-  const [view, setView] = useState<View>('traffic')
+  const [view, setView] = useState<View>('live')
+  const [focus, setFocus] = useState<Focus | null>(null)
+  const [alertId, setAlertId] = useState<number | null>(null)
   const admin = useIsAdmin()
   const who = useWho()
+  const openAlerts = useOpenAlerts(true)
   // Monitors may change rules and bans too (they hold the moderation permission).
   const canEdit = admin || who?.role === 'monitor'
+  const look = (next: Focus) => {
+    setFocus(next)
+    setView('traffic')
+  }
+  const clock = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const tabs: TabItem<View>[] = [
+    { id: 'live', label: 'Live' },
+    { id: 'alerts', label: openAlerts > 0 ? `Alerts (${openAlerts})` : 'Alerts' },
     { id: 'traffic', label: 'Traffic' },
     { id: 'rules', label: 'Rate limits' },
     { id: 'bans', label: 'Bans' },
@@ -477,7 +518,16 @@ function Body() {
   ]
   return (
     <Tabs<View> items={tabs} value={view} label="Monitor" onChange={setView}>
-      {view === 'traffic' && <Traffic />}
+      {view === 'live' && (
+        <LiveTab
+          onInspect={(since, until) => look({ since, until, label: `the requests from ${clock(since)} to ${clock(until)}` })}
+          onAlert={setAlertId}
+          onSubject={(kind, key) => look(kind === 'ip' ? { ip: key, label: `the requests from ${key}` } : { userId: Number(key), label: `the requests of player #${key}` })}
+        />
+      )}
+      {view === 'alerts' && <AlertsTab canEdit={canEdit} onOpen={setAlertId} />}
+      {alertId !== null && <AlertDialog id={alertId} canEdit={canEdit} onClose={() => setAlertId(null)} />}
+      {view === 'traffic' && <Traffic focus={focus} onClear={() => setFocus(null)} />}
       {view === 'rules' && <Rules canEdit={canEdit} />}
       {view === 'bans' && <Bans canEdit={canEdit} />}
       {view === 'audit' && <Audit />}

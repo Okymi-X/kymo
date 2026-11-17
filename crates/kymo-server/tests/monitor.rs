@@ -209,7 +209,16 @@ async fn requests_are_logged_without_secrets_and_monitor_calls_are_not() {
         )
         .await;
     let text = all.body.to_string();
-    assert!(!text.contains("hunter2"), "query strings are not stored");
+    // A short query string and the user agent are kept, in their own fields, for attack
+    // detection. Nothing else a caller sends is: no token, no body.
+    let settings = all.body["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["route"] == "/api/v1/settings")
+        .unwrap();
+    assert_eq!(settings["query"], "secret=hunter2");
+    assert!(!settings["path"].as_str().unwrap().contains('?'));
     assert!(!text.contains(&alice), "tokens are not stored");
     assert!(
         !text.contains("/admin/monitor"),

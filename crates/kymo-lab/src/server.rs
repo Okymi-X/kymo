@@ -909,7 +909,7 @@ impl Lab {
                             record.host_port = started.host_port;
                             record.ports = started.extra_ports.clone();
                             record.ready_secs = started.ready_secs;
-                            record.pending = !flag_plan.files.is_empty();
+                            record.pending = flag_plan.has_guest_work();
                             record.clone()
                         });
                     if found.is_some() {
@@ -945,7 +945,7 @@ impl Lab {
                 }
                 // Read the record again: the Verifier was added to it.
                 let record = self.find(&request.name).unwrap_or(record);
-                if !flag_plan.files.is_empty() {
+                if flag_plan.has_guest_work() {
                     let (host, port) = self.ssh_endpoint(
                         &request,
                         manifest.as_ref().and_then(|m| m.inject.as_ref()),
@@ -954,7 +954,7 @@ impl Lab {
                     self.spawn_inject(
                         record.name.clone(),
                         manifest.as_ref().and_then(|m| m.inject.clone()),
-                        flag_plan.files.clone(),
+                        flag_plan.guest(),
                         host,
                         port,
                         started.ready_secs,
@@ -1078,7 +1078,7 @@ impl Lab {
         self: &Arc<Self>,
         name: String,
         inject: Option<crate::inject::Inject>,
-        files: Vec<crate::inject::FileWrite>,
+        plan: crate::inject::GuestPlan,
         host: String,
         port: u16,
         boot_secs: Option<u32>,
@@ -1098,7 +1098,7 @@ impl Lab {
                     let patience = std::time::Duration::from_secs(u64::from(
                         boot_secs.unwrap_or(DEFAULT_BOOT_SECS),
                     ));
-                    crate::ssh::write_files(&target, &files, patience)
+                    crate::ssh::deliver(&target, &plan, patience)
                         .await
                         .map_err(|e| e.to_string())
                 }
@@ -1113,7 +1113,17 @@ impl Lab {
                         }
                         lab.save(&inner);
                     }
-                    lab.note("flags-written", &name, format!("{} file(s)", files.len()));
+                    lab.note(
+                        "flags-written",
+                        &name,
+                        format!(
+                            "{} file(s), {} piped, {} before and {} after command(s)",
+                            plan.files.len(),
+                            plan.pipes.len(),
+                            plan.before.len(),
+                            plan.after.len()
+                        ),
+                    );
                 }
                 Err(why) => {
                     lab.note("inject-failed", &name, why);

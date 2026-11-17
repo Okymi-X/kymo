@@ -496,6 +496,81 @@ async fn a_dynamic_flag_is_valid_for_its_owner_only_and_sharing_leaves_a_note() 
 }
 
 #[tokio::test]
+async fn submitting_another_players_flag_warns_then_bans() {
+    let c = Ctx::new().await;
+    let (_, made) = create(&c, dynamic_body(json!({}))).await;
+    let id = made["id"].as_i64().unwrap();
+    c.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+        .await;
+    let (alice, alice_id) = player(&c.w.app, "alice").await;
+    let (bob, bob_id) = player(&c.w.app, "bob").await;
+    c.register(&alice).await;
+    c.register(&bob).await;
+    c.set_state("live").await;
+    c.seed_run(alice_id, id, "running", &[("flag", "KYMO{box_aaaa1111}")])
+        .await;
+    c.seed_run(bob_id, id, "running", &[("flag", "KYMO{box_bbbb2222}")])
+        .await;
+
+    // Default rule: one warning, then a ban.
+    let (_, first) = c.submit(&bob, id, "KYMO{box_aaaa1111}").await;
+    assert_eq!(first["sharing"]["status"], "warning", "{first}");
+    assert_eq!(first["sharing"]["strikes"], 1);
+    // His own wrong guesses are not strikes.
+    let (_, own) = c.submit(&bob, id, "KYMO{box_00000000}").await;
+    assert!(own.get("sharing").is_none(), "{own}");
+    let (_, second) = c.submit(&bob, id, "KYMO{box_aaaa1111}").await;
+    assert_eq!(second["sharing"]["status"], "banned", "{second}");
+    assert!(c.audit_actions().await.contains(&"auto_ban".to_owned()));
+    let (status, _) = c.submit(&bob, id, "KYMO{box_bbbb2222}").await;
+    assert_ne!(status, StatusCode::OK, "a banned player is locked out");
+}
+
+#[tokio::test]
+async fn the_sharing_rule_can_be_off_or_manual() {
+    let c = Ctx::new().await;
+    let (_, made) = create(&c, dynamic_body(json!({}))).await;
+    let id = made["id"].as_i64().unwrap();
+    c.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+        .await;
+    let (alice, alice_id) = player(&c.w.app, "alice").await;
+    let (bob, bob_id) = player(&c.w.app, "bob").await;
+    c.register(&alice).await;
+    c.register(&bob).await;
+    c.set_state("live").await;
+    c.seed_run(alice_id, id, "running", &[("flag", "KYMO{box_aaaa1111}")])
+        .await;
+    c.seed_run(bob_id, id, "running", &[("flag", "KYMO{box_bbbb2222}")])
+        .await;
+    let path = format!("/admin/events/{}/jeopardy", c.event_id);
+    let (status, mut settings) = c.admin("GET", &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    settings["sharing_action"] = json!("manual");
+    settings["sharing_warnings"] = json!(0);
+    let (status, body) = c.admin("PUT", &path, Some(settings.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, one) = c.submit(&bob, id, "KYMO{box_aaaa1111}").await;
+    assert_eq!(one["sharing"]["status"], "reported", "{one}");
+    assert!(
+        c.audit_actions()
+            .await
+            .contains(&"flag_sharing_review".to_owned())
+    );
+    // Still allowed to play.
+    let (_, ok) = c.submit(&bob, id, "KYMO{box_bbbb2222}").await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+
+    settings["sharing_action"] = json!("off");
+    let (status, _) = c.admin("PUT", &path, Some(settings.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, off) = c.submit(&alice, id, "KYMO{box_bbbb2222}").await;
+    assert!(off.get("sharing").is_none(), "{off}");
+    settings["sharing_warnings"] = json!(11);
+    let (status, _) = c.admin("PUT", &path, Some(settings)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn flags_from_earlier_runs_stay_valid_and_runs_that_never_started_do_not_count() {
     let c = Ctx::new().await;
     let (_, made) = create(&c, dynamic_body(json!({}))).await;

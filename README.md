@@ -43,6 +43,7 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 - **Jeopardy CTFs, solo or in teams:** categories, static or dynamic points, hints with a point cost, attachments, flag formats and regex flags, attempt limits, a scoreboard that stays hidden until you publish it, and per teammate progress. Players sign up, form teams with invite codes, register for an event and play in the browser.
 - **Challenge instances:** a challenge can start a private Docker container per player or team, with CPU, memory, process and lifetime limits, an expiry reaper and cleanup of orphaned containers.
 - **A front page you shape:** `/` is a home page with sign in and sign up. The default page is built from texts the organizer edits (headline, buttons, banner, about, footer); the organizer can instead write their own HTML and CSS. Signed in players see a greeting, their running instance and their events on top. See "Home page, sign in and public scoreboards".
+- **A live monitor:** live graphs (requests by outcome, sign ins, flag submissions, instances started, players online, response time, a week heat map, the busiest players and addresses) that refresh every 5 seconds with automatic peak marks, and attack alerts for players who go after the platform instead of the challenges. See "Monitor: live graphs and attack alerts".
 - **Roles and safety:** visitors, players, referees, monitors and admins; per endpoint rate limits with automatic and manual bans, a request log, a moderation audit trail, health and backup tools, and event bundles you can export and import.
 - **Five formats:** single elimination (optional third place match), double elimination, round robin, groups then knockout, and Swiss. Any of them can be best of 1, 3, 5 or 7, entered game by game.
 - **Organizer tools:** enter and correct scores, forfeits, undo the newest result, schedule matches with a place, drag teams into seeding order, seed by qualifier score or at random, decide ties by hand, rename, duplicate, back up as JSON, import a setup file.
@@ -183,6 +184,29 @@ Everything needs a session (an API token counts) except the sign in pages and th
 **The home page** (Appearance, Home page). In the default page the organizer edits the headline, text, button labels, announcement banner, about section and footer, and switches the events and public scoreboards sections on or off. In custom mode they write HTML and CSS. The HTML is cleaned when saved and again in the browser (no scripts, forms, frames, event handlers or inline styles), shown inside a shadow root so its CSS cannot touch the app, and the CSS cannot load anything from outside (`@import`, outside `url()`), use `position: fixed` or backslash escapes. Links to `/signin`, `/signin?mode=register` and `/events` work as normal links; the sign in forms themselves stay ours. Signed in players see the page with a greeting, their running instance and their live and upcoming events.
 
 **Rules.** Each event can have its own rules (Manage events, the event, Rules): a title and a text. Players open them from a button on the event page. A line starting with `#` is a heading, `-` a list item, and a blank line a new paragraph; nothing is treated as HTML.
+
+## Monitor: live graphs and attack alerts
+
+**Live tab** (the default). Requests per bucket stacked by outcome (succeeded, refused or not found, rate limited, server error), what people do (sign ins, failed sign ins, new accounts, flag submissions, instances started), players and addresses online, response time, the busiest players and addresses of the last 5 minutes with a trend line, and a week heat map. The range is 15 minutes, 1 hour, 1 day or 1 week, and the view refreshes every 5 seconds. A bucket far above the rest (over three standard deviations above the mean, at least twice the mean and at least 10 requests) is marked as a peak. Click a bar or point to open the Traffic tab on the requests of that moment; red triangles mark alerts and open them.
+
+**Alerts tab.** A check every 30 seconds runs six detectors over the recent request log. Each counts one kind of behaviour per signed in player (or per address when nobody is signed in) inside its own time window:
+
+| Detector | Counts | Alert at | Auto-ban at |
+| --- | --- | --- | --- |
+| Path scanning | different unknown or missing addresses | 25 in 2 min | 120 |
+| Admin probing | refusals on admin routes (a visitor counts each different address once) | 5 in 5 min | 25 |
+| Attack strings | requests with `../`, injection or script strings, or probes for `.env` and `.git` | 2 in 5 min | 10 |
+| Scanner tool | user agents such as sqlmap, nikto, gobuster, ffuf, nmap | 1 in 5 min | 20 |
+| Failed sign ins | failed sign ins from one address | 8 in 5 min | 40 |
+| Request flood | all requests | 600 in 1 min | 2000 |
+
+Reaching the alert level raises an alert (high when the ban level was reached, medium for a signed in player below it, low for a visitor). Reaching the ban level bans a **signed in player** automatically, by default for 15 minutes. An address is never banned automatically, because it can be a whole network; you can ban it by hand. Staff are never counted. Every number is editable under Detection settings (alert level, ban level or never, window, ban length from 5 minutes to permanent), per detector, with a restore button. An alert shows the examples, a per minute chart around it and the requests behind it, and you can ban the player for 5 minutes, 15 minutes, 1 hour, 1 day or permanently, ban the address, or dismiss it with a note. Behaviour you dismissed is not raised again; new behaviour after that is. The Monitor entry in the account menu shows a badge with the open alerts about players.
+
+**What is stored.** The request log now also keeps the query string (up to 300 characters) and the user agent (up to 200), so the detectors can see attack strings and scanner tools. Request bodies, passwords and session tokens are never stored. Keep secrets out of URLs. Rows are deleted after 7 days.
+
+**Temporary bans of players now end.** A ban with a length used to set the account's banned flag for good; a sweep (every 30 seconds) now ends the ban and lifts the flag when the time is up, unless another ban on the same player still applies.
+
+**API.** `GET /admin/monitor/series?minutes=`, `/hot`, `/heatmap`, `/alerts?status=&who=&page=`, `/alerts/{id}`, `POST /alerts/{id}/dismiss`, `POST /alerts/{id}/ban`, `GET /detectors`, `PUT` and `DELETE /detectors/{kind}`. Reading needs the monitor permission; banning, dismissing and changing detectors need the moderation one. The VPN side (players scanning the lab host from inside the VPN) is not covered yet.
 
 ## Formats
 

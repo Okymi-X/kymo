@@ -2,6 +2,7 @@ import { Activity, ChevronDown, KeyRound, Lock, LogOut, Palette, Server, ShieldA
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, session, useCanMonitor, useIsAdmin, useWho } from '../api/client'
+import { useOpenAlerts } from './monitor/useOpenAlerts'
 
 const ITEM = 'flex w-full items-center gap-2.5 rounded-[calc(var(--radius-control)-2px)] px-3 py-2 text-left text-sm hover:bg-line/60 focus:bg-line/60 focus:outline-none'
 
@@ -10,6 +11,7 @@ export function AccountMenu() {
   const who = useWho()
   const admin = useIsAdmin()
   const monitor = useCanMonitor()
+  const openAlerts = useOpenAlerts(monitor)
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -53,13 +55,14 @@ export function AccountMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={who ? 'Account menu' : 'Organizer menu'}
+        aria-label={`${who ? 'Account menu' : 'Organizer menu'}${openAlerts > 0 ? `, ${openAlerts} open alerts` : ''}`}
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 items-center gap-1.5 rounded-full border border-line pl-1 pr-2 text-muted transition-colors hover:text-ink"
+        className="relative flex h-9 items-center gap-1.5 rounded-full border border-line pl-1 pr-2 text-muted transition-colors hover:text-ink"
       >
         <span className="flex size-7 items-center justify-center rounded-full bg-accent text-xs font-semibold text-bg" aria-hidden="true">
           {who ? who.username.slice(0, 1).toUpperCase() : 'O'}
         </span>
+        {openAlerts > 0 && <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full border-2 border-surface bg-danger" aria-hidden="true" />}
         <ChevronDown size={14} aria-hidden="true" className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -105,6 +108,7 @@ export function AccountMenu() {
           {monitor && (
             <Link role="menuitem" to="/monitor" className={ITEM} onClick={() => setOpen(false)}>
               <ShieldAlert size={16} aria-hidden="true" /> Monitor
+              {openAlerts > 0 && <span className="ml-auto rounded-full bg-danger px-1.5 text-xs font-semibold text-bg">{openAlerts}</span>}
             </Link>
           )}
           <div className="my-1 border-t border-line" />

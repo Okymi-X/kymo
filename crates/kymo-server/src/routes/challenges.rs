@@ -354,6 +354,9 @@ pub async fn submit(
         answer["flags_found"] = json!(found);
         answer["flags_total"] = json!(total);
     }
+    if let Some(notice) = outcome.sharing {
+        answer["sharing"] = json!(notice);
+    }
     Ok((StatusCode::OK, Json(answer)))
 }
 

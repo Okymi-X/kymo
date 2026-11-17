@@ -23,6 +23,12 @@ pub struct OwnedLog {
     pub ip: String,
     pub user_id: Option<i64>,
     pub ms: i64,
+    /// Up to 300 characters of the query string.
+    pub query: String,
+    /// Up to 200 characters of the user agent.
+    pub ua: String,
+    /// The caller may use the monitor, so no detector looks at the request.
+    pub staff: bool,
 }
 
 /// Writes many rows in one transaction, so a burst of requests costs one commit.
@@ -30,7 +36,7 @@ pub async fn log_batch(pool: &SqlitePool, rows: &[OwnedLog]) -> Result<(), ApiEr
     let mut tx = crate::db::begin_write(pool).await?;
     for e in rows {
         sqlx::query(
-            "INSERT INTO request_log (at, method, route, path, status, ip, user_id, ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO request_log (at, method, route, path, status, ip, user_id, ms, query, ua, staff) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(e.at)
         .bind(&e.method)
@@ -40,6 +46,9 @@ pub async fn log_batch(pool: &SqlitePool, rows: &[OwnedLog]) -> Result<(), ApiEr
         .bind(&e.ip)
         .bind(e.user_id)
         .bind(e.ms)
+        .bind(&e.query)
+        .bind(&e.ua)
+        .bind(e.staff)
         .execute(&mut *tx)
         .await?;
     }
@@ -77,6 +86,8 @@ pub struct LogRow {
     pub user_id: Option<i64>,
     pub username: Option<String>,
     pub ms: i64,
+    pub query: String,
+    pub ua: String,
 }
 
 #[derive(Serialize)]
@@ -107,7 +118,7 @@ pub async fn requests(
     .fetch_one(pool)
     .await?;
     let requests = sqlx::query_as(&format!(
-        "SELECT r.id, r.at, r.method, r.route, r.path, r.status, r.ip, r.user_id, u.username AS username, r.ms FROM request_log r LEFT JOIN user u ON u.id = r.user_id WHERE {LOG_WHERE} ORDER BY r.id DESC LIMIT ?7 OFFSET ?8"
+        "SELECT r.id, r.at, r.method, r.route, r.path, r.status, r.ip, r.user_id, u.username AS username, r.ms, r.query, r.ua FROM request_log r LEFT JOIN user u ON u.id = r.user_id WHERE {LOG_WHERE} ORDER BY r.id DESC LIMIT ?7 OFFSET ?8"
     ))
     .bind(&f.ip)
     .bind(f.user_id)

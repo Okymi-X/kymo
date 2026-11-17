@@ -170,6 +170,8 @@ export interface SubmitResult {
   /** Only for a challenge with several flags. */
   flags_found?: number
   flags_total?: number
+  /** Set when the flag submitted was generated for somebody else. */
+  sharing?: { status: 'warning' | 'reported' | 'banned'; strikes: number; warnings: number }
 }
 
 export interface HintUnlock {
@@ -393,6 +395,10 @@ export interface JeopardySettings {
   rate_lockout_secs: number
   /** From this moment the public scoreboard stops moving until the event ends; null means no freeze. */
   freeze_at: number | null
+  /** What happens to a player who submits a dynamic flag generated for somebody else. */
+  sharing_action: 'off' | 'manual' | 'auto_ban'
+  /** Such submissions that only warn before the action applies. */
+  sharing_warnings: number
 }
 
 export interface EventBody {
@@ -478,6 +484,8 @@ export interface LogRow {
   user_id: number | null
   username: string | null
   ms: number
+  query: string
+  ua: string
 }
 
 export interface LogPage {
@@ -605,6 +613,113 @@ export interface CleanupReport {
 }
 
 // ---------- VPN ----------
+
+// ---------- monitor: graphs and alerts ----------
+
+export interface MonitorBucket {
+  t: number
+  total: number
+  client: number
+  server: number
+  throttled: number
+  avg_ms: number
+  max_ms: number
+  ips: number
+  users: number
+  login_ok: number
+  login_failed: number
+  signups: number
+  submissions: number
+  instance_starts: number
+}
+
+export interface AlertMarker {
+  id: number
+  kind: string
+  user_id: number | null
+  last_at: number
+  status: string
+}
+
+export interface MonitorSeries {
+  from: number
+  to: number
+  step: number
+  buckets: MonitorBucket[]
+  markers: AlertMarker[]
+}
+
+export interface HotEntry {
+  key: string
+  label: string
+  user_id: number | null
+  count: number
+  trend: number[]
+}
+
+export interface HotLists {
+  minutes: number
+  addresses: HotEntry[]
+  players: HotEntry[]
+}
+
+export interface Heat {
+  from: number
+  hours: number[]
+}
+
+export type AlertSeverity = 'low' | 'medium' | 'high'
+
+export interface MonitorAlert {
+  id: number
+  kind: string
+  label: string
+  user_id: number | null
+  username: string | null
+  ip: string
+  count: number
+  first_at: number
+  last_at: number
+  evidence: string[]
+  status: 'open' | 'dismissed' | 'banned'
+  note: string
+  ban_id: number | null
+  handled_at: number | null
+  severity: AlertSeverity
+}
+
+export interface AlertPage {
+  total: number
+  page: number
+  per_page: number
+  open_players: number
+  open_all: number
+  alerts: MonitorAlert[]
+}
+
+export interface AlertDetails {
+  alert: MonitorAlert
+  requests: LogRow[]
+  request_total: number
+  trend: [number, number][]
+}
+
+export interface DetectorConfig {
+  enabled: boolean
+  alert_at: number
+  ban_at: number | null
+  window_secs: number
+  ban_secs: number | null
+}
+
+export interface Detector {
+  kind: string
+  label: string
+  description: string
+  config: DetectorConfig
+  default: DetectorConfig
+  customized: boolean
+}
 
 /** What the home page shows. In custom mode the organizer's own sanitized HTML and CSS replace the default page. */
 export interface HomeContent {

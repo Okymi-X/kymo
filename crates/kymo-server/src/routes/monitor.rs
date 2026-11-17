@@ -239,24 +239,25 @@ pub struct BanBody {
     duration_secs: Option<i64>,
 }
 
-pub async fn create_ban(
-    who: Require<needs::ModerateBans>,
-    ClientIp(own_ip): ClientIp,
-    State(state): State<AppState>,
-    Json(body): Json<BanBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let kind = BanKind::parse(&body.kind).ok_or_else(|| bad("kind is ip or user"))?;
-    let subject = parse_subject(kind, &body.subject)
+/// Validates and records a ban made by a person: nobody bans themselves, their own address or
+/// staff. Returns the id of the ban.
+async fn apply_ban(
+    state: &AppState,
+    who: &crate::auth::Caller,
+    own_ip: std::net::IpAddr,
+    kind: BanKind,
+    subject_raw: &str,
+    reason: &str,
+    duration_secs: Option<i64>,
+) -> Result<i64, ApiError> {
+    let subject = parse_subject(kind, subject_raw)
         .ok_or_else(|| bad("subject is an IP address, or a user id"))?;
-    let reason = body.reason.trim();
+    let reason = reason.trim();
     if reason.is_empty() || reason.chars().count() > 200 || reason.chars().any(text::is_hidden_char)
     {
         return Err(bad("give a reason of at most 200 characters"));
     }
-    if body
-        .duration_secs
-        .is_some_and(|d| !(1..=MAX_BAN_SECS).contains(&d))
-    {
+    if duration_secs.is_some_and(|d| !(1..=MAX_BAN_SECS).contains(&d)) {
         return Err(bad(
             "duration_secs is 1 to 31536000, or leave it out for permanent",
         ));
@@ -267,7 +268,7 @@ pub async fn create_ban(
         }
         BanKind::User => {
             let id: i64 = subject.parse().map_err(|_| ApiError::Internal)?;
-            if who.0.user_id == Some(id) {
+            if who.user_id == Some(id) {
                 return Err(ApiError::Conflict("you cannot ban yourself".into()));
             }
             let target = users::by_id(&state.pool, id).await?;
@@ -282,7 +283,7 @@ pub async fn create_ban(
         BanKind::Ip => {}
     }
     let now = state.now();
-    let expires_at = expiry(now, body.duration_secs);
+    let expires_at = expiry(now, duration_secs);
     let id = store::insert_ban(
         &state.pool,
         &NewBan {
@@ -290,7 +291,7 @@ pub async fn create_ban(
             subject: &subject,
             reason,
             auto: false,
-            created_by: who.0.user_id,
+            created_by: who.user_id,
             now,
             expires_at,
         },
@@ -303,17 +304,37 @@ pub async fn create_ban(
     store::audit(
         &state.pool,
         now,
-        Some(&who.0),
+        Some(who),
         "ban_create",
         kind.as_str(),
         &subject,
         reason,
     )
     .await?;
-    reload(&state).await?;
+    reload(state).await?;
     if kind == BanKind::User {
-        crate::vpn::sync_quiet(&state).await;
+        crate::vpn::sync_quiet(state).await;
     }
+    Ok(id)
+}
+
+pub async fn create_ban(
+    who: Require<needs::ModerateBans>,
+    ClientIp(own_ip): ClientIp,
+    State(state): State<AppState>,
+    Json(body): Json<BanBody>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let kind = BanKind::parse(&body.kind).ok_or_else(|| bad("kind is ip or user"))?;
+    let id = apply_ban(
+        &state,
+        &who.0,
+        own_ip,
+        kind,
+        &body.subject,
+        &body.reason,
+        body.duration_secs,
+    )
+    .await?;
     let row = store::ban_by_id(&state.pool, id).await?;
     Ok((StatusCode::CREATED, Json(json!(row))))
 }
@@ -381,4 +402,248 @@ pub async fn audit(
         )
         .await?,
     ))
+}
+
+// ---------- alerts and detectors ----------
+
+use crate::monitor_alerts::{self as alerts, AlertFilter};
+use kymo_monitor::{DetectorConfig, DetectorKind};
+
+#[derive(Deserialize)]
+pub struct AlertsQuery {
+    /// `open`, `handled` or `all`. Open when left out.
+    status: Option<String>,
+    /// `players` to leave out visitors known only by address.
+    who: Option<String>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+pub async fn list_alerts(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+    Query(q): Query<AlertsQuery>,
+) -> Result<Json<alerts::AlertPage>, ApiError> {
+    let filter = AlertFilter {
+        status: q.status.unwrap_or_else(|| "open".into()),
+        players_only: q.who.as_deref() == Some("players"),
+    };
+    let page = q.page.unwrap_or(1).max(1);
+    let per_page = q.per_page.unwrap_or(25).clamp(1, MAX_PER_PAGE);
+    Ok(Json(
+        alerts::alerts(&state.pool, &filter, page, per_page).await?,
+    ))
+}
+
+/// One alert with the requests behind it and the subject's activity around it.
+pub async fn alert_details(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    state.monitor().flush().await;
+    let alert = alerts::alert_by_id(&state.pool, id).await?;
+    let (from, to) = (alert.first_at - 300, alert.last_at + 300);
+    let filter = LogFilter {
+        ip: alert.user_id.is_none().then(|| alert.ip.clone()),
+        user_id: alert.user_id,
+        route: None,
+        status: None,
+        since: Some(from),
+        until: Some(to),
+    };
+    let requests = store::requests(&state.pool, &filter, 1, 100).await?;
+    let trend = alerts::subject_trend(&state.pool, alert.user_id, &alert.ip, from, to).await?;
+    Ok(Json(json!({
+        "alert": alert,
+        "requests": requests.requests,
+        "request_total": requests.total,
+        "trend": trend,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct DismissBody {
+    #[serde(default)]
+    note: String,
+}
+
+pub async fn dismiss_alert(
+    who: Require<needs::ModerateBans>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<DismissBody>,
+) -> Result<Json<alerts::AlertOut>, ApiError> {
+    let note = body.note.trim();
+    if note.chars().count() > 300 || note.chars().any(|c| text::is_hidden_char(c) && c != '\n') {
+        return Err(bad("the note is at most 300 characters"));
+    }
+    let alert = alerts::alert_by_id(&state.pool, id).await?;
+    if alert.status != "open" {
+        return Err(ApiError::Conflict("this alert was already handled".into()));
+    }
+    let now = state.now();
+    alerts::close_alert(&state.pool, id, "dismissed", note, who.0.user_id, None, now).await?;
+    store::audit(
+        &state.pool,
+        now,
+        Some(&who.0),
+        "alert_dismiss",
+        "alert",
+        id,
+        note,
+    )
+    .await?;
+    Ok(Json(alerts::alert_by_id(&state.pool, id).await?))
+}
+
+#[derive(Deserialize)]
+pub struct BanAlertBody {
+    /// `user` or `ip`. A player's alert may ban either; a visitor's only the address.
+    kind: String,
+    /// Seconds; leave out for permanent.
+    duration_secs: Option<i64>,
+    #[serde(default)]
+    reason: String,
+}
+
+pub async fn ban_from_alert(
+    who: Require<needs::ModerateBans>,
+    ClientIp(own_ip): ClientIp,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<BanAlertBody>,
+) -> Result<Json<alerts::AlertOut>, ApiError> {
+    let alert = alerts::alert_by_id(&state.pool, id).await?;
+    if alert.status != "open" {
+        return Err(ApiError::Conflict("this alert was already handled".into()));
+    }
+    let kind = BanKind::parse(&body.kind).ok_or_else(|| bad("kind is ip or user"))?;
+    let subject = match (kind, alert.user_id) {
+        (BanKind::User, Some(user)) => user.to_string(),
+        (BanKind::User, None) => return Err(bad("this alert is about a visitor: ban the address")),
+        (BanKind::Ip, _) => alert.ip.clone(),
+    };
+    let reason = if body.reason.trim().is_empty() {
+        format!("{} (alert {id})", alert.label)
+    } else {
+        body.reason.clone()
+    };
+    let ban_id = apply_ban(
+        &state,
+        &who.0,
+        own_ip,
+        kind,
+        &subject,
+        &reason,
+        body.duration_secs,
+    )
+    .await?;
+    alerts::close_alert(
+        &state.pool,
+        id,
+        "banned",
+        &reason,
+        who.0.user_id,
+        Some(ban_id),
+        state.now(),
+    )
+    .await?;
+    Ok(Json(alerts::alert_by_id(&state.pool, id).await?))
+}
+
+pub async fn list_detectors(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(
+        json!({ "detectors": alerts::detector_list(&state.pool).await? }),
+    ))
+}
+
+pub async fn save_detector(
+    who: Require<needs::ModerateBans>,
+    State(state): State<AppState>,
+    Path(kind): Path<String>,
+    Json(body): Json<DetectorConfig>,
+) -> Result<Json<Value>, ApiError> {
+    let kind = DetectorKind::parse(&kind).ok_or(ApiError::NotFound)?;
+    body.validate().map_err(bad)?;
+    let now = state.now();
+    alerts::save_config(&state.pool, kind, &body, now).await?;
+    store::audit(
+        &state.pool,
+        now,
+        Some(&who.0),
+        "detector_update",
+        "detector",
+        kind.as_str(),
+        &format!(
+            "enabled={} alert_at={} ban_at={:?} window={}s ban={:?}s",
+            body.enabled, body.alert_at, body.ban_at, body.window_secs, body.ban_secs
+        ),
+    )
+    .await?;
+    Ok(Json(
+        json!({ "detectors": alerts::detector_list(&state.pool).await? }),
+    ))
+}
+
+pub async fn reset_detector(
+    who: Require<needs::ModerateBans>,
+    State(state): State<AppState>,
+    Path(kind): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let kind = DetectorKind::parse(&kind).ok_or(ApiError::NotFound)?;
+    alerts::reset_config(&state.pool, kind).await?;
+    store::audit(
+        &state.pool,
+        state.now(),
+        Some(&who.0),
+        "detector_reset",
+        "detector",
+        kind.as_str(),
+        "",
+    )
+    .await?;
+    Ok(Json(
+        json!({ "detectors": alerts::detector_list(&state.pool).await? }),
+    ))
+}
+
+// ---------- graphs ----------
+
+#[derive(Deserialize)]
+pub struct SeriesQuery {
+    minutes: Option<i64>,
+}
+
+pub async fn series(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+    Query(q): Query<SeriesQuery>,
+) -> Result<Json<alerts::Series>, ApiError> {
+    state.monitor().flush().await;
+    let minutes = q.minutes.unwrap_or(60).clamp(5, 7 * 24 * 60);
+    Ok(Json(
+        alerts::series(&state.pool, state.now(), minutes).await?,
+    ))
+}
+
+pub async fn hot(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+    Query(q): Query<SeriesQuery>,
+) -> Result<Json<alerts::HotLists>, ApiError> {
+    state.monitor().flush().await;
+    let minutes = q.minutes.unwrap_or(5).clamp(1, 60);
+    Ok(Json(alerts::hot(&state.pool, state.now(), minutes).await?))
+}
+
+pub async fn heatmap(
+    _: Require<needs::Monitor>,
+    State(state): State<AppState>,
+) -> Result<Json<alerts::Heat>, ApiError> {
+    state.monitor().flush().await;
+    Ok(Json(alerts::heatmap(&state.pool, state.now()).await?))
 }
