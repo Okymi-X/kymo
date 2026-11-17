@@ -230,6 +230,14 @@ impl RemoteRuntime {
         self.send(Method::GET, "/v1/artifacts", None::<&()>).await
     }
 
+    /// Runs a coding submission on the lab host and returns a verdict per test.
+    pub async fn judge(
+        &self,
+        request: &crate::judge::JudgeRequest,
+    ) -> Result<crate::judge::JudgeReport, RuntimeError> {
+        self.send(Method::POST, "/v1/judge", Some(request)).await
+    }
+
     pub async fn log(&self) -> Result<Vec<LogLine>, RuntimeError> {
         self.send(Method::GET, "/v1/log", None::<&()>).await
     }

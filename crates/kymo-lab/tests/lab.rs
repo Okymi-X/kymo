@@ -432,6 +432,9 @@ async fn health_artifacts_and_the_action_log_are_readable() {
         (artifacts[0].artifact.as_str(), artifacts[0].port),
         (IMAGE, 8000)
     );
+    // What a manifest does not say stays empty, so an older editor and a newer lab host agree.
+    assert!(artifacts[0].flags.is_empty() && !artifacts[0].verifier);
+    assert_eq!(artifacts[0].display, None);
     lab.start(&request("1", "kymo-c1-u7-aaaaaa")).await.unwrap();
     let log = lab.log().await.unwrap();
     assert_eq!(log[0].action, "create");
@@ -776,4 +779,104 @@ mod vpn {
             .to_string();
         assert!(message.contains("no VPN gateway"), "{message}");
     }
+}
+
+fn judge_manifest() -> Manifest {
+    serde_json::from_value(serde_json::json!({
+        "artifact": "judge/py:1",
+        "runtime": "docker",
+        "judge": { "file": "main.py", "run": ["python3", "main.py"], "label": "Python 3" }
+    }))
+    .unwrap()
+}
+
+fn judge_request(artifact: &str) -> kymo_lab::judge::JudgeRequest {
+    kymo_lab::judge::JudgeRequest {
+        artifact: artifact.into(),
+        source: "print(1)".into(),
+        cases: vec![kymo_lab::judge::JudgeCase {
+            input: String::new(),
+            expected: "1".into(),
+        }],
+        time_limit_ms: 1000,
+        memory_mb: 64,
+        compare: kymo_lab::judge::Compare::Lines,
+        stop_on_fail: false,
+    }
+}
+
+#[tokio::test]
+async fn code_is_judged_only_for_a_language_the_manifest_declares() {
+    let mut cfg = config();
+    cfg.manifests.push(judge_manifest());
+    cfg.judge_dir = std::env::temp_dir().join(format!("kymo-lab-judge-{}", rand_suffix()));
+    let f = start(cfg).await;
+    let lab = client(&f);
+
+    // The language is listed with its label; the instance artifact is not one.
+    let artifacts = lab.artifacts().await.unwrap();
+    let py = artifacts
+        .iter()
+        .find(|a| a.artifact == "judge/py:1")
+        .unwrap();
+    assert!(py.judge && py.judge_label.as_deref() == Some("Python 3"));
+    assert!(
+        !artifacts
+            .iter()
+            .find(|a| a.artifact == IMAGE)
+            .unwrap()
+            .judge
+    );
+
+    // Without a runner the lab host says so.
+    let err = lab
+        .judge(&judge_request("judge/py:1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("does not judge"), "{err}");
+
+    f.lab
+        .set_judge_runner(Arc::new(kymo_instances::FakeJobRunner::new(|_| {
+            kymo_instances::JobOutcome {
+                exit_code: Some(0),
+                stdout: b"1\n".to_vec(),
+                wall_ms: 600,
+                ..Default::default()
+            }
+        })));
+    let report = lab.judge(&judge_request("judge/py:1")).await.unwrap();
+    assert_eq!(report.passed(), 1);
+
+    // An artifact that is a plain instance image is not a language, and an unknown one is not either.
+    let err = lab
+        .judge(&judge_request(IMAGE))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("not a judge language"), "{err}");
+    let err = lab
+        .judge(&judge_request("anything:latest"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("no such language"), "{err}");
+
+    // A request outside the limits is refused before anything runs.
+    let mut big = judge_request("judge/py:1");
+    big.time_limit_ms = 600_000;
+    assert!(
+        lab.judge(&big)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("time limit")
+    );
+}
+
+fn rand_suffix() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos()
 }

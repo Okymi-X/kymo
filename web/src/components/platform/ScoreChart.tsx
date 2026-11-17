@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { platform } from '../../api/platform'
 import { useEventStream } from '../../api/platformHooks'
 import type { ScoreSeries } from '../../api/platformTypes'
-import { niceTicks, paddedRange, stepPath, timeLabel, timeTicks, valueAt } from '../../lib/chart'
+import { chartHeight, niceTicks, paddedRange, stepPath, timeLabel, timeTicks, valueAt } from '../../lib/chart'
 import { Segmented } from '../ui'
 import { Panel } from './bits'
 
@@ -50,7 +50,7 @@ export function ScoreChart({ slug }: { slug: string }) {
   const colour = useMemo(() => colours(series), [series])
   if (q.isPending || !data || series.length === 0) return null
 
-  const height = width < 480 ? 240 : 320
+  const height = chartHeight(width)
   const plotW = width - MARGIN.left - MARGIN.right
   const plotH = height - MARGIN.top - MARGIN.bottom
   const [t0, t1] = paddedRange(data.from, data.to)

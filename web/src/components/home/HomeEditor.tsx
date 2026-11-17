@@ -40,7 +40,7 @@ export function HomeEditor() {
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Home page</h2>
         <p className="mt-0.5 max-w-2xl text-sm text-muted">
-          The page visitors land on. Use the default page and change its texts, or write your own HTML and CSS. Players who are signed in see a greeting, their running instance and their events on top of it.
+          The page visitors land on. Edit the default texts, or write your own HTML and CSS.
         </p>
       </div>
       <Segmented<HomeContent['mode']>

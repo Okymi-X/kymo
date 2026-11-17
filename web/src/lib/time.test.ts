@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { timeAgo } from './time'
+import { timeAgo, timeUntil } from './time'
 
 const NOW = 1_000_000_000_000
 
@@ -22,5 +22,18 @@ describe('timeAgo', () => {
   it('switches to a date after a week', () => {
     expect(ago(8 * 86400)).toMatch(/\d/)
     expect(ago(8 * 86400)).not.toContain('ago')
+  })
+})
+
+describe('timeUntil', () => {
+  const now = 1_000_000 * 1000
+  it('counts forward in the largest whole unit', () => {
+    expect(timeUntil(1_000_000 + 10, now)).toBe('any moment')
+    expect(timeUntil(1_000_000 + 50, now)).toBe('in 1 minute')
+    expect(timeUntil(1_000_000 + 3 * 3600 + 5, now)).toBe('in 3 hours')
+    expect(timeUntil(1_000_000 + 2 * 86400, now)).toBe('in 2 days')
+  })
+  it('says now for a time that has passed', () => {
+    expect(timeUntil(1_000_000 - 5, now)).toBe('now')
   })
 })

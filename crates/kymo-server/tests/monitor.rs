@@ -844,3 +844,36 @@ async fn a_burst_of_requests_is_logged_completely_by_the_background_writer() {
         .await;
     assert!(health.body["traffic"]["requests"].as_i64().unwrap() >= 250);
 }
+
+#[tokio::test]
+async fn the_request_log_can_show_only_failures_from_a_status_up() {
+    let w = World::new(false).await;
+    let admin = w.admin().await;
+    w.call("GET", "/settings", None, Some("10.0.0.7"), None)
+        .await;
+    w.call("GET", "/no/such/page", None, Some("10.0.0.7"), None)
+        .await;
+    let rows = |query: &str| {
+        let w = &w;
+        let admin = admin.clone();
+        let uri = format!("/admin/monitor/requests?{query}");
+        async move {
+            let r = w.call("GET", &uri, Some(&admin), None, None).await;
+            assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+            r.body["requests"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["status"].as_i64().unwrap())
+                .collect::<Vec<_>>()
+        }
+    };
+    let everything = rows("ip=10.0.0.7").await;
+    assert!(everything.contains(&200) && everything.iter().any(|s| *s >= 400));
+    let failures = rows("ip=10.0.0.7&min_status=400").await;
+    assert!(
+        !failures.is_empty() && failures.iter().all(|s| *s >= 400),
+        "{failures:?}"
+    );
+    assert!(rows("ip=10.0.0.7&min_status=500").await.is_empty());
+}

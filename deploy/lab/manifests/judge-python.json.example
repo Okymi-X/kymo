@@ -1,0 +1,9 @@
+{
+  "artifact": "localhost/kymo-judge/python:1",
+  "runtime": "docker",
+  "judge": {
+    "label": "Python 3.12",
+    "file": "main.py",
+    "run": ["python3", "-u", "main.py"]
+  }
+}

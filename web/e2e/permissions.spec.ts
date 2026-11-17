@@ -2,10 +2,11 @@ import { expect, test, type Page } from '@playwright/test'
 import { PASSWORD } from './constants.js'
 
 async function organizer(page: Page) {
-  await page.goto('/login')
-  await page.getByLabel('Password').fill(PASSWORD)
+  await page.goto('/organizer/login')
+  await page.getByRole('radio', { name: 'Password' }).click()
+  await page.getByLabel('Organizer password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Organizer', exact: true })).toBeVisible()
 }
 
 test('an organizer edits what each role may do, and it sticks', async ({ page }) => {
@@ -59,6 +60,6 @@ test('an organizer edits what each role may do, and it sticks', async ({ page })
 test('a player does not see the permissions page', async ({ page }) => {
   await page.goto('/signin')
   await page.getByRole('tab', { name: 'Create account' }).click().catch(() => undefined)
-  await page.goto('/admin/permissions')
+  await page.goto('/organizer/permissions')
   await expect(page.getByRole('heading', { name: 'Permissions' })).toHaveCount(0)
 })

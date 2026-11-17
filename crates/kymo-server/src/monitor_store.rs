@@ -70,6 +70,8 @@ pub struct LogFilter {
     pub user_id: Option<i64>,
     pub route: Option<String>,
     pub status: Option<i64>,
+    /// Only requests answered with this status or a higher one (500 for every server error).
+    pub min_status: Option<i64>,
     pub since: Option<i64>,
     pub until: Option<i64>,
 }
@@ -98,7 +100,7 @@ pub struct LogPage {
     pub requests: Vec<LogRow>,
 }
 
-const LOG_WHERE: &str = "(?1 IS NULL OR r.ip = ?1) AND (?2 IS NULL OR r.user_id = ?2) AND (?3 IS NULL OR r.route = ?3) AND (?4 IS NULL OR r.status = ?4) AND (?5 IS NULL OR r.at >= ?5) AND (?6 IS NULL OR r.at < ?6)";
+const LOG_WHERE: &str = "(?1 IS NULL OR r.ip = ?1) AND (?2 IS NULL OR r.user_id = ?2) AND (?3 IS NULL OR r.route = ?3) AND (?4 IS NULL OR r.status = ?4) AND (?5 IS NULL OR r.at >= ?5) AND (?6 IS NULL OR r.at < ?6) AND (?7 IS NULL OR r.status >= ?7)";
 
 pub async fn requests(
     pool: &SqlitePool,
@@ -115,10 +117,11 @@ pub async fn requests(
     .bind(f.status)
     .bind(f.since)
     .bind(f.until)
+    .bind(f.min_status)
     .fetch_one(pool)
     .await?;
     let requests = sqlx::query_as(&format!(
-        "SELECT r.id, r.at, r.method, r.route, r.path, r.status, r.ip, r.user_id, u.username AS username, r.ms, r.query, r.ua FROM request_log r LEFT JOIN user u ON u.id = r.user_id WHERE {LOG_WHERE} ORDER BY r.id DESC LIMIT ?7 OFFSET ?8"
+        "SELECT r.id, r.at, r.method, r.route, r.path, r.status, r.ip, r.user_id, u.username AS username, r.ms, r.query, r.ua FROM request_log r LEFT JOIN user u ON u.id = r.user_id WHERE {LOG_WHERE} ORDER BY r.id DESC LIMIT ?8 OFFSET ?9"
     ))
     .bind(&f.ip)
     .bind(f.user_id)
@@ -126,6 +129,7 @@ pub async fn requests(
     .bind(f.status)
     .bind(f.since)
     .bind(f.until)
+    .bind(f.min_status)
     .bind(per_page)
     .bind((page - 1) * per_page)
     .fetch_all(pool)

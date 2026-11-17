@@ -2,12 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { platform } from '../../api/platform'
 import type { Role } from '../../api/platformTypes'
-import { DataTable, Empty, Gate, Loading, Panel, Pill, TD, Toggle } from '../../components/platform/bits'
+import { DataTable, Empty, Gate, Loading, Pill, TD, Toggle } from '../../components/platform/bits'
 import { CreateUserDialog } from '../../components/platform/CreateUserDialog'
 import { EditUserDialog } from '../../components/platform/EditUserDialog'
 import type { User } from '../../api/platformTypes'
 import { Pager } from '../../components/Pager'
-import { Button, ErrorText, Field, Input, PageTitle, SearchField, Select } from '../../components/ui'
+import { Button, ErrorText, Input, PageTitle, SearchField, Select } from '../../components/ui'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
 
@@ -28,17 +28,19 @@ function Contact() {
   if (!q.data) return null
   const value = text ?? q.data.contact
   return (
-    <Panel className="flex flex-col gap-2">
-      <Field label="How people reach an organizer" hint="Shown to visitors who cannot create an account, for example an email address or a chat handle. Leave empty to show nothing.">
+    <details className="rounded-card border border-line bg-surface px-4 py-3">
+      <summary className="cursor-pointer text-sm font-medium">Contact shown to visitors{value ? <span className="ml-2 font-normal text-muted">{value}</span> : null}</summary>
+      <div className="mt-3 flex flex-col gap-2">
         <div className="flex gap-2">
-          <Input value={value} onChange={(e) => setText(e.target.value)} maxLength={200} placeholder="Ask on the event chat or write to organizers@example.org" className="min-w-0 flex-1" />
+          <Input value={value} onChange={(e) => setText(e.target.value)} maxLength={200} aria-label="Contact for visitors" placeholder="organizers@example.org" className="min-w-0 flex-1" />
           <Button onClick={() => save.mutate(value)} disabled={text === null || save.isPending}>
             Save
           </Button>
         </div>
-      </Field>
-      <ErrorText error={save.error} />
-    </Panel>
+        <p className="text-xs text-muted">An email or chat handle, shown to visitors who cannot sign up.</p>
+        <ErrorText error={save.error} />
+      </div>
+    </details>
   )
 }
 
@@ -60,22 +62,18 @@ function Registration() {
   if (!q.data) return null
   const open = local ?? q.data.open
   return (
-    <Panel className="flex flex-col gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3">
       <Toggle
-        label="Anyone can create a player account"
+        label={open ? 'Sign-ups open' : 'Sign-ups closed'}
         checked={open}
         onChange={(v) => {
           setLocal(v)
           set.mutate(v)
         }}
       />
-      <p className="text-sm text-muted">
-        {open
-          ? 'Turn this off to close sign-ups, for example once the participant list is final. People who already have an account can still sign in.'
-          : 'Sign-ups are closed. Visitors are told so on the sign-up page. Use Create account below to make accounts yourself; turn this on only if you want people to sign up on their own.'}
-      </p>
+      <span className="text-xs text-muted">{open ? 'Anyone can create an account.' : 'Only you create accounts.'}</span>
       <ErrorText error={set.error} />
-    </Panel>
+    </div>
   )
 }
 
@@ -96,22 +94,22 @@ function Body() {
     <div className="flex flex-col gap-6">
       <Registration />
       <Contact />
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SearchField
+          label="Search users"
+          placeholder="Search by name"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value)
+            setPage(1)
+          }}
+          className="w-full max-w-sm"
+        />
         <Button variant="primary" onClick={() => setCreating(true)}>
           Create account
         </Button>
       </div>
       {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
-      <SearchField
-        label="Search users"
-        placeholder="Search by name"
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value)
-          setPage(1)
-        }}
-        className="max-w-sm"
-      />
       {users.isPending ? (
         <Loading />
       ) : !data || data.items.length === 0 ? (

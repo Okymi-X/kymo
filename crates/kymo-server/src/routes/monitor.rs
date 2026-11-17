@@ -32,6 +32,7 @@ pub struct RequestsQuery {
     user_id: Option<i64>,
     route: Option<String>,
     status: Option<i64>,
+    min_status: Option<i64>,
     since: Option<i64>,
     until: Option<i64>,
     page: Option<i64>,
@@ -49,6 +50,7 @@ pub async fn requests(
         user_id: q.user_id,
         route: q.route.filter(|v| !v.is_empty()),
         status: q.status,
+        min_status: q.min_status,
         since: q.since,
         until: q.until,
     };
@@ -449,6 +451,7 @@ pub async fn alert_details(
         user_id: alert.user_id,
         route: None,
         status: None,
+        min_status: None,
         since: Some(from),
         until: Some(to),
     };

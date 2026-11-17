@@ -8,7 +8,6 @@ import type { Appearance, Density, FontChoice, LineStyle, Match, Scheme, Slot, T
 import { MatchCard } from '../components/MatchCard'
 import { appearanceKey, useAppearance } from '../components/ThemeLoader'
 import { HomeEditor } from '../components/home/HomeEditor'
-import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Segmented, StatusPill } from '../components/ui'
 import { AA, DEFAULT_APPEARANCE, FONT_LABELS, LOGO_TYPES, PAGE_BACKGROUND, PRESETS, contrastRatio, isHex, matchingPreset, readLogo } from '../lib/theme'
 
@@ -197,7 +196,7 @@ export function Settings() {
   const reset = useMutation({ mutationFn: api.resetAppearance, onSuccess: store })
   const fonts = useMemo(() => (Object.keys(FONT_LABELS) as FontChoice[]).map((f) => ({ value: f, label: FONT_LABELS[f] })), [])
 
-  if (!admin) return <Navigate to="/login" replace />
+  if (!admin) return <Navigate to="/organizer/login" replace />
 
   const set = <K extends keyof Appearance>(key: K, value: Appearance[K]) => setDraft({ ...current, [key]: value })
   const valid = isHex(current.accent_light) && isHex(current.accent_dark) && current.site_name.trim().length > 0
@@ -211,7 +210,6 @@ export function Settings() {
     <div className="flex flex-col gap-14">
     <form onSubmit={submit} className="flex flex-col gap-10">
       <div className="flex flex-col gap-2">
-        <BackLink>Home</BackLink>
         <PageTitle>Appearance</PageTitle>
         <p className="max-w-xl text-lg text-muted">Pick a look for this instance. Changes preview on this page and apply to everyone once saved.</p>
       </div>

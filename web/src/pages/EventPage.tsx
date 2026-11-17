@@ -95,6 +95,14 @@ function Registration({ event }: { event: EventInfo }) {
       </Panel>
     )
   }
+  if (event.registered && event.disqualified) {
+    return (
+      <Panel className="border-danger/50">
+        <p className="font-medium text-danger">You were disqualified from this event.</p>
+        <p className="text-sm text-muted">You are off the scoreboard and cannot play it any more. Ask an organizer if you think this is a mistake.</p>
+      </Panel>
+    )
+  }
   if (event.registered) {
     return (
       <Panel className="flex flex-wrap items-center justify-between gap-3">

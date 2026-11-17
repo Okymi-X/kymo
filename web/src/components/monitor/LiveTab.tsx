@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link2, Radio } from 'lucide-react'
+import { Link2, Radio, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { platform } from '../../api/platform'
 import type { AlertMarker, MonitorBucket, MonitorSeries } from '../../api/platformTypes'
-import { bucketLabel, findPeaks } from '../../lib/monitorCharts'
+import { bucketLabel, cropSeries, findPeaks, scaleWindow, windowOf, type Window } from '../../lib/monitorCharts'
 import { Heatmap } from '../charts/Heatmap'
 import { Spark } from '../charts/Spark'
 import { TimePlot, type PlotContext } from '../charts/TimePlot'
 import { Empty, Loading, Panel, Stat } from '../platform/bits'
-import { ErrorText, Select } from '../ui'
+import { Button, ErrorText, Select } from '../ui'
 
 const RANGES = [
   { minutes: 15, label: 'Last 15 minutes' },
@@ -101,19 +101,16 @@ function alertMarks(series: MonitorSeries, onAlert: (id: number) => void) {
     })
 }
 
-function Card({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Card({ title, className = '', children }: { title: string; className?: string; children: ReactNode }) {
   return (
-    <Panel className="flex min-w-0 flex-col gap-3">
-      <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {hint && <p className="text-xs text-muted">{hint}</p>}
-      </div>
+    <Panel className={`flex min-w-0 flex-col gap-3 ${className}`}>
+      <h3 className="text-sm font-semibold">{title}</h3>
       {children}
     </Panel>
   )
 }
 
-function StackedChart({ series, onInspect, onAlert }: { series: MonitorSeries; onInspect: (since: number, until: number) => void; onAlert: (id: number) => void }) {
+function StackedChart({ series, onInspect, onAlert, onZoom }: { series: MonitorSeries; onInspect: (since: number, until: number) => void; onAlert: (id: number) => void; onZoom: (a: number, b: number) => void }) {
   const { buckets, step } = series
   const totals = buckets.map((b) => b.total)
   const peaks = useMemo(() => findPeaks(totals), [totals])
@@ -126,6 +123,7 @@ function StackedChart({ series, onInspect, onAlert }: { series: MonitorSeries; o
         step={step}
         top={top}
         onPick={(i) => onInspect(buckets[i].t, buckets[i].t + step)}
+        onZoom={onZoom}
         tooltip={(i) => (
           <Tip t={buckets[i].t} step={step} rows={[['Requests', buckets[i].total], ...STACK.map((l): [string, ReactNode] => [l.label, l.value(buckets[i])])]} />
         )}
@@ -164,7 +162,7 @@ function StackedChart({ series, onInspect, onAlert }: { series: MonitorSeries; o
   )
 }
 
-function LineChart({ series, lines, label, onInspect }: { series: MonitorSeries; lines: Line[]; label: string; onInspect: (since: number, until: number) => void }) {
+function LineChart({ series, lines, label, onInspect, onZoom }: { series: MonitorSeries; lines: Line[]; label: string; onInspect: (since: number, until: number) => void; onZoom: (a: number, b: number) => void }) {
   const { buckets, step } = series
   const top = Math.max(1, ...buckets.flatMap((b) => lines.map((l) => l.value(b))))
   return (
@@ -175,6 +173,7 @@ function LineChart({ series, lines, label, onInspect }: { series: MonitorSeries;
         step={step}
         top={top}
         onPick={(i) => onInspect(buckets[i].t, buckets[i].t + step)}
+        onZoom={onZoom}
         tooltip={(i) => <Tip t={buckets[i].t} step={step} rows={lines.map((l): [string, ReactNode] => [l.label, l.value(buckets[i])])} />}
         marks={(c) =>
           lines.map((l) => (
@@ -218,12 +217,17 @@ function HotList({ title, rows, onPick }: { title: string; rows: { key: string; 
 }
 
 /** The default monitor view: what is happening right now. Everything refreshes every few seconds. */
-export function LiveTab({ onInspect, onAlert, onSubject }: { onInspect: (since: number, until: number) => void; onAlert: (id: number) => void; onSubject: (kind: 'ip' | 'user', key: string) => void }) {
+export function LiveTab({ onInspect, onAlert, onSubject, onFailures }: { onInspect: (since: number, until: number) => void; onAlert: (id: number) => void; onSubject: (kind: 'ip' | 'user', key: string) => void; onFailures: (minStatus: number, since: number, label: string) => void }) {
   const [minutes, setMinutes] = useState(60)
   const series = useQuery({ queryKey: ['monitor-series', minutes], queryFn: () => platform.monitorSeries(minutes), refetchInterval: 5000 })
   const hot = useQuery({ queryKey: ['monitor-hot'], queryFn: () => platform.monitorHot(5), refetchInterval: 5000 })
   const heat = useQuery({ queryKey: ['monitor-heat'], queryFn: platform.monitorHeat, refetchInterval: 60_000 })
-  const s = series.data
+  const [zoom, setZoom] = useState<Window | null>(null)
+  const full = series.data?.buckets.length ? { from: series.data.buckets[0].t, to: series.data.buckets[series.data.buckets.length - 1].t + series.data.step } : null
+  // The charts show the zoomed part of the range; the numbers above them follow.
+  const s = series.data && zoom ? cropSeries(series.data, zoom) : series.data
+  const zoomOn = (a: number, b: number) => s && setZoom(windowOf(s.buckets.map((x) => x.t), s.step, a, b))
+  const scale = (factor: number) => series.data && full && setZoom(scaleWindow(full, zoom, factor, series.data.step * 6))
   const updated = series.dataUpdatedAt ? new Date(series.dataUpdatedAt).toLocaleTimeString() : ''
   const totals = useMemo(() => {
     const b = s?.buckets ?? []
@@ -232,18 +236,38 @@ export function LiveTab({ onInspect, onAlert, onSubject }: { onInspect: (since: 
   }, [s])
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} aria-label="Time range">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Select
+          value={minutes}
+          onChange={(e) => {
+            setMinutes(Number(e.target.value))
+            setZoom(null)
+          }}
+          aria-label="Time range"
+        >
           {RANGES.map((r) => (
             <option key={r.minutes} value={r.minutes}>
               {r.label}
             </option>
           ))}
         </Select>
-        <span className="flex items-center gap-2 text-sm text-muted" aria-live="off">
-          <Radio size={15} aria-hidden="true" className="text-win" /> Live{updated && <span className="font-mono text-xs">updated {updated}</span>}
+        <div className="flex items-center gap-1" role="group" aria-label="Zoom">
+          <Button variant="ghost" onClick={() => scale(0.5)} aria-label="Zoom in" title="Zoom in" disabled={!s || s.buckets.length <= 6}>
+            <ZoomIn size={16} aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" onClick={() => scale(2)} aria-label="Zoom out" title="Zoom out" disabled={zoom === null}>
+            <ZoomOut size={16} aria-hidden="true" />
+          </Button>
+          {zoom && (
+            <Button variant="ghost" onClick={() => setZoom(null)}>
+              <RotateCcw size={14} aria-hidden="true" /> Reset
+            </Button>
+          )}
+        </div>
+        <span className="text-sm text-muted">{zoom && s ? `${bucketLabel(zoom.from, s.step)} to ${bucketLabel(zoom.to, s.step)}` : 'Drag on a chart to zoom'}</span>
+        <span className="ml-auto flex items-center gap-2 text-sm text-muted" aria-live="off">
+          <Radio size={15} aria-hidden="true" className="text-win" /> Live{updated && <span className="font-mono text-xs">{updated}</span>}
         </span>
-        <span className="text-xs text-muted">Click a bar or point to see the requests of that moment. Triangles mark alerts.</span>
       </div>
       <ErrorText error={series.error} />
       {series.isPending ? (
@@ -254,23 +278,34 @@ export function LiveTab({ onInspect, onAlert, onSubject }: { onInspect: (since: 
             <Stat label="Requests" value={totals.requests} />
             <Stat label="Failed sign ins" value={totals.failed} tone={totals.failed > 20 ? 'text-danger' : ''} />
             <Stat label="Rate limited" value={totals.throttled} />
-            <Stat label="Server errors" value={totals.errors} tone={totals.errors > 0 ? 'text-danger' : ''} />
+            {totals.errors > 0 ? (
+              <button
+                type="button"
+                className="rounded-card text-left transition-shadow hover:shadow-[var(--shadow-lift)] focus-visible:outline-2 focus-visible:outline-accent"
+                aria-label={`Server errors: ${totals.errors}. Show these requests`}
+                onClick={() => onFailures(500, Math.floor(Date.now() / 1000) - minutes * 60, `server errors in the ${RANGES.find((r) => r.minutes === minutes)?.label.toLowerCase() ?? 'range'}`)}
+              >
+                <Stat label="Server errors, show them" value={totals.errors} tone="text-danger" />
+              </button>
+            ) : (
+              <Stat label="Server errors" value={totals.errors} />
+            )}
           </div>
           {totals.requests === 0 ? (
             <Empty>No requests in this range yet.</Empty>
           ) : (
             <div className="grid gap-4 xl:grid-cols-2">
-              <Card title="Requests" hint="Stacked by what happened to them. A red dot marks an unusual peak.">
-                <StackedChart series={s} onInspect={onInspect} onAlert={onAlert} />
+              <Card title="Requests" className="xl:col-span-2">
+                <StackedChart series={s} onInspect={onInspect} onAlert={onAlert} onZoom={zoomOn} />
               </Card>
-              <Card title="What people do" hint="Sign ins, new accounts, flag submissions and instances started.">
-                <LineChart series={s} lines={ACTIVITY} label="Activity over time" onInspect={onInspect} />
+              <Card title="What people do">
+                <LineChart series={s} lines={ACTIVITY} label="Activity over time" onInspect={onInspect} onZoom={zoomOn} />
               </Card>
-              <Card title="Who is there" hint="Distinct signed in players and distinct addresses.">
-                <LineChart series={s} lines={PEOPLE} label="Players and addresses over time" onInspect={onInspect} />
+              <Card title="Who is there">
+                <LineChart series={s} lines={PEOPLE} label="Players and addresses over time" onInspect={onInspect} onZoom={zoomOn} />
               </Card>
-              <Card title="Response time" hint="Average and slowest answer, in milliseconds.">
-                <LineChart series={s} lines={SPEED} label="Response time over time" onInspect={onInspect} />
+              <Card title="Response time, ms" className="xl:col-span-2">
+                <LineChart series={s} lines={SPEED} label="Response time over time" onInspect={onInspect} onZoom={zoomOn} />
               </Card>
             </div>
           )}
@@ -280,7 +315,7 @@ export function LiveTab({ onInspect, onAlert, onSubject }: { onInspect: (since: 
         <HotList title="Busiest players, last 5 minutes" rows={hot.data?.players ?? []} onPick={(key) => onSubject('user', key)} />
         <HotList title="Busiest addresses, last 5 minutes" rows={hot.data?.addresses ?? []} onPick={(key) => onSubject('ip', key)} />
       </div>
-      <Card title="The week" hint="Requests per hour, to see when the platform is really used.">
+      <Card title="The week, requests per hour">
         {heat.data ? <Heatmap from={heat.data.from} hours={heat.data.hours} /> : <Loading />}
       </Card>
     </div>

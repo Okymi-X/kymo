@@ -110,7 +110,7 @@ export function DetectorSettings({ canEdit }: { canEdit: boolean }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="max-w-3xl text-sm text-muted">
-        Each detector counts one kind of behaviour. Reaching the alert level raises an alert for you to look at. Reaching the ban level bans a signed in player automatically, for the time set here. A visitor known only by address is never banned automatically, because an address can be a whole network. Staff are never counted.
+        The alert level raises an alert. The ban level bans a signed-in player for the time set. Visitors known only by address are never banned automatically; staff are never counted.
       </p>
       <ErrorText error={q.error} />
       <div className="grid gap-4 lg:grid-cols-2">

@@ -174,9 +174,72 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 
 ## Monitor: live graphs and attack alerts (2026-11-12)
 - [x] `kymo-monitor::detect` (pure): six detectors (scan, admin probe, attack strings, scanner tool, brute force, flood), per detector settings, percent decoding for double encoded payloads. 8 unit tests
-- [x] Migration 0034: `request_log` gets query, user agent and a staff flag; tables `detector` (the organizer's changes only) and `alert`
+- [x] Migration 0036: `request_log` gets query, user agent and a staff flag; tables `detector` (the organizer's changes only) and `alert`
 - [x] `monitor_alerts.rs`: `run_once` every 30 s (alerts, auto-ban of signed in players at the ban level, expiry of temporary player bans), series, hot lists, heat map; routes under `/admin/monitor`; 6 integration tests in `tests/alerts.rs`
 - [x] Web: Live and Alerts tabs on the Monitor page, SVG charts (no library), alert dialog, detection settings, badge in the account menu
 - [x] Fixed: a temporary ban of a player never lifted the account's banned flag
 - [ ] Players scanning the lab host from inside the VPN (needs lab host counters, separate step)
 - [ ] Not looked at in a browser; no Playwright spec for the new tabs
+
+## Organizer console, delivery-aware challenge editor, event readiness (2026-11-17)
+- [x] Fixed after the merge: two migrations were numbered 0034; the monitor one is now `0036_monitor_alerts.sql` (the deployed 0.4.0 order 0028 to 0034 is unchanged, 0035 flag sharing, 0036 monitor)
+- [x] Organizer door: `POST /admin/auth/login` (`routes/organizer.rs`, open in `gate.rs`): username + password for an account that is not a player, or an empty username for the organizer password. Wrong password, unknown name, banned and player account give the same 401; shares the IP throttle; every success is audited as `organizer_login`. Test in `tests/permissions.rs`
+- [x] Web: the console lives under `/organizer` with its own shell (`components/organizer/`), sign in page (`/organizer/login`: Account, Password, Referee token), guard (`RequireStaff`, a player is told so instead of looping), overview, and a menu built from `/permissions/mine`. Old addresses (`/admin/*`, `/monitor`, `/settings`, `/tokens`, `/login`) redirect (`lib/organizer.ts`). The player header has one "Organizer console" entry for staff. e2e specs got the new sign in steps (not run)
+- [x] Challenge editor split into `pages/admin/challenge/` (`draft.ts`, `DeliverySection`, `FlagRows`, `Extras`, `parts`). Delivery is chosen first: Flag only, Container (Docker or Podman), Virtual machine (OVA, qcow2, VMDK). A lab host's artifacts are listed with their runtime; a machine takes the manifest's CPU and memory; manifest flag names are suggested and a flag the manifest does not deliver is flagged. Pure rules in `lib/delivery.ts`
+- [x] `GET /admin/lab-choices` and `GET /admin/lab-choices/{id}/artifacts` (needs only ManageChallenges, no addresses or tokens); `ArtifactInfo` gained `cpu_millis`, `memory_mb`, `pids`, `flags`, `verifier`, `display`
+- [x] Event page tabs: Overview (state and "Before it goes live" checklist, `lib/readiness.ts`), Settings (details, scoreboard, rules), Challenges, Participants, Submissions, Infrastructure (host, network, flag sharing), Instances
+- [ ] Not looked at in a browser; no Playwright spec for the console, the delivery cards or the checklist
+- [ ] `InstanceHost` and `NetworkMode` still read `/admin/labs` (settings permission), so an event manager without it sees an empty host list
+
+## Audit round: leaks, monitor, event views (2026-11-17)
+- [x] Fixed: a signed in player could read a draft event's rules and summary (`/events/{slug}/rules`, `/public/events/{slug}`) and every page of a draft tournament (list, bracket, activity, calendar, update stream). One check, `auth::sees_drafts` (organizers and referees only); tests in `tests/gate.rs`, and `tests/api.rs` publishes its tournaments with `open_all` before reading as a player
+- [x] Fixed: with instances switched off, the player instance list answered 503 and every polling page raised the monitor's "Server errors". It answers an empty list now; starting an instance still says why it cannot
+- [x] Monitor: the request log has a `min_status` filter; the Server errors card opens the failing requests
+- [x] Events list: filter by Live, Upcoming, Drafts, Finished with search (`lib/eventFilter.ts`), live events first on the player's Events page too; the challenge table has a Type column (`challengeType`); a running event shows "Right now" instead of the go-live checklist; the console overview lists what needs attention (open alerts, unreachable lab hosts)
+- [x] Challenge editor: required fields stay quiet until Save was tried; machine hints no longer claim a manifest when none is known; a link to add a lab host
+- [x] Reviewed and found sound: flag matching (anchored linear time regex, constant time compare, format mismatch is not an attempt), home page HTML/CSS sanitizer (every payload tried was removed or refused), attachment downloads (attachment disposition, nosniff, cleaned names), CSV export (formula characters escaped), response headers (CSP, frame, nosniff), SQL (parameters only; the two `format!` queries use constant table names)
+- [ ] Coding challenges (submit code, run it against tests) do not exist. A judge executes untrusted code, so it needs its own sandbox design (no network, CPU/memory/time caps, one disposable container per run on a lab host); do not add it as a flag variant
+- [ ] Patch challenges are the Responder with a Verifier (scripts written by the organizer); there is no diff or patch upload
+- [ ] The demo data has no instance, multi-flag, dynamic-flag or Responder challenge (they need a container runtime), so those are covered by tests only
+
+## Dynamic flags for every delivery, coding judge (2026-11-17)
+- [x] Dynamic flags without an instance (migration 0037, `participant_flag`): a value is made for a participant the first time a template file is rendered for them and kept; checking (`flag_set::run_values`) and sharing detection (`owner_of_value`) read runs and participant flags together. The flag settings lock once any participant holds a flag
+- [x] Template files: a text attachment uploaded with `?template=true` has `{{flag}}` / `{{flag:name}}` replaced per player at download (`kymo_jeopardy::template`, pure, tested). Checked at upload: challenge must be dynamic, file UTF-8 under 1 MB, every named flag must exist, at least one token. `GET /admin/attachments/{id}/preview` shows it with made-up flags. Bundles carry the `template` flag
+- [x] Editor: dynamic mode for every delivery; a copy-ready template panel per delivery (flag-only file, container manifest and entrypoint, VM manifest with SSH delivery and command delivery, Responder verifier) in `lib/flagTemplates.ts`; go-live check blocks a dynamic, instance-less challenge with no template file
+- [ ] Multi-question (DFIR) challenges have no dynamic answers: each question's answer is static. A question answer that names a flag (`{{flag:name}}`) would need flag rows on a DFIR challenge, a change to `run_item` and the item editor
+- [x] Coding challenges (see below). Earlier note: `kymo-instances::oneshot` (`Job`, `JobRunner`, `FakeJobRunner`) and a hardened Docker runner (`DockerRuntime::run_job`: no network, read only root, all capabilities dropped, no-new-privileges, memory/CPU/pids/file size/open files limits, tmpfs, killed on time or output limit, always removed, orphans reaped by label) exist and compile; the judge itself (manifest `judge` block, `kymo-lab` endpoint, challenge kind `code`, player and editor views) is not written yet
+
+## Coding challenges, lab host clarity, views (2026-11-17, later)
+- [x] Coding challenges end to end: `kymo-instances::oneshot` + `DockerRuntime::run_job` (hardened one-off container; the output stream is dropped before kill or removal, or the daemon stalls), `kymo-lab::judge` (manifest `judge` block, compare modes, compile then run, a resource failure ends the run), `POST /v1/judge` on the lab host, `code.rs` and `routes/code.rs` on the platform (config, one run at a time per participant, compile errors cost no attempt, hidden tests never leave the server), challenge kind `code` (stored as `flag` plus a `challenge_code` row because the `kind` column has a CHECK), bundles carry the tests, publishing needs tests, the flag endpoint refuses a coding challenge (its placeholder flag must never solve it)
+- [x] Tested for real: `crates/kymo-lab/tests/judge_docker.rs` (fork bomb, memory hog, endless loop, output flood, no network, read only filesystem, runs as nobody, no leftover container) and a live lab host with a Python and a C++ language, a real player run and a real compile error
+- [x] Lab host clarity: README table "What each kind of challenge needs", Coding challenges section, `lab/judge/*/Dockerfile`, `deploy/lab/manifests/judge-*.json.example` (checked by `tests/examples.rs`), `kymo-lab check` lists languages and warns about a manifest whose image is not on the machine, the Lab hosts page lists what each challenge type needs and marks language manifests; a language manifest needs no port
+- [x] Views: one `EventCard` for the player list, home, scoreboards and the organizer list; event lifecycle stepper with ordered actions; ladder with the ranking first; event leaderboard with a podium, progress bars, your row marked and the challenge grid on request; charts scale their height with their width (`chartHeight`)
+- [ ] Responder challenges were not changed in this round
+- [ ] Coding challenges: no local judge on the platform server (a lab host is required), no partial credit, no custom checker or interactive problems, languages are per image
+- [ ] Not looked at in a browser: the coding panel for a player, the editor's Coding section, the Lab hosts page help, the C++ run in the UI (all exercised through the API and unit tests)
+- [x] Monitor Live tab: charts drawn at real pixel size (taller, readable text), whole-number axis ticks (`countTicks`), drag on any chart to zoom (shared window across the charts, zoom in, out, reset, the stat tiles follow it; `cropSeries`, `scaleWindow`, `windowOf` in `lib/monitorCharts.ts`), Requests and Response time at full width, the explanatory sentences removed
+
+## Punishing cheaters, audit (2026-11-17)
+- [x] A ladder of sanctions for flag sharing: warn, then disqualify from the event (`event_participant.disqualified_at`, migration 0039: off the scoreboard, their solves no longer count for anyone's dynamic points, no more submissions, the account is untouched; a team is disqualified as a whole), then ban the account. The event's rule has a new option "Warn, then disqualify from the event" (`SharingAction::Disqualify`)
+- [x] Organizer Integrity tab on a Jeopardy event: players with strikes, where, standing (Warned, Disqualified, Banned); Forgive, Disqualify (with a reason), Reinstate, Ban account. API `GET /admin/events/{id}/integrity`, `POST /admin/events/{id}/disqualify`, `DELETE .../disqualify/{user}`, `DELETE .../strikes/{user}`, all behind the moderation permission and audited
+- [x] Audit tab: readable action names with a category marker (`lib/audit.ts`), targets in words; fixed a Rust debug string ("Some(1)") written as the detail of lab host changes
+- [x] Copy detection for coding challenges: `kymo_jeopardy::similarity` (comments, spacing, names, numbers and strings ignored; runs of five tokens compared; programs under 40 tokens never compared), run when a solution is accepted against the latest accepted solution of every other participant (migration 0040, `code_match`); the Integrity tab lists pairs at 85% or more, with Compare (both sources side by side) and Dismiss
+- [x] A disqualified player is told on the event page (`disqualified` on `GET /events/{slug}`)
+
+## Responder review (2026-11-17)
+- Reviewed and found sound: the flag is held by the lab host and released only when every check passes, definitions are read only and validated at start, players never see script output, the organizer has the Verifier log, a Responder takes two private addresses, the Verifier page is themed and accessible
+- [x] Per-check `hint` in the Verifier definition (shown only while a step is failing, validated, in the schema, the template and the design doc); the Verifier page shows "N of M fixed" with a progress bar and the hint
+- [x] Responder defaults to a per-player flag (a static flag is the same for everyone, so the first player to pass could share it): `applyResponder` makes it dynamic on the accepted prefix and suffix, the editor warns when it is static, and the flag box says "Paste the flag the Verifier shows"
+- [x] Go-live check: a published Responder needs the event on the private VPN with a lab host, instead of failing when the first player presses Start
+- [x] Replaced a static string-interning cache in the Verifier session with plain strings
+- [ ] An organizer cannot try a Responder as a player from the console; `kymo-lab verifier test` against a running machine is the only way to rehearse the checks
+- [ ] A hint is all or nothing; there is no progressive reveal
+
+## Sandbox escape review (2026-11-17)
+- Probed from inside real submissions and a Verifier-style container: no mount, namespace, bpf, ptrace or kernel-module syscall works; /proc/sys, /sys and cgroups are read-only; no device nodes; /tmp is noexec; no host processes, Docker socket or setuid binaries; only `lo` (judge) and no host gateway reach (Verifier network). Memory, fork, disk, fd and output floods are all contained with the right verdict and no container left behind
+- [x] Judge and Verifier: private IPC (judge has none), small /dev/shm, `/tmp` now `noexec,nosuid,nodev` on the Verifier too
+- [x] Live test `the_program_is_isolated_from_the_host_and_cannot_run_what_it_writes`; the leftover-container test waits for the label to drain instead of racing the other tests
+- [x] Judge seccomp: Docker's default profile minus `ptrace`, `process_vm_readv`, `process_vm_writev` and the odd `personality` values (`crates/kymo-instances/src/profiles/judge-seccomp.json`); the live test proves they are denied
+- [x] `KYMO_LAB_JUDGE_RUNTIME` runs submissions under gVisor `runsc` or Kata instead of sharing the host kernel (name validated; off by default; not exercised here, no such runtime installed)
+- [x] Mount path: the default judge root is generic and the README says to keep it so; copying files in instead of bind mounting was rejected, because extracting a tar produced by an untrusted compiler would open a worse hole than the path leak
+

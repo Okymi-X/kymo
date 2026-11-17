@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde_json::{Value, json};
 
-use crate::auth::{Admin, Require, needs};
+use crate::auth::{Admin, Caller, MaybeCaller, Require, needs, sees_drafts};
 use crate::error::ApiError;
 use crate::event_store;
 use crate::home::{self, Home};
@@ -46,12 +46,26 @@ pub async fn reset_home(_: Admin, State(state): State<AppState>) -> Result<Json<
     Ok(Json(Home::default()))
 }
 
+/// The event with this slug, or 404 for a draft when the caller may not see drafts.
+async fn visible_event(
+    state: &AppState,
+    caller: &Option<Caller>,
+    slug: &str,
+) -> Result<event_store::EventRow, ApiError> {
+    let row = event_store::by_slug(&state.pool, slug).await?;
+    if row.stored_state()? == kymo_core::EventState::Draft && !sees_drafts(state, caller).await? {
+        return Err(ApiError::NotFound);
+    }
+    Ok(row)
+}
+
 /// The rules of an event, for a signed in player. Empty text when it has none.
 pub async fn rules(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Rules>, ApiError> {
-    let event = event_store::by_slug(&state.pool, &slug).await?;
+    let event = visible_event(&state, &caller, &slug).await?;
     Ok(Json(rules::get(&state.pool, event.id).await?))
 }
 
@@ -92,10 +106,11 @@ pub async fn public_scoreboards(State(state): State<AppState>) -> Result<Json<Va
 /// visitors reach it for an event whose scoreboard is public; a signed in visitor gets it for
 /// any event they can see, and nothing in it goes beyond what the event list already shows.
 pub async fn public_event(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = event_store::by_slug(&state.pool, &slug).await?;
+    let row = visible_event(&state, &caller, &slug).await?;
     let out = event_store::EventOut::new(row, state.now())?;
     Ok(Json(json!({
         "name": out.name,

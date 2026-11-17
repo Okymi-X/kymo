@@ -111,10 +111,10 @@ export function LabDialog({ lab, onClose }: { lab?: LabHost; onClose: () => void
           <Field label="Token" hint={lab ? 'Leave empty to keep the saved token. It is never shown again.' : 'The secret printed by the installer, kept in the lab host settings file.'}>
             <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} required={!lab} autoComplete="new-password" className="font-mono" />
           </Field>
-          <Field label="Certificate fingerprint" hint='Printed by the installer, or by "kymo-lab fingerprint" on the lab host. Empty only for a certificate from a certificate authority, or plain http on a trusted network.'>
+          <Field label="Certificate fingerprint" hint='From the installer or "kymo-lab fingerprint". Leave empty only for a CA certificate or trusted plain http.'>
             <Input value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="off" spellCheck={false} placeholder="AB:CD:EF:…" className="font-mono text-xs" />
           </Field>
-          <Field label="Public address" hint="What players connect to for their instances: the lab host's public name or IP address. Its instance ports must be reachable from the internet.">
+          <Field label="Public address" hint="The name or IP players connect to. Its instance ports must be reachable.">
             <Input value={host} onChange={(e) => setHost(e.target.value)} required autoComplete="off" placeholder="203.0.113.7" className="font-mono" />
           </Field>
           {url.trim().startsWith('http://') && <p className="text-sm text-danger">This connection is not encrypted: the token and instance details cross the network in clear text. Use it only on a private network.</p>}

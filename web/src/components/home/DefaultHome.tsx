@@ -6,9 +6,9 @@ import { platform } from '../../api/platform'
 import { useEvents } from '../../api/platformHooks'
 import type { HomeContent } from '../../api/platformTypes'
 import { scoreboardPath } from '../../lib/home'
-import { stateLabel } from '../../lib/platform'
-import { EventCard } from '../platform/EventCard'
-import { Panel, Pill } from '../platform/bits'
+import type { EventState } from '../../api/platformTypes'
+import { EventCard, eventLink } from '../platform/EventCard'
+import { Panel } from '../platform/bits'
 import { buttonClass } from '../ui'
 
 function Banner({ text }: { text: string }) {
@@ -58,10 +58,10 @@ function YourEvents() {
           All events
         </Link>
       </div>
-      <ul className="grid gap-4 sm:grid-cols-2">
+      <ul className="grid auto-rows-fr gap-4 sm:grid-cols-2">
         {events.slice(0, 4).map((e) => (
           <li key={e.id} className="min-w-0">
-            <EventCard event={e} />
+            <EventCard event={e} to={eventLink(e)} />
           </li>
         ))}
       </ul>
@@ -77,19 +77,10 @@ function PublicScoreboards({ signedIn }: { signedIn: boolean }) {
   return (
     <section aria-label="Public scoreboards" className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Scoreboards</h2>
-      <ul className="grid gap-3 sm:grid-cols-2">
+      <ul className="grid auto-rows-fr gap-4 sm:grid-cols-2">
         {list.map((e) => (
           <li key={e.slug} className="min-w-0">
-            <Link
-              to={scoreboardPath(e.kind, e.slug, signedIn)}
-              className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3 transition-shadow hover:shadow-[var(--shadow-lift)]"
-            >
-              <span className="min-w-0">
-                <span className="block truncate font-medium">{e.name}</span>
-                <span className="text-sm text-muted">{e.kind === 'tournament' ? 'Tournament' : 'Jeopardy CTF'}</span>
-              </span>
-              <Pill>{stateLabel[e.effective_state as keyof typeof stateLabel] ?? e.effective_state}</Pill>
-            </Link>
+            <EventCard event={{ ...e, effective_state: e.effective_state as EventState }} to={scoreboardPath(e.kind, e.slug, signedIn)} footer={<span className="text-sm text-accent">View scoreboard</span>} />
           </li>
         ))}
       </ul>

@@ -215,6 +215,29 @@ pub struct ArtifactInfo {
     /// What is wrong or in progress, in words.
     #[serde(default)]
     pub note: Option<String>,
+    /// What the manifest gives an instance. The lab host runs the smaller of this and what the
+    /// platform asks, so the platform should ask for exactly this (a machine in particular).
+    #[serde(default)]
+    pub cpu_millis: Option<u32>,
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    #[serde(default)]
+    pub pids: Option<u32>,
+    /// The flag names the manifest delivers (`inject`). A dynamic flag of a challenge must use
+    /// one of these names, or the lab host has nowhere to put it.
+    #[serde(default)]
+    pub flags: Vec<String>,
+    /// True when the manifest starts a Verifier next to each instance.
+    #[serde(default)]
+    pub verifier: bool,
+    /// How players are told to reach it: `machine` or `service`.
+    #[serde(default)]
+    pub display: Option<String>,
+    /// True when the image is a programming language for coding challenges.
+    #[serde(default)]
+    pub judge: bool,
+    #[serde(default)]
+    pub judge_label: Option<String>,
 }
 
 fn yes() -> bool {

@@ -156,6 +156,9 @@ pub struct AdminChallenge {
     solves: i64,
     hints: Vec<HintRow>,
     attachments: Vec<AttachmentMeta>,
+    /// The tests, languages and limits of a coding challenge, hidden tests included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<crate::code::CodeConfig>,
 }
 
 fn admin_out(
@@ -196,6 +199,7 @@ fn admin_out(
         solves,
         hints,
         attachments,
+        code: None,
     }
 }
 
@@ -205,7 +209,10 @@ async fn one(state: &AppState, row: ChallengeRow) -> Result<AdminChallenge, ApiE
     let attachments = store::attachments_of_challenge(&state.pool, row.id).await?;
     let solves = totals.get(&row.id).copied().unwrap_or(0);
     let flags = store::flag_rows(&state.pool, row.id).await?;
-    Ok(admin_out(row, solves, hints, attachments, flags))
+    let code = crate::code::config_of(&state.pool, row.id).await?;
+    let mut out = admin_out(row, solves, hints, attachments, flags);
+    out.code = code;
+    Ok(out)
 }
 
 pub async fn list_challenges(
@@ -218,6 +225,7 @@ pub async fn list_challenges(
     let hints = store::hints_of_event(&state.pool, event_id).await?;
     let attachments = store::attachments_of_event(&state.pool, event_id).await?;
     let all_flags = store::flag_rows_of_event(&state.pool, event_id).await?;
+    let mut codes = crate::code::configs_of_event(&state.pool, event_id).await?;
     let list = store::challenges(&state.pool, event_id)
         .await?
         .into_iter()
@@ -238,7 +246,10 @@ pub async fn list_challenges(
                 .filter(|f| f.challenge_id == row.id)
                 .cloned()
                 .collect();
-            admin_out(row, solves, own_hints, own_files, own_flags)
+            let code = codes.remove(&row.id);
+            let mut out = admin_out(row, solves, own_hints, own_files, own_flags);
+            out.code = code;
+            out
         })
         .collect();
     Ok(Json(list))
@@ -301,6 +312,11 @@ fn check_tournament_rules(
     if kind == "dfir" && requires_instance {
         return Err(bad("a DFIR challenge cannot start an instance"));
     }
+    if kind == "code" && (tournament || requires_instance) {
+        return Err(bad(
+            "a coding challenge is for Jeopardy events and starts no instance",
+        ));
+    }
     if tournament && !matches!(scoring, Scoring::Static { .. }) {
         return Err(bad(
             "tournament challenges use fixed points, because the match score is the points a side earned",
@@ -330,7 +346,11 @@ pub async fn create_challenge(
         "dfir" => FlagSpec::Static {
             value: "dfir".into(),
         },
-        _ => return Err(bad("the type is flag or dfir")),
+        // The answer is a passing run, not a flag: the stored flag is never compared.
+        "code" => FlagSpec::Static {
+            value: "code".into(),
+        },
+        _ => return Err(bad("the type is flag, dfir or code")),
     };
     check_tournament_rules(&event, kind, &body.scoring, body.requires_instance)?;
     let fields = ChallengeFields {
@@ -354,6 +374,10 @@ pub async fn create_challenge(
     set.validate(&fields, event.kind == "tournament")?;
     let id = store::challenge_insert(&state.pool, event_id, &fields, state.now()).await?;
     store::apply_flag_set(&state.pool, id, &set).await?;
+    if kind == "code" {
+        // Marks it a coding challenge at once, so its placeholder flag is never taken for a real one.
+        crate::code::mark(&state.pool, id).await?;
+    }
     let row = store::challenge_by_id(&state.pool, id).await?;
     Ok((StatusCode::CREATED, Json(one(&state, row).await?)))
 }
@@ -491,6 +515,11 @@ pub async fn publish(
         kymo_duel::check_items(total, &points)
             .map_err(|e| ApiError::Conflict(format!("fix the questions before publishing: {e}")))?;
     }
+    if row.kind == "code" && crate::code::config_of(&state.pool, id).await?.is_none() {
+        return Err(ApiError::Conflict(
+            "set the languages and tests before publishing".into(),
+        ));
+    }
     move_to(&state, id, "published").await
 }
 
@@ -614,6 +643,8 @@ pub async fn delete_hint(
 #[derive(Deserialize)]
 pub struct UploadQuery {
     name: Option<String>,
+    /// A text file whose `{{flag}}` tokens each downloader gets filled in.
+    template: Option<bool>,
 }
 
 /// Uploads a file as the raw request body (`?name=` and Content-Type say what it is) or as
@@ -651,6 +682,10 @@ pub async fn upload_attachment(
     if data.len() > MAX_ATTACHMENT {
         return Err(bad("attachments are at most 10 MB"));
     }
+    let template = query.template.unwrap_or(false);
+    if template {
+        check_template(&state, challenge_id, &data).await?;
+    }
     let existing = store::attachments_of_challenge(&state.pool, challenge_id).await?;
     if existing.len() >= MAX_ATTACHMENTS_PER_CHALLENGE {
         return Err(ApiError::Conflict(
@@ -663,9 +698,80 @@ pub async fn upload_attachment(
         &store::clean_filename(&name),
         &store::clean_mime(&mime),
         &data,
+        template,
     )
     .await?;
     Ok((StatusCode::CREATED, Json(meta)))
+}
+
+/// A template file must be text, small, and belong to a challenge with dynamic flags; and every
+/// `{{flag:name}}` in it must be a flag the challenge has, so a typo is found now, not by a player.
+async fn check_template(state: &AppState, challenge_id: i64, data: &[u8]) -> Result<(), ApiError> {
+    let challenge = store::challenge_by_id(&state.pool, challenge_id).await?;
+    if challenge.kind != "flag" || challenge.flag_mode != "dynamic" {
+        return Err(bad(
+            "a template file needs a challenge with dynamic flags: set the flag mode to dynamic first",
+        ));
+    }
+    if data.len() > kymo_jeopardy::template::MAX_TEMPLATE_BYTES {
+        return Err(bad("a template file is at most 1 MB of text"));
+    }
+    let text = std::str::from_utf8(data).map_err(|_| {
+        bad("a template file must be text (UTF-8); a binary file cannot hold a flag token")
+    })?;
+    let names: Vec<String> = store::flag_rows(&state.pool, challenge_id)
+        .await?
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
+    let missing = kymo_jeopardy::template::unknown_names(text, &names);
+    if !missing.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "the file uses {} but the challenge has no flag with that name",
+            missing.join(", ")
+        )));
+    }
+    if kymo_jeopardy::template::tokens(text).is_empty() {
+        return Err(bad(
+            "the file has no {{flag}} or {{flag:name}} token, so every player would get the same file",
+        ));
+    }
+    Ok(())
+}
+
+/// What a player would get from a template file, with made-up flags, for the author to check.
+pub async fn preview_attachment(
+    _: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let meta = store::attachment_meta(&state.pool, id).await?;
+    if !meta.template {
+        return Err(ApiError::NotFound);
+    }
+    let data = store::attachment_data(&state.pool, id).await?;
+    let text = String::from_utf8_lossy(&data).into_owned();
+    let values: Vec<(String, String)> = store::flag_rows(&state.pool, meta.challenge_id)
+        .await?
+        .into_iter()
+        .map(|f| {
+            let len =
+                usize::try_from(f.random_len).unwrap_or(kymo_jeopardy::dynamic::DEFAULT_RANDOM_LEN);
+            let sample =
+                kymo_jeopardy::dynamic::generate(&f.value, &f.closing, len, &vec![0xab; len]);
+            (f.name, sample)
+        })
+        .collect();
+    let body = kymo_jeopardy::template::render(&text, &values);
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response())
 }
 
 pub async fn delete_attachment(

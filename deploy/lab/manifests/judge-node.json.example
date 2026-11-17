@@ -1,0 +1,9 @@
+{
+  "artifact": "localhost/kymo-judge/node:1",
+  "runtime": "docker",
+  "judge": {
+    "label": "JavaScript (Node 22)",
+    "file": "main.js",
+    "run": ["node", "main.js"]
+  }
+}

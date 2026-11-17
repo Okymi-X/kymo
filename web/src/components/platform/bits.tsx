@@ -165,7 +165,7 @@ export function DataTable({ caption, head, children }: { caption: string; head: 
   )
 }
 
-export const TD = 'border-b border-line px-4 py-3 align-top last:border-b-0'
+export const TD = 'border-b border-line px-4 py-3 align-top [tr:last-child_&]:border-b-0'
 
 export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (

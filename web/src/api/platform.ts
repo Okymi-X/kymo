@@ -43,6 +43,14 @@ import type {
   RateRuleBody,
   Role,
   Scoreboard,
+  CodeConfig,
+  CodeMatch,
+  CodeMatchDetail,
+  IntegrityPlayer,
+  CodeResult,
+  LabCatalog,
+  LabChoice,
+  OrganizerSession,
   SessionOut,
   LabBody,
   LabCheck,
@@ -110,6 +118,17 @@ export async function fetchImage(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob())
 }
 
+/** A plain text answer, such as the organizer's preview of a template file. */
+async function fetchText(path: string): Promise<string> {
+  const token = session.token()
+  const res = await fetch(BASE + path, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null)
+    throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? 'Could not load the preview')
+  }
+  return res.text()
+}
+
 const ev = (slug: string) => `/events/${enc(slug)}`
 const ch = (slug: string, id: number) => `${ev(slug)}/challenges/${id}`
 
@@ -118,6 +137,7 @@ export const platform = {
   signUpsOpen: () => request<{ open: boolean; contact: string }>('GET', '/registration'),
   register: (username: string, password: string, email?: string) =>
     request<SessionOut>('POST', '/auth/register', { username, password, ...(email ? { email } : {}) }),
+  organizerLogin: (username: string, password: string) => request<OrganizerSession>('POST', '/admin/auth/login', { username, password }),
   playerLogin: (username: string, password: string) => request<SessionOut>('POST', '/auth/player-login', { username, password }),
   me: () => request<Me>('GET', '/me'),
   updateMe: (body: { display_name?: string; bio?: string; current_password?: string; new_password?: string }) =>
@@ -132,6 +152,16 @@ export const platform = {
   // playing
   challenges: (slug: string) => request<ChallengeList>('GET', `${ev(slug)}/challenges`),
   submitItem: (slug: string, id: number, item: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/items/${item}/submit`, { flag }),
+  integrity: (event: number) => request<{ players: IntegrityPlayer[] }>('GET', `/admin/events/${event}/integrity`),
+  disqualify: (event: number, userId: number, reason: string) => request<void>('POST', `/admin/events/${event}/disqualify`, { user_id: userId, reason }),
+  reinstate: (event: number, userId: number) => request<void>('DELETE', `/admin/events/${event}/disqualify/${userId}`),
+  forgiveStrikes: (event: number, userId: number) => request<void>('DELETE', `/admin/events/${event}/strikes/${userId}`),
+  codeMatches: (event: number) => request<{ matches: CodeMatch[] }>('GET', `/admin/events/${event}/code-matches`),
+  codeMatch: (id: number) => request<CodeMatchDetail>('GET', `/admin/code-matches/${id}`),
+  dismissCodeMatch: (id: number) => request<void>('POST', `/admin/code-matches/${id}/dismiss`),
+  runCode: (slug: string, id: number, language: string, source: string) => request<CodeResult>('POST', `${ch(slug, id)}/code`, { language, source }),
+  putCode: (id: number, config: CodeConfig) => request<CodeConfig>('PUT', `/admin/challenges/${id}/code`, config),
+  testCode: (id: number, language: string, source: string) => request<CodeResult>('POST', `/admin/challenges/${id}/code/test`, { language, source }),
   submit: (slug: string, id: number, flag: string) => request<SubmitResult>('POST', `${ch(slug, id)}/submit`, { flag }),
   unlockHint: (slug: string, id: number, hint: number) => request<HintUnlock>('POST', `${ch(slug, id)}/hints/${hint}/unlock`),
   download: (slug: string, id: number, attachment: number, name: string) =>
@@ -158,6 +188,8 @@ export const platform = {
   myInstance: () => request<MyInstance>('GET', '/me/instance'),
   vpnProfile: (labHost: number | null = null) => downloadFile(labHost === null ? '/vpn/profile' : `/vpn/profile?lab_host=${labHost}`, 'kymo.ovpn', 'POST'),
   labs: () => request<{ labs: LabHost[] }>('GET', '/admin/labs'),
+  labChoices: () => request<{ labs: LabChoice[] }>('GET', '/admin/lab-choices'),
+  labCatalog: (id: number) => request<LabCatalog>('GET', `/admin/lab-choices/${id}/artifacts`),
   createLab: (body: LabBody) => request<{ lab: LabHost; check: LabCheck }>('POST', '/admin/labs', body),
   updateLab: (id: number, body: LabBody) => request<{ lab: LabHost }>('PUT', `/admin/labs/${id}`, body),
   deleteLab: (id: number) => request<void>('DELETE', `/admin/labs/${id}`),
@@ -207,16 +239,17 @@ export const platform = {
   addHint: (challenge: number, content: string, cost: number) =>
     request<unknown>('POST', `/admin/challenges/${challenge}/hints`, { content, cost }),
   deleteHint: (id: number) => request<void>('DELETE', `/admin/hints/${id}`),
-  uploadAttachment: async (challenge: number, file: File) => {
+  uploadAttachment: async (challenge: number, file: File, template = false) => {
     const data = new Uint8Array(await file.arrayBuffer())
     let binary = ''
     for (const byte of data) binary += String.fromCharCode(byte)
-    return request<unknown>('POST', `/admin/challenges/${challenge}/attachments`, {
+    return request<unknown>('POST', `/admin/challenges/${challenge}/attachments${template ? '?template=true' : ''}`, {
       name: file.name,
       mime: file.type || 'application/octet-stream',
       data_base64: btoa(binary),
     })
   },
+  previewAttachment: (id: number) => fetchText(`/admin/attachments/${id}/preview`),
   deleteAttachment: (id: number) => request<void>('DELETE', `/admin/attachments/${id}`),
   jeopardySettings: (id: number) => request<JeopardySettings>('GET', `/admin/events/${id}/jeopardy`),
   saveJeopardySettings: (id: number, body: JeopardySettings) => request<JeopardySettings>('PUT', `/admin/events/${id}/jeopardy`, body),
@@ -264,7 +297,7 @@ export const platform = {
   setRegistrationOpen: (open: boolean) => request<{ open: boolean }>('PUT', '/admin/registration', { open }),
 
   // monitor
-  requests: (params: { page?: number; ip?: string; user_id?: number; route?: string; status?: number; since?: number; until?: number }) =>
+  requests: (params: { page?: number; ip?: string; user_id?: number; route?: string; status?: number; min_status?: number; since?: number; until?: number }) =>
     request<LogPage>('GET', `/admin/monitor/requests${query({ per_page: 50, ...params })}`),
   monitorSeries: (minutes: number) => request<MonitorSeries>('GET', `/admin/monitor/series${query({ minutes })}`),
   monitorHot: (minutes = 5) => request<HotLists>('GET', `/admin/monitor/hot${query({ minutes })}`),

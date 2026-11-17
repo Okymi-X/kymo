@@ -3,6 +3,7 @@ pub mod auth;
 pub mod calendar;
 pub mod challenge_store;
 pub mod clock;
+pub mod code;
 pub mod db;
 pub mod demo;
 pub mod demo_platform;

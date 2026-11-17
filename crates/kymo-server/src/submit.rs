@@ -19,6 +19,8 @@ pub struct Play {
     pub event: EventRow,
     pub scorer: Scorer,
     pub effective: EventState,
+    /// An organizer removed this participant from the event.
+    pub disqualified: bool,
 }
 
 /// Resolves the event by slug and the caller's scoring participant. Drafts and other event
@@ -30,10 +32,12 @@ pub async fn play_context(state: &AppState, slug: &str, user_id: i64) -> Result<
     }
     let scorer = jeopardy_store::scorer_of(&state.pool, &event, user_id).await?;
     let effective = event.effective_state(state.now())?;
+    let disqualified = jeopardy_store::is_disqualified(&state.pool, event.id, scorer).await?;
     Ok(Play {
         event,
         scorer,
         effective,
+        disqualified,
     })
 }
 
@@ -53,10 +57,12 @@ pub async fn play_context_any(
     }
     let scorer = jeopardy_store::scorer_of(&state.pool, &event, user_id).await?;
     let effective = event.effective_state(state.now())?;
+    let disqualified = jeopardy_store::is_disqualified(&state.pool, event.id, scorer).await?;
     Ok(Play {
         event,
         scorer,
         effective,
+        disqualified,
     })
 }
 
@@ -84,6 +90,9 @@ pub fn released(row: &ChallengeRow, now: i64) -> Result<(), ApiError> {
 
 /// Whether the challenge accepts submissions or hint purchases right now.
 pub fn open_for_play(play: &Play, row: &ChallengeRow, now: i64) -> Result<(), ApiError> {
+    if play.disqualified {
+        return Err(ApiError::Disqualified);
+    }
     can_submit(play.effective, Some(row.window()), now)
         .map_err(|denied| ApiError::Conflict(denied.message().into()))
 }
@@ -125,6 +134,13 @@ pub async fn run(
     if challenge.kind == "dfir" {
         return Err(ApiError::BadRequest(
             "this challenge is answered question by question".into(),
+        ));
+    }
+    // A coding challenge keeps a placeholder flag: its answer is a passing run, so the flag
+    // endpoint must never be a way to solve it.
+    if challenge.kind == "code" {
+        return Err(ApiError::BadRequest(
+            "this challenge is answered by running code".into(),
         ));
     }
     let now = state.now();

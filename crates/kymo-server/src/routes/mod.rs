@@ -1,12 +1,15 @@
 pub(crate) mod admin;
 mod admin_challenges;
 mod challenges;
+mod code;
 mod duel;
 mod events;
 mod instances;
+mod integrity;
 mod labs;
 mod monitor;
 mod ops;
+mod organizer;
 mod permissions;
 mod players;
 mod public;
@@ -38,6 +41,7 @@ pub fn router(state: AppState) -> Router {
         .route("/registration", get(players::registration_status))
         .route("/auth/register", post(players::register))
         .route("/auth/player-login", post(players::player_login))
+        .route("/admin/auth/login", post(organizer::login))
         .route("/me", get(players::me).put(players::update_me))
         .route("/events", get(events::list))
         .route("/events/{slug}", get(events::show))
@@ -74,6 +78,25 @@ pub fn router(state: AppState) -> Router {
             delete(events::remove_participant),
         )
         .route("/admin/events/{id}/candidates", get(events::candidates))
+        .route("/admin/events/{id}/integrity", get(integrity::list))
+        .route(
+            "/admin/events/{id}/code-matches",
+            get(integrity::code_matches),
+        )
+        .route("/admin/code-matches/{id}", get(integrity::code_match))
+        .route(
+            "/admin/code-matches/{id}/dismiss",
+            post(integrity::dismiss_code_match),
+        )
+        .route("/admin/events/{id}/disqualify", post(integrity::disqualify))
+        .route(
+            "/admin/events/{id}/disqualify/{user_id}",
+            delete(integrity::reinstate),
+        )
+        .route(
+            "/admin/events/{id}/strikes/{user_id}",
+            delete(integrity::forgive),
+        )
         .route(
             "/admin/users",
             get(players::list_users).post(players::create_user),
@@ -143,6 +166,9 @@ pub fn router(state: AppState) -> Router {
             "/events/{slug}/challenges/{id}/hints/{hint_id}/unlock",
             post(challenges::unlock_hint),
         )
+        .route("/events/{slug}/challenges/{id}/code", post(code::run))
+        .route("/admin/challenges/{id}/code", put(code::put_config))
+        .route("/admin/challenges/{id}/code/test", post(code::test_run))
         .route(
             "/events/{slug}/challenges/{id}/attachments/{attachment_id}",
             get(challenges::download),
@@ -173,6 +199,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/labs", get(labs::list).post(labs::create))
         .route("/admin/labs/{id}", put(labs::update).delete(labs::delete))
         .route("/admin/labs/{id}/test", post(labs::test))
+        .route("/admin/lab-choices", get(labs::choices))
+        .route("/admin/lab-choices/{id}/artifacts", get(labs::artifacts))
         .route("/admin/labs/{id}/instances", get(labs::instances))
         .route("/admin/labs/{id}/reconcile", post(labs::reconcile))
         .route(
@@ -290,6 +318,10 @@ pub fn router(state: AppState) -> Router {
             "/admin/challenges/{id}/attachments",
             post(admin_challenges::upload_attachment)
                 .layer(DefaultBodyLimit::max(admin_challenges::UPLOAD_BODY_LIMIT)),
+        )
+        .route(
+            "/admin/attachments/{id}/preview",
+            get(admin_challenges::preview_attachment),
         )
         .route(
             "/admin/attachments/{id}",

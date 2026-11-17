@@ -41,7 +41,7 @@ export function TournamentAdmin({ t }: { t: Tournament }) {
       }),
     onSuccess: (copy) => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
-      if (copy.event_id !== null) navigate(`/admin/events/${copy.event_id}?view=tournament`)
+      if (copy.event_id !== null) navigate(`/organizer/events/${copy.event_id}?view=tournament`)
     },
   })
   const [color, setColor] = useState(t.accent ?? '#0a6fe0')
@@ -66,7 +66,7 @@ export function TournamentAdmin({ t }: { t: Tournament }) {
     mutationFn: () => api.remove(t.id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['tournaments'] })
-      navigate('/admin/events')
+      navigate('/organizer/events')
     },
   })
   return (

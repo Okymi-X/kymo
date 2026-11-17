@@ -2,24 +2,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
+import { EventCard } from "../../components/platform/EventCard";
 import { platform } from "../../api/platform";
 import {
+  Empty,
   Gate,
   Loading,
   Panel,
-  Pill,
-  StatePill,
   Toggle,
 } from "../../components/platform/bits";
-// import { EventCountdown } from '../../components/platform/EventCountdown'
 import {
   Button,
   ErrorText,
   Field,
   Input,
   PageTitle,
+  Segmented,
   Select,
 } from "../../components/ui";
+import { EVENT_GROUPS, countByGroup, filterEvents, type EventGroup } from "../../lib/eventFilter";
 import { labLabel } from "../../lib/platform";
 import {
   DemoButton,
@@ -86,7 +87,7 @@ function CreateEvent() {
         setPlaceError({ id: event.id, message: failed });
         return;
       }
-      navigate(`/admin/events/${event.id}`);
+      navigate(`/organizer/events/${event.id}`);
     },
   });
   const submit = (e: FormEvent) => {
@@ -166,7 +167,7 @@ function CreateEvent() {
           The event was created, but it could not be placed on that lab host:{" "}
           {placeError.message}.{" "}
           <Link
-            to={`/admin/events/${placeError.id}`}
+            to={`/organizer/events/${placeError.id}`}
             className="font-medium underline"
           >
             Open it to choose another place
@@ -189,15 +190,14 @@ function ImportBundle() {
       platform.importEvent(await file.text(), keepTimes, keepState),
     onSuccess: (e) => {
       void client.invalidateQueries({ queryKey: ["admin-events"] });
-      navigate(`/admin/events/${e.id}`);
+      navigate(`/organizer/events/${e.id}`);
     },
   });
   return (
     <Panel className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold">Import an event bundle</h2>
       <p className="text-sm text-muted">
-        Creates a new event from a file exported with Export on an event page.
-        Imported challenges start as drafts unless you keep their state.
+        Creates an event from an exported file. Challenges start as drafts unless you keep their state.
       </p>
       <div className="flex flex-wrap items-center gap-4">
         <Toggle
@@ -236,28 +236,38 @@ function Body() {
     queryKey: ["admin-events"],
     queryFn: platform.adminEvents,
   });
+  const [group, setGroup] = useState<EventGroup>("all");
+  const [text, setText] = useState("");
   if (q.isPending) return <Loading />;
+  const events = q.data ?? [];
+  const counts = countByGroup(events);
+  const shown = filterEvents(events, group, text);
   return (
     <div className="flex flex-col gap-6">
       <CreateEvent />
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {(q.data ?? []).map((e) => (
-          <li key={e.id}>
-            <Link
-              to={`/admin/events/${e.id}`}
-              className="flex flex-col gap-2 rounded-card border border-line bg-surface p-4 transition-shadow hover:shadow-[var(--shadow-lift)]"
-            >
-              <span className="flex items-start justify-between gap-3">
-                <span className="font-medium">{e.name}</span>
-                <StatePill state={e.effective_state} />
-              </span>
-              <span className="flex gap-2">
-                <Pill>{e.kind === "jeopardy" ? "Jeopardy" : "Tournament"}</Pill>
-                <Pill>{e.mode === "team" ? "Teams" : "Solo"}</Pill>
-                <span className="font-mono text-xs text-muted">/{e.slug}</span>
-              </span>
-              {/* <EventCountdown event={e} /> */}
-            </Link>
+      {events.length > 6 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Segmented<EventGroup>
+            label="Show events"
+            value={group}
+            onChange={setGroup}
+            options={EVENT_GROUPS.filter((g) => g.id === "all" || counts[g.id] > 0).map((g) => ({ value: g.id, label: `${g.label} ${counts[g.id]}` }))}
+          />
+          <Input
+            type="search"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Search by name"
+            aria-label="Search events"
+            className="w-56 max-w-full"
+          />
+        </div>
+      )}
+      {events.length > 0 && shown.length === 0 && <Empty>No event matches.</Empty>}
+      <ul className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map((e) => (
+          <li key={e.id} className="min-w-0">
+            <EventCard event={e} to={`/organizer/events/${e.id}`} footer={<span className="truncate font-mono text-xs text-muted">/{e.slug}</span>} />
           </li>
         ))}
       </ul>

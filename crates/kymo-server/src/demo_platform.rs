@@ -403,6 +403,7 @@ async fn add_challenges(
                         name,
                         "text/plain",
                         body.as_bytes(),
+                        false,
                     )
                     .await?;
                 }

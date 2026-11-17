@@ -30,7 +30,7 @@ export function RulesEditor({ eventId, slug }: { eventId: number; slug: string }
   return (
     <Panel className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Rules</h2>
-      <p className="text-sm text-muted">Players open these from a button on the event page. Leave the text empty for no rules. A line starting with # is a heading, a line starting with - is a list item, and a blank line starts a new paragraph.</p>
+      <p className="text-sm text-muted">Shown from a button on the event page. # heading, - list item, blank line for a new paragraph.</p>
       <Field label="Button and dialog title">
         <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={60} className="max-w-xs" />
       </Field>

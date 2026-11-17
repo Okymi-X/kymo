@@ -41,5 +41,7 @@ Kymo grows from a bracket manager into a CTF platform with two competition types
 Events have states: draft, registration_open, live, paused, ended, archived, with registration and start/end times and scheduled challenge releases. Time rules gate challenge access, flag submission and instances.
 Roles: visitor (home, rules, register, login, published scoreboard), player (profile, teams, challenges, submissions), referee (limited interface), admin (events, challenges, participants, scoring, settings, appearance, preview as player), monitor (admin only request view, per endpoint rate limits, auto and manual bans, flag submission history, moderation audit).
 Instances: player started, restarted and stopped containers (Docker first, behind a runtime trait), duration and resource limits, isolation, secret handling, expiry reaper, abandoned cleanup.
+Challenge types: flag, instance, virtual machine, DFIR questions, coding (judged on a lab host in a sandbox), and Responder (patch a machine, a Verifier releases the flag). Any of them can use a dynamic flag per participant.
+Integrity: flag sharing detection, near duplicate code detection, and per event disqualification, all reviewed by an organizer and audited.
 Operations: event health view, error visibility, backup and restore of event data, role based access everywhere.
 Three engines stay separate and share event, user, team and reporting data: bracket (kymo-engine), jeopardy (kymo-jeopardy), instances (kymo-instances).

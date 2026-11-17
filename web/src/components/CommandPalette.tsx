@@ -38,15 +38,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       list.push({ id: 'profile', label: 'Profile', group: 'Pages', run: go('/profile') })
     }
     if (admin) {
-      list.push({ id: 'manage', label: 'Manage events', group: 'Pages', run: go('/admin/events') })
-      list.push({ id: 'users', label: 'Users', group: 'Pages', run: go('/admin/users') })
-      list.push({ id: 'permissions', label: 'Permissions', group: 'Pages', run: go('/admin/permissions') })
-      list.push({ id: 'ops', label: 'Operations', group: 'Pages', run: go('/admin/ops') })
-      list.push({ id: 'labs', label: 'Lab hosts', group: 'Pages', run: go('/admin/labs') })
-      list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/settings') })
-      list.push({ id: 'tokens', label: 'API tokens', group: 'Pages', run: go('/tokens') })
+      list.push({ id: 'manage', label: 'Manage events', group: 'Pages', run: go('/organizer/events') })
+      list.push({ id: 'users', label: 'Users', group: 'Pages', run: go('/organizer/users') })
+      list.push({ id: 'permissions', label: 'Permissions', group: 'Pages', run: go('/organizer/permissions') })
+      list.push({ id: 'ops', label: 'Operations', group: 'Pages', run: go('/organizer/ops') })
+      list.push({ id: 'labs', label: 'Lab hosts', group: 'Pages', run: go('/organizer/labs') })
+      list.push({ id: 'appearance', label: 'Appearance', group: 'Pages', run: go('/organizer/appearance') })
+      list.push({ id: 'tokens', label: 'API tokens', group: 'Pages', run: go('/organizer/tokens') })
     }
-    if (monitor) list.push({ id: 'monitor', label: 'Monitor', group: 'Pages', run: go('/monitor') })
+    if (monitor) list.push({ id: 'monitor', label: 'Monitor', group: 'Pages', run: go('/organizer/monitor') })
     // Tournament events are listed with the tournaments below; the rest are Jeopardy events.
     for (const e of events ?? []) {
       if (e.kind === 'jeopardy') list.push({ id: `e-${e.id}`, label: e.name, hint: e.effective_state.replace('_', ' '), group: 'Events', run: go(`/e/${e.slug}`) })

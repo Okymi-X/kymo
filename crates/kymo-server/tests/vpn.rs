@@ -1809,3 +1809,40 @@ async fn a_responder_needs_a_lab_host_and_a_lab_host_that_has_a_verifier_for_the
         .unwrap();
     assert_eq!(free, 0, "a failed start costs the player nothing");
 }
+
+#[tokio::test]
+async fn the_challenge_editor_reads_a_lab_hosts_artifacts_without_the_settings_permission() {
+    let lab = Lab::new(true, "solo").await;
+    let remote = remote_lab().await;
+    let id = lab.use_remote(&remote).await;
+
+    // The choices carry a name and a switch, never an address or a token.
+    let (s, body) = lab.admin("GET", "/admin/lab-choices", None).await;
+    assert_eq!(s, StatusCode::OK, "{body}");
+    assert_eq!(body["labs"][0]["name"], "Remote");
+    let text = body.to_string();
+    assert!(
+        !text.contains(LAB_TOKEN) && !text.contains("127.0.0.1") && !text.contains("203.0.113.9"),
+        "{text}"
+    );
+
+    // The artifacts say what each one runs as, and what the manifest gives an instance.
+    let (s, body) = lab
+        .admin("GET", &format!("/admin/lab-choices/{id}/artifacts"), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{body}");
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["mode"], "manifest");
+    assert_eq!(body["artifacts"][0]["artifact"], "ctf/web:1");
+    assert_eq!(body["artifacts"][0]["runtime"], "docker");
+    assert_eq!(body["artifacts"][0]["verifier"], false);
+
+    // A player may not read them, and an unknown host is a plain 404.
+    let (pat, _) = lab.player("pat").await;
+    let denied = lab.raw("GET", "/admin/lab-choices", Some(&pat), None).await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    let (s, _) = lab
+        .admin("GET", "/admin/lab-choices/999/artifacts", None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}

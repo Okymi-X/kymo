@@ -53,6 +53,25 @@ async fn login(app: &Router) -> String {
     body["token"].as_str().unwrap().to_owned()
 }
 
+/// Publishes every draft event, so a player may read the tournaments a test created. A draft is
+/// the organizers' alone (see `a_draft_is_invisible_to_players` in gate.rs).
+async fn open_all(app: &Router, admin: &str) {
+    let (_, events) = call(app, "GET", "/api/v1/admin/events", Some(admin), None).await;
+    for e in events.as_array().into_iter().flatten() {
+        if e["state"] == "draft" {
+            let uri = format!("/api/v1/admin/events/{}/state", e["id"]);
+            call(
+                app,
+                "POST",
+                &uri,
+                Some(admin),
+                Some(json!({ "state": "live" })),
+            )
+            .await;
+        }
+    }
+}
+
 /// A signed in player. Reading anything but the sign in pages needs a session, so the tests that look at
 /// what a visitor sees read as this player.
 async fn viewer(app: &Router) -> String {
@@ -723,6 +742,7 @@ async fn names_scores_and_options_are_validated() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(made["slug"], "東京大会");
     assert_eq!(made["third_place"], false);
+    open_all(&app, &token).await;
     let (status, _) = call(
         &app,
         "GET",
@@ -1048,6 +1068,7 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
     )
     .await;
 
+    open_all(&app, &token).await;
     let (status, log) = call(
         &app,
         "GET",
@@ -1073,6 +1094,7 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
     assert!(log[0]["at"].as_i64().unwrap() >= log[4]["at"].as_i64().unwrap());
     assert_eq!(log[3]["match_id"], 0);
 
+    open_all(&app, &token).await;
     let (status, _) = call(
         &app,
         "GET",
@@ -1084,6 +1106,7 @@ async fn activity_log_is_public_ordered_and_marks_corrections() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     call(&app, "POST", "/api/v1/admin/tournaments/1/reset", t, None).await;
+    open_all(&app, &token).await;
     let (_, after) = call(
         &app,
         "GET",
@@ -1136,7 +1159,6 @@ async fn index_html_ships_the_saved_look_so_the_first_paint_matches() {
 #[tokio::test]
 async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
     let app = app().await;
-    let v = viewer(&app).await;
     let token = login(&app).await;
     let (status, _) = call(&app, "POST", "/api/v1/admin/demo", None, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -1148,7 +1170,7 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
     let (_, again) = call(&app, "POST", "/api/v1/admin/demo", Some(&token), None).await;
     assert_eq!(again["added"], 0);
 
-    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
+    let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(&token), None).await;
     let list = list.as_array().unwrap();
     assert_eq!(list.len(), 12);
     let formats: std::collections::HashSet<_> =
@@ -1162,7 +1184,7 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
         &app,
         "GET",
         "/api/v1/tournaments/winter-finals",
-        Some(v.as_str()),
+        Some(&token),
         None,
     )
     .await;
@@ -1171,7 +1193,7 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
         &app,
         "GET",
         "/api/v1/tournaments/night-owls-invitational/activity",
-        Some(v.as_str()),
+        Some(&token),
         None,
     )
     .await;
@@ -1189,7 +1211,7 @@ async fn demo_data_covers_every_format_and_state_and_can_be_loaded_twice() {
         &app,
         "GET",
         "/api/v1/tournaments/worlds-2026",
-        Some(v.as_str()),
+        Some(&token),
         None,
     )
     .await;
@@ -1531,9 +1553,11 @@ async fn public_list_trims_rosters_but_reports_the_full_count() {
     )
     .await;
 
+    open_all(&app, &token).await;
     let (_, list) = call(&app, "GET", "/api/v1/tournaments", Some(v.as_str()), None).await;
     assert_eq!(list[0]["teams"].as_array().unwrap().len(), 4);
     assert_eq!(list[0]["team_count"], 9);
+    open_all(&app, &token).await;
     let (_, full) = call(
         &app,
         "GET",
@@ -1786,6 +1810,7 @@ async fn a_tournament_can_carry_its_own_accent() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    open_all(&app, &token).await;
     let (_, shown) = call(
         &app,
         "GET",

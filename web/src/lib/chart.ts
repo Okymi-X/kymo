@@ -82,3 +82,9 @@ const f = (n: number) => String(Math.round(n * 100) / 100)
 export function paddedRange(from: number, to: number): [number, number] {
   return to - from < MINUTE ? [from - HOUR / 2, from + HOUR / 2] : [from, to]
 }
+
+/** How tall a time chart is for its width: roomy on a wide screen so the lines can separate, and not
+ *  taller than it is useful. Phones get a shorter one. */
+export function chartHeight(width: number): number {
+  return Math.round(Math.min(460, Math.max(260, width * 0.4)))
+}

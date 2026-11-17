@@ -154,6 +154,7 @@ pub async fn save_settings(
         SharingAction::Off => "off",
         SharingAction::Manual => "manual",
         SharingAction::AutoBan => "auto_ban",
+        SharingAction::Disqualify => "disqualify",
     };
     sqlx::query(
         "INSERT INTO event_jeopardy (event_id, tie_breaks, rate_max_attempts, rate_window_secs, rate_lockout_secs, freeze_at, sharing_action, sharing_warnings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
@@ -268,6 +269,11 @@ impl Board {
         let mut names = BTreeMap::new();
         let mut participants = Vec::new();
         for p in event_store::participants(pool, event.id).await? {
+            // A disqualified participant is not on the board, and their solves do not count: they
+            // would otherwise lower what every honest player earns for the same challenge.
+            if p.disqualified_at.is_some() {
+                continue;
+            }
             if let Some(id) = p.team_id.or(p.user_id).and_then(|i| u64::try_from(i).ok()) {
                 names.insert(id, p.name);
                 participants.push(Participant { id });
@@ -354,6 +360,14 @@ impl Board {
                 hints_cost: (base - points).max(0),
             }
         }));
+        let rows: Vec<SolveRow> = rows
+            .into_iter()
+            .filter(|r| u64::try_from(r.participant_id).is_ok_and(|id| names.contains_key(&id)))
+            .collect();
+        let solves: Vec<Solve> = solves
+            .into_iter()
+            .filter(|s| names.contains_key(&s.participant))
+            .collect();
         Ok(Board {
             names,
             participants,
@@ -379,6 +393,27 @@ impl Board {
             .iter()
             .filter(move |r| r.participant_id == participant)
     }
+}
+
+/// Whether an organizer removed this participant from the event.
+pub async fn is_disqualified(
+    pool: &SqlitePool,
+    event_id: i64,
+    scorer: Scorer,
+) -> Result<bool, ApiError> {
+    let (user, team) = match scorer {
+        Scorer::User(id) => (Some(id), None),
+        Scorer::Team(id) => (None, Some(id)),
+    };
+    let at: Option<Option<i64>> = sqlx::query_scalar(
+        "SELECT disqualified_at FROM event_participant WHERE event_id = ? AND (user_id = ? OR team_id = ?)",
+    )
+    .bind(event_id)
+    .bind(user)
+    .bind(team)
+    .fetch_optional(pool)
+    .await?;
+    Ok(at.flatten().is_some())
 }
 
 pub async fn is_solved(

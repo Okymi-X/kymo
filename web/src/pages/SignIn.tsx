@@ -14,7 +14,7 @@ type Mode = 'login' | 'register'
 
 /** Only same site paths, so a crafted link cannot send people elsewhere after signing in. */
 export function safeNext(raw: string | null): string {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/events'
+  return raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.includes('\\') && ![...raw].some((ch) => ch.charCodeAt(0) < 32) ? raw : '/events'
 }
 
 export function SignIn() {

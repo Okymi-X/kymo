@@ -1,0 +1,11 @@
+{
+  "artifact": "localhost/kymo-judge/cpp:1",
+  "runtime": "docker",
+  "judge": {
+    "label": "C++ (g++)",
+    "file": "main.cpp",
+    "compile": ["g++", "-O2", "-std=c++20", "-o", "main", "main.cpp"],
+    "compile_timeout_secs": 60,
+    "run": ["./main"]
+  }
+}

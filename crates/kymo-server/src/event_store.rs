@@ -447,13 +447,16 @@ pub struct Participant {
     pub name: String,
     pub members: i64,
     pub registered_at: i64,
+    /// When an organizer disqualified this participant from the event, if they did.
+    pub disqualified_at: Option<i64>,
+    pub disqualified_reason: String,
 }
 
 pub async fn participants(pool: &SqlitePool, event_id: i64) -> Result<Vec<Participant>, ApiError> {
     Ok(sqlx::query_as(
         "SELECT p.id, p.user_id, p.team_id, COALESCE(u.display_name, t.name) AS name, \
          CASE WHEN p.team_id IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM player_team_member m WHERE m.team_id = p.team_id) END AS members, \
-         p.registered_at \
+         p.registered_at, p.disqualified_at, p.disqualified_reason \
          FROM event_participant p LEFT JOIN user u ON u.id = p.user_id LEFT JOIN player_team t ON t.id = p.team_id \
          WHERE p.event_id = ? ORDER BY p.id",
     )

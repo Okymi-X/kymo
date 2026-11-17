@@ -7,7 +7,6 @@ import { api, useIsAdmin } from '../api/client'
 import type { ApiToken } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { WebhooksSection } from '../components/WebhooksSection'
-import { BackLink } from '../components/BackLink'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
 
 function NewSecret({ secret, onDone }: { secret: string; onDone: () => void }) {
@@ -72,7 +71,7 @@ export function Tokens() {
     },
   })
 
-  if (!admin) return <Navigate to="/login" replace />
+  if (!admin) return <Navigate to="/organizer/login" replace />
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -82,7 +81,6 @@ export function Tokens() {
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div>
-        <BackLink>Home</BackLink>
         <PageTitle>API tokens</PageTitle>
         <p className="mt-2 text-muted">Use a token as a Bearer header to manage tournaments from scripts.</p>
       </div>

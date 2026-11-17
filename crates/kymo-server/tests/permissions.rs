@@ -453,3 +453,74 @@ async fn every_change_is_in_the_audit_log() {
     call(&app, "POST", "/admin/permissions/reset", Some(&admin), None).await;
     assert_eq!(audit(&app, &admin, "permissions_reset").await["total"], 1);
 }
+
+#[tokio::test]
+async fn the_organizer_door_opens_for_staff_and_looks_the_same_when_it_does_not() {
+    let pool = db::connect("sqlite::memory:").await.unwrap();
+    let app = app_over(&pool);
+    let admin = admin_token(&app).await;
+    let (_, mod_id) = player(&app, "mona").await;
+    let (_, plain_id) = player(&app, "pat").await;
+    set_role(&app, &admin, mod_id, "monitor").await;
+    let _ = plain_id;
+
+    let door = |user: &str, password: &str| {
+        let app = app.clone();
+        let body = json!({ "username": user, "password": password });
+        async move { call(&app, "POST", "/admin/auth/login", None, Some(body)).await }
+    };
+
+    // A staff account gets a session with what its role may do, and it works on the admin API.
+    let (status, body) = door("mona", PLAYER_PASSWORD).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["role"], "monitor");
+    let perms: Vec<&str> = body["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p.as_str().unwrap())
+        .collect();
+    assert!(perms.contains(&"monitor") && !perms.contains(&"manage_settings"));
+    let token = body["token"].as_str().unwrap();
+    let (status, _) = call(&app, "GET", "/admin/monitor/summary", Some(token), None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // A player with the right password, a wrong password and an unknown name are all the same 401.
+    let (a, ba) = door("pat", PLAYER_PASSWORD).await;
+    let (b, bb) = door("mona", "not the password at all").await;
+    let (c, bc) = door("nobody", PLAYER_PASSWORD).await;
+    assert_eq!(
+        (a, b, c),
+        (
+            StatusCode::UNAUTHORIZED,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::UNAUTHORIZED
+        )
+    );
+    assert_eq!(ba, bb);
+    assert_eq!(bb, bc);
+
+    // No username uses the organizer password; the answer is an admin session.
+    let (status, body) = door("", PASSWORD).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["role"], "admin");
+    let (status, _) = door("", "wrong").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // A banned staff account is turned away too, and every sign in is audited.
+    let (status, _) = call(
+        &app,
+        "PUT",
+        &format!("/admin/users/{mod_id}"),
+        Some(&admin),
+        Some(json!({ "banned": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        door("mona", PLAYER_PASSWORD).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let logged = audit(&app, &admin, "organizer_login").await;
+    assert!(logged["total"].as_i64().unwrap() >= 2, "{logged}");
+}

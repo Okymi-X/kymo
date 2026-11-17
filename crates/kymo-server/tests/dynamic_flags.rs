@@ -363,13 +363,13 @@ async fn a_plain_challenge_is_untouched_by_the_new_settings() {
 #[tokio::test]
 async fn dynamic_and_responder_settings_are_validated() {
     let c = Ctx::new().await;
-    // Dynamic needs an instance.
+    // A dynamic flag without an instance is valid now: it goes into template files.
     let (status, body) = create(
         &c,
         dynamic_body(json!({ "requires_instance": false, "instance_config": null })),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(status, StatusCode::CREATED, "{body}");
     // The prefix must sit inside the accepted prefix, the closing inside the accepted suffix.
     let (status, _) = create(
         &c,
@@ -901,4 +901,342 @@ async fn an_organizer_can_read_a_runs_flags_and_the_reading_is_audited() {
     // An instance that does not exist is a plain 404.
     let (status, _) = c.admin("GET", "/admin/instances/99999/flags", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Uploads a file as the raw body, like the editor does.
+async fn upload(
+    c: &Ctx,
+    challenge: i64,
+    name: &str,
+    template: bool,
+    body: &[u8],
+) -> (StatusCode, Value) {
+    let uri =
+        format!("/api/v1/admin/challenges/{challenge}/attachments?name={name}&template={template}");
+    let r = send(
+        &c.w.app,
+        "POST",
+        &uri,
+        Some(&c.admin),
+        Some("text/plain"),
+        body.to_vec(),
+        None,
+    )
+    .await;
+    (r.status, r.json())
+}
+
+async fn download(c: &Ctx, token: &str, challenge: i64, attachment: i64) -> Reply {
+    send(
+        &c.w.app,
+        "GET",
+        &format!(
+            "/api/v1/events/{}/challenges/{challenge}/attachments/{attachment}",
+            c.slug
+        ),
+        Some(token),
+        None,
+        Vec::new(),
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_challenge_with_no_instance_gives_every_player_their_own_flag_in_a_template_file() {
+    let c = Ctx::new().await;
+    let (status, made) = create(
+        &c,
+        dynamic_body(json!({ "requires_instance": false, "instance_config": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    let id = made["id"].as_i64().unwrap();
+
+    // The template is checked when it is added: it must be text, name flags the challenge has,
+    // and contain a token at all.
+    let (s, b) = upload(&c, id, "notes.txt", true, b"nothing here").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    let (s, b) = upload(&c, id, "notes.txt", true, b"key={{flag:nope}}").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert!(b["error"].as_str().unwrap().contains("nope"), "{b}");
+    let (s, _) = upload(&c, id, "blob.bin", true, &[0xff, 0xfe, 0x00, 0x80]).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, file) = upload(
+        &c,
+        id,
+        "notes.txt",
+        true,
+        b"log line\nsecret={{flag}}\nend\n",
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{file}");
+    assert_eq!(file["template"], true);
+    let att = file["id"].as_i64().unwrap();
+
+    c.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+        .await;
+    let (alice, _) = player(&c.w.app, "alice").await;
+    let (bob, _) = player(&c.w.app, "bob").await;
+    c.register(&alice).await;
+    c.register(&bob).await;
+    c.set_state("live").await;
+
+    // Each player's copy holds their own flag, the same on a second download.
+    let flag_in = |r: &Reply| {
+        let text = String::from_utf8(r.bytes.clone()).unwrap();
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("secret="))
+            .unwrap()
+            .to_owned();
+        line.trim_start_matches("secret=").to_owned()
+    };
+    let a1 = download(&c, &alice, id, att).await;
+    assert_eq!(a1.status, StatusCode::OK);
+    let (a, a_again, b) = (
+        flag_in(&a1),
+        flag_in(&download(&c, &alice, id, att).await),
+        flag_in(&download(&c, &bob, id, att).await),
+    );
+    assert!(a.starts_with("KYMO{box_") && a.ends_with('}'), "{a}");
+    assert_eq!(a, a_again);
+    assert_ne!(a, b);
+    assert!(!String::from_utf8(a1.bytes).unwrap().contains("{{flag}}"));
+
+    // Only the owner's flag solves it, and another player's leaves a note for the organizers.
+    let (_, wrong) = c.submit(&bob, id, &a).await;
+    assert_eq!(wrong["verdict"], "incorrect");
+    assert!(c.audit_actions().await.contains(&"flag_shared".to_owned()));
+    let (_, ok) = c.submit(&bob, id, &b).await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+    let (_, ok) = c.submit(&alice, id, &a).await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+
+    // Players hold flags now, so the flag settings can no longer change under them.
+    let (s, b) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{id}"),
+            Some(
+                json!({ "flags": [ { "name": "flag", "value": "KYMO{other_", "closing": "}" } ] }),
+            ),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{b}");
+
+    // The organizer's preview shows the shape with made-up flags and stores nothing.
+    let r = send(
+        &c.w.app,
+        "GET",
+        &format!("/api/v1/admin/attachments/{att}/preview"),
+        Some(&c.admin),
+        None,
+        Vec::new(),
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert!(
+        String::from_utf8(r.bytes)
+            .unwrap()
+            .contains("secret=KYMO{box_abababab}")
+    );
+}
+
+#[tokio::test]
+async fn a_template_file_needs_dynamic_flags_and_a_plain_file_is_never_rewritten() {
+    let c = Ctx::new().await;
+    let (_, plain) = create(
+        &c,
+        json!({ "requires_instance": false, "instance_config": null }),
+    )
+    .await;
+    let id = plain["id"].as_i64().unwrap();
+    let (s, b) = upload(&c, id, "a.txt", true, b"{{flag}}").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    let (s, file) = upload(&c, id, "a.txt", false, b"keep {{flag}} as is").await;
+    assert_eq!(s, StatusCode::CREATED, "{file}");
+    c.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+        .await;
+    let (alice, _) = player(&c.w.app, "alice").await;
+    c.register(&alice).await;
+    c.set_state("live").await;
+    let r = download(&c, &alice, id, file["id"].as_i64().unwrap()).await;
+    assert_eq!(String::from_utf8(r.bytes).unwrap(), "keep {{flag}} as is");
+}
+
+#[tokio::test]
+async fn a_cheater_can_be_disqualified_from_one_event_without_losing_the_account_and_let_back() {
+    let c = Ctx::new().await;
+    let (_, made) = create(&c, dynamic_body(json!({}))).await;
+    let id = made["id"].as_i64().unwrap();
+    c.admin("POST", &format!("/admin/challenges/{id}/publish"), None)
+        .await;
+    let (alice, alice_id) = player(&c.w.app, "alice").await;
+    let (bob, bob_id) = player(&c.w.app, "bob").await;
+    c.register(&alice).await;
+    c.register(&bob).await;
+    c.set_state("live").await;
+    c.seed_run(alice_id, id, "running", &[("flag", "KYMO{box_aaaa1111}")])
+        .await;
+    c.seed_run(bob_id, id, "running", &[("flag", "KYMO{box_bbbb2222}")])
+        .await;
+    // A second challenge, where the cheating happens.
+    let (_, second_made) = create(&c, dynamic_body(json!({ "title": "Box 2" }))).await;
+    let id2 = second_made["id"].as_i64().unwrap();
+    c.admin("POST", &format!("/admin/challenges/{id2}/publish"), None)
+        .await;
+    c.seed_run(alice_id, id2, "running", &[("flag", "KYMO{box_cccc3333}")])
+        .await;
+    c.seed_run(bob_id, id2, "running", &[("flag", "KYMO{box_dddd4444}")])
+        .await;
+    let path = format!("/admin/events/{}/jeopardy", c.event_id);
+    let (_, mut settings) = c.admin("GET", &path, None).await;
+    settings["sharing_action"] = json!("disqualify");
+    settings["sharing_warnings"] = json!(1);
+    assert_eq!(
+        c.admin("PUT", &path, Some(settings)).await.0,
+        StatusCode::OK
+    );
+
+    // Bob solves it honestly, then is caught twice sharing: a warning, then out of the event.
+    let (_, ok) = c.submit(&bob, id, "KYMO{box_bbbb2222}").await;
+    assert_eq!(ok["verdict"], "correct", "{ok}");
+    let (_, first) = c.submit(&bob, id2, "KYMO{box_cccc3333}").await;
+    assert_eq!(first["sharing"]["status"], "warning", "{first}");
+    let (_, second) = c.submit(&bob, id2, "KYMO{box_cccc3333}").await;
+    assert_eq!(second["sharing"]["status"], "disqualified", "{second}");
+    assert!(
+        c.audit_actions()
+            .await
+            .contains(&"participant_disqualify".to_owned())
+    );
+
+    // Off the scoreboard, and his solve no longer lowers what Alice earns; he can play no more.
+    let board = |token: String| {
+        let c = &c;
+        async move {
+            let (s, b) = call(
+                &c.w.app,
+                "GET",
+                &format!("/api/v1/events/{}/scoreboard", c.slug),
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+            b["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["name"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(board(alice.clone()).await, vec!["alice".to_owned()]);
+    // He is told up front, on the event itself; nobody else is.
+    let told = |token: String| {
+        let c = &c;
+        async move {
+            call(
+                &c.w.app,
+                "GET",
+                &format!("/api/v1/events/{}", c.slug),
+                Some(&token),
+                None,
+            )
+            .await
+            .1["disqualified"]
+                .clone()
+        }
+    };
+    assert_eq!(told(bob.clone()).await, json!(true));
+    assert_eq!(told(alice.clone()).await, json!(false));
+    let (status, body) = c.submit(&bob, id2, "KYMO{box_dddd4444}").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body["error"].as_str().unwrap().contains("disqualified"));
+    // The account is fine: bob still signs in and reads his profile.
+    let (status, _) = call(&c.w.app, "GET", "/api/v1/me", Some(&bob), None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The organizer sees him, with his strikes and where he stands.
+    let (status, list) = c
+        .admin(
+            "GET",
+            &format!("/admin/events/{}/integrity", c.event_id),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let row = &list["players"][0];
+    assert_eq!(
+        (
+            row["username"].as_str(),
+            row["strikes"].as_i64(),
+            row["banned"].as_bool()
+        ),
+        (Some("bob"), Some(2), Some(false))
+    );
+    assert!(row["disqualified_at"].is_i64(), "{row}");
+
+    // Letting him back puts him and his solve back, and his strikes can be forgiven.
+    let reinstate = format!("/admin/events/{}/disqualify/{bob_id}", c.event_id);
+    assert_eq!(
+        c.admin("DELETE", &reinstate, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(board(alice.clone()).await.len(), 2);
+    assert_eq!(
+        c.admin("DELETE", &reinstate, None).await.0,
+        StatusCode::NOT_FOUND,
+        "not disqualified any more"
+    );
+    let forgive = format!("/admin/events/{}/strikes/{bob_id}", c.event_id);
+    assert_eq!(
+        c.admin("DELETE", &forgive, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, list) = c
+        .admin(
+            "GET",
+            &format!("/admin/events/{}/integrity", c.event_id),
+            None,
+        )
+        .await;
+    assert!(list["players"].as_array().unwrap().is_empty());
+
+    // An organizer can also disqualify by hand, but must say why.
+    let by_hand = format!("/admin/events/{}/disqualify", c.event_id);
+    assert_eq!(
+        c.admin(
+            "POST",
+            &by_hand,
+            Some(json!({ "user_id": bob_id, "reason": " " }))
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        c.admin(
+            "POST",
+            &by_hand,
+            Some(json!({ "user_id": bob_id, "reason": "Used a solver on the exam" }))
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(board(alice).await, vec!["alice".to_owned()]);
+    // Only a role that may moderate can do any of this.
+    let (status, _) = call(
+        &c.w.app,
+        "POST",
+        &format!("/api/v1{by_hand}"),
+        Some(&bob),
+        Some(json!({ "user_id": alice_id, "reason": "x" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

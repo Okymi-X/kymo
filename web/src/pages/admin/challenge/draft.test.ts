@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AdminChallenge } from '../../api/platformTypes'
-import { blank, fromChallenge, isMulti, toBody, usesRows, validate, type Draft } from './ChallengeEditor'
+import type { AdminChallenge } from '../../../api/platformTypes'
+import { applyResponder, blank, fromChallenge, isMulti, toBody, toCodeConfig, usesRows, validate, type Draft } from './draft'
 
 const base = (extra: Partial<Draft> = {}): Draft => ({
   ...blank(1),
@@ -39,8 +39,9 @@ describe('a dynamic flag', () => {
     expect(body.flags).toEqual([{ name: 'flag', label: '', value: 'KYMO{box_', random_len: 8, closing: '}', weight: 1 }])
     expect(validate(dyn)).toEqual({})
   })
-  it('needs an instance, a prefix inside the accepted one, and a closing inside the accepted suffix', () => {
-    expect(validate({ ...dyn, requiresInstance: false }).requiresInstance).toBeDefined()
+  it('needs no instance (the flag goes into template files), but a prefix inside the accepted one and a closing inside the accepted suffix', () => {
+    expect(validate({ ...dyn, requiresInstance: false })).toEqual({})
+    expect(validate({ ...dyn, requiresInstance: false, responder: true }).requiresInstance).toBeDefined()
     expect(validate({ ...dyn, rows: [row('flag', 'OTHER{')] }).rows).toBeDefined()
     expect(validate({ ...dyn, rows: [row('flag', 'KYMO{box_', { closing: ')' })] }).rows).toBeDefined()
     expect(validate({ ...dyn, rows: [row('flag', 'KYMO{box_', { randomLen: '40' })] }).rows).toBeDefined()
@@ -104,5 +105,58 @@ describe('fromChallenge', () => {
     expect(d.flagMode).toBe('static')
     expect(d.flagCount).toBe('1')
     expect(d.rows).toHaveLength(1)
+  })
+})
+
+describe('a coding challenge', () => {
+  const code = base({ kind: 'code', requiresInstance: false, flagValue: '', code: { languages: [{ id: 'python', label: 'Python 3', artifact: 'judge/py:1' }], cases: [{ input: '1 2', expected: '3', sample: true }], time: '2000', memory: '128', compare: 'lines' } })
+  it('sends no flag, no instance and no flag settings', () => {
+    const body = toBody(code)
+    expect(body.kind).toBe('code')
+    expect(body.flag).toBeUndefined()
+    expect(body.flags).toBeUndefined()
+    expect(body.requires_instance).toBe(false)
+    expect(body.instance_config).toBeNull()
+    expect(validate(code)).toEqual({})
+  })
+  it('keeps dynamic points, unlike a multi-question challenge', () => {
+    expect(toBody({ ...code, scoring: 'dynamic' }).scoring.kind).toBe('dynamic')
+  })
+  it('turns the tests into the config the server wants', () => {
+    expect(toCodeConfig(code)).toEqual({ languages: code.code.languages, cases: code.code.cases, time_limit_ms: 2000, memory_mb: 128, compare: 'lines' })
+  })
+  it('needs a language, a test and sane limits', () => {
+    expect(validate({ ...code, code: { ...code.code, languages: [] } }).code).toMatch(/language/)
+    expect(validate({ ...code, code: { ...code.code, cases: [] } }).code).toMatch(/test/)
+    expect(validate({ ...code, code: { ...code.code, time: '50' } }).code).toMatch(/time/)
+  })
+  it('is read back from a saved challenge', () => {
+    const saved = { code: { languages: code.code.languages, cases: code.code.cases, time_limit_ms: 3000, memory_mb: 64, compare: 'tokens' as const } }
+    const fixture = { scoring: { kind: 'static', points: 1 }, flag: { kind: 'static', value: 'code' }, flag_prefix: '', flag_suffix: '', case_sensitive: true, max_attempts: null, release_at: null, retire_at: null, position: 0, requires_instance: false, instance_config: null, category_id: 1, title: 't', description: '' }
+    const d = fromChallenge({ ...fixture, kind: 'code', ...saved } as unknown as AdminChallenge)
+    expect(d.kind).toBe('code')
+    expect(d.code.time).toBe('3000')
+    expect(d.code.compare).toBe('tokens')
+  })
+})
+
+describe('turning Responder on', () => {
+  const start = base({ requiresInstance: true, prefix: 'KYMO{', suffix: '}', flagMode: 'static', flagCount: '3', rows: [row('', ''), row('b', 'x'), row('c', 'y')] })
+  it('makes the flag per player, single, and valid on the accepted prefix and suffix', () => {
+    const d = applyResponder(start, true)
+    expect(d.responder && d.flagMode === 'dynamic' && d.flagCount === '1').toBe(true)
+    expect(d.rows).toHaveLength(1)
+    expect(d.rows[0]).toMatchObject({ name: 'flag', value: 'KYMO{', closing: '}' })
+    expect(validate(d)).toEqual({})
+    expect(toBody(d).flag_mode).toBe('dynamic')
+    expect(toBody(d).responder).toBe(true)
+  })
+  it('keeps a flag the author already wrote', () => {
+    const d = applyResponder({ ...start, rows: [row('flag', 'KYMO{fix_')] }, true)
+    expect(d.rows[0]?.value).toBe('KYMO{fix_')
+  })
+  it('turns off without touching anything else', () => {
+    const on = applyResponder(start, true)
+    expect(applyResponder(on, false)).toEqual({ ...on, responder: false })
   })
 })

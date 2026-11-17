@@ -60,6 +60,15 @@ export interface Me extends User {
   team_id: number | null
 }
 
+/** The answer of the organizer door: who got in and what that role may do. */
+export interface OrganizerSession {
+  token: string
+  role: 'referee' | 'monitor' | 'admin'
+  username: string | null
+  user_id: number | null
+  permissions: Permission[]
+}
+
 export interface SessionOut {
   token: string
   user: User
@@ -102,6 +111,8 @@ export interface EventInfo {
   created_at: number
   /** Only on the single event response. */
   registered?: boolean
+  /** An organizer removed this player (or their team) from the event: off the board, no more play. */
+  disqualified?: boolean
 }
 
 export interface Category {
@@ -150,11 +161,63 @@ export interface PlayerChallenge {
   flags_found?: number
   /** Where its instance runs: which VPN profile it needs. */
   lab_host_id: number | null
-  /** `flag` (also instance backed) or `dfir`, answered question by question. */
-  kind: 'flag' | 'dfir'
+  /** `flag` (also instance backed), `dfir` (question by question) or `code` (a program run against tests). */
+  kind: 'flag' | 'dfir' | 'code'
+  /** A coding challenge's languages, sample tests and limits. Hidden tests are never sent. */
+  code?: PlayerCode
   items: { id: number; question: string; points: number; solved: boolean; attempts_remaining: number | null }[]
   hints: PlayerHint[]
   attachments: PlayerAttachment[]
+}
+
+export type CompareMode = 'exact' | 'lines' | 'tokens'
+export interface CodeLanguage {
+  id: string
+  label: string
+  /** The lab host manifest's artifact for this language. */
+  artifact: string
+}
+export interface CodeCase {
+  input: string
+  expected: string
+  /** Shown to players with their input, expected and actual output. */
+  sample: boolean
+}
+export interface CodeConfig {
+  languages: CodeLanguage[]
+  cases: CodeCase[]
+  time_limit_ms: number
+  memory_mb: number
+  compare: CompareMode
+}
+export interface PlayerCode {
+  languages: { id: string; label: string }[]
+  samples: { input: string; expected: string }[]
+  tests: number
+  time_limit_ms: number
+  memory_mb: number
+}
+export type CaseVerdict = 'accepted' | 'wrong_answer' | 'time_limit' | 'memory_limit' | 'runtime_error' | 'output_limit' | 'skipped'
+export interface CodeCaseResult {
+  verdict: CaseVerdict
+  ms: number
+  sample: boolean
+  /** Only for a sample test (or any test, for an organizer trying a solution). */
+  input?: string
+  expected?: string
+  stdout?: string
+  stderr?: string
+}
+export interface CodeResult {
+  compile_error: string | null
+  passed: number
+  total: number
+  cases: CodeCaseResult[]
+  /** Only for a player's run. */
+  verdict?: 'correct' | 'incorrect' | 'compile_error'
+  correct?: boolean
+  points?: number | null
+  attempts_remaining?: number | null
 }
 
 export interface ChallengeList {
@@ -171,7 +234,7 @@ export interface SubmitResult {
   flags_found?: number
   flags_total?: number
   /** Set when the flag submitted was generated for somebody else. */
-  sharing?: { status: 'warning' | 'reported' | 'banned'; strikes: number; warnings: number }
+  sharing?: { status: 'warning' | 'reported' | 'disqualified' | 'banned'; strikes: number; warnings: number }
 }
 
 export interface HintUnlock {
@@ -322,6 +385,8 @@ export interface AdminAttachment {
   mime: string
   size: number
   sha256: string
+  /** A text file each player gets with their own flag in place of the {{flag}} tokens. */
+  template: boolean
 }
 
 export interface AdminFlag {
@@ -365,8 +430,10 @@ export interface AdminChallenge {
   position: number
   requires_instance: boolean
   instance_config: InstanceConfig | null
-  /** `flag` (also instance backed) or `dfir` (question items, tournament events only). */
-  kind: 'flag' | 'dfir'
+  /** `flag` (also instance backed), `dfir` (question items) or `code` (tests and languages in `code`). */
+  kind: 'flag' | 'dfir' | 'code'
+  /** The languages, tests (hidden ones included) and limits of a coding challenge. */
+  code?: CodeConfig
   created_at: number
   /** `static` (the flag above) or `dynamic` (generated for every instance run). */
   flag_mode: 'static' | 'dynamic'
@@ -382,7 +449,7 @@ export interface AdminChallenge {
 
 export type ChallengeBody = Omit<AdminChallenge, 'id' | 'event_id' | 'created_at' | 'lab_host_id' | 'solves' | 'hints' | 'attachments' | 'state' | 'kind' | 'flag' | 'flag_mode' | 'multi_flag' | 'responder' | 'flags'> & {
   flag?: FlagSpec
-  kind?: 'flag' | 'dfir'
+  kind?: 'flag' | 'dfir' | 'code'
   flag_mode?: 'static' | 'dynamic'
   responder?: boolean
   flags?: FlagInput[]
@@ -396,7 +463,7 @@ export interface JeopardySettings {
   /** From this moment the public scoreboard stops moving until the event ends; null means no freeze. */
   freeze_at: number | null
   /** What happens to a player who submits a dynamic flag generated for somebody else. */
-  sharing_action: 'off' | 'manual' | 'auto_ban'
+  sharing_action: 'off' | 'manual' | 'disqualify' | 'auto_ban'
   /** Such submissions that only warn before the action applies. */
   sharing_warnings: number
 }
@@ -425,6 +492,41 @@ export interface Participant {
   name: string
   members: number
   registered_at: number
+  /** When an organizer disqualified this participant from the event, if they did. */
+  disqualified_at: number | null
+  disqualified_reason: string
+}
+
+/** Two accepted coding solutions that look copied from each other. */
+export interface CodeMatch {
+  id: number
+  challenge: string
+  name: string
+  other_name: string
+  /** How alike, in percent. */
+  score: number
+  at: number
+}
+
+export interface CodeMatchDetail {
+  challenge: string
+  score: number
+  at: number
+  a: { name: string; language: string; source: string }
+  b: { name: string; language: string; source: string }
+}
+
+/** A player caught submitting a flag made for somebody else, and where they stand in one event. */
+export interface IntegrityPlayer {
+  user_id: number
+  username: string
+  display_name: string
+  banned: boolean
+  strikes: number
+  last_at: number
+  challenges: { id: number; title: string }[]
+  disqualified_at: number | null
+  disqualified_reason: string
 }
 
 export interface Page<T> {
@@ -906,6 +1008,36 @@ export interface LabArtifact {
   /** False while a virtual machine image is still being unpacked. */
   ready?: boolean
   note?: string | null
+  /** What the manifest gives an instance. The lab host runs the smaller of this and what is asked. */
+  cpu_millis?: number | null
+  memory_mb?: number | null
+  pids?: number | null
+  /** The flag names the manifest delivers. */
+  flags?: string[]
+  /** True when the manifest starts a Verifier beside each instance. */
+  verifier?: boolean
+  display?: 'machine' | 'service' | null
+  /** True when the image is a programming language for coding challenges. */
+  judge?: boolean
+  judge_label?: string | null
+}
+
+/** A lab host as the challenge editor sees it: no address, no token. */
+export interface LabChoice {
+  id: number
+  name: string
+  enabled: boolean
+}
+
+/** What a lab host will run: its artifacts with their runtime, or why it cannot be read. */
+export interface LabCatalog {
+  ok: boolean
+  error?: string
+  mode?: 'manifest' | 'open'
+  runtime?: string
+  runtimes?: string[]
+  accel?: 'kvm' | 'tcg' | null
+  artifacts?: LabArtifact[]
 }
 
 export interface LabCheck {

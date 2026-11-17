@@ -10,7 +10,7 @@ const tones = {
 }
 
 /** Counts to the start or the end of an event or tournament; anything with this schedule works. */
-export function EventCountdown({ event, compact = false }: { event: Pick<EventInfo, 'effective_state' | 'starts_at' | 'ends_at' | 'ended_at'>; compact?: boolean }) {
+export function EventCountdown({ event, compact = false, inline = false }: { event: Pick<EventInfo, 'effective_state' | 'starts_at' | 'ends_at' | 'ended_at'>; compact?: boolean; inline?: boolean }) {
   const now = useNow()
   const nowSeconds = Math.floor(now / 1000)
   const target = eventCountdownTarget(event, nowSeconds)
@@ -33,6 +33,15 @@ export function EventCountdown({ event, compact = false }: { event: Pick<EventIn
           ? 'warning'
           : 'success'
   const accessibleText = value ? `${label} ${value}` : label
+
+  // One quiet line, for a card in a list: "Ends in 14h 53m".
+  if (inline) {
+    return (
+      <span role="timer" aria-label={accessibleText} className={`text-sm ${tones[tone]}`}>
+        {label} {value && <span className="font-mono font-semibold tabular-nums">{value}</span>}
+      </span>
+    )
+  }
 
   return (
     <div

@@ -97,6 +97,10 @@ pub struct Manifest {
     /// Containers only. The container's host name, instead of Docker's random one.
     #[serde(default)]
     pub hostname: Option<String>,
+    /// Makes this image a programming language for coding challenges: the file the source is
+    /// saved as and the commands that compile and run it. Such a manifest runs no instance.
+    #[serde(default)]
+    pub judge: Option<crate::judge::JudgeBlock>,
 }
 
 fn default_runtime() -> String {
@@ -111,6 +115,14 @@ pub struct Refusal(pub String);
 impl Manifest {
     /// Checks the manifest itself: a usable artifact, a known runtime, a port.
     pub fn check(&self) -> Result<(), String> {
+        if let Some(judge) = &self.judge {
+            judge.check()?;
+            if self.runtime == "vm" || self.inject.is_some() || self.verifier.is_some() {
+                return Err(
+                    "a judge manifest is a container image: no vm, inject or verifier".into(),
+                );
+            }
+        }
         if let Some(d) = &self.display
             && d != "machine"
             && d != "service"
@@ -130,7 +142,8 @@ impl Manifest {
         if self.is_vm() {
             self.check_vm()?;
         } else {
-            if self.port == 0 {
+            // A language image for coding challenges runs no service, so it has no port.
+            if self.port == 0 && self.judge.is_none() {
                 return Err("port must be between 1 and 65535".into());
             }
             if !self.ports.is_empty() || self.file.is_some() {

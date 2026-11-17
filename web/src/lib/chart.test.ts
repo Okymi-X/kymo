@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { niceTicks, paddedRange, stepPath, timeLabel, timeTicks, valueAt } from './chart'
+import { chartHeight, niceTicks, paddedRange, stepPath, timeLabel, timeTicks, valueAt } from './chart'
 
 describe('niceTicks', () => {
   it('starts at zero, covers the maximum and uses round steps', () => {
@@ -74,5 +74,14 @@ describe('paddedRange', () => {
     expect(a).toBeLessThan(1000)
     expect(b).toBeGreaterThan(1000)
     expect(paddedRange(0, 7200)).toEqual([0, 7200])
+  })
+})
+
+describe('chartHeight', () => {
+  it('grows with the width, within limits', () => {
+    expect(chartHeight(320)).toBe(260)
+    expect(chartHeight(700)).toBe(280)
+    expect(chartHeight(1100)).toBe(440)
+    expect(chartHeight(2400)).toBe(460)
   })
 })

@@ -55,7 +55,7 @@ export function DfirItems({ challenge, onChanged }: { challenge: AdminChallenge;
       <div>
         <h3 className="text-sm font-semibold">Questions</h3>
         <p className="mt-0.5 text-xs text-muted">
-          Each question has its own answer and points. A team earns the points of every question it answers, so partial credit is automatic. The questions must add up to the challenge's {total} points.
+          Each question has its own answer and points; partial credit is automatic. The questions must add up to the challenge's {total} points.
         </p>
       </div>
       {current.map((r, i) => (

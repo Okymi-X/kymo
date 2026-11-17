@@ -595,7 +595,11 @@ pub async fn mine(state: &AppState, user_id: i64) -> Result<Value, ApiError> {
 
 /// A player's running and starting instances in an event, for the "your instances" list.
 pub async fn list_for(state: &AppState, play: &Play) -> Result<Value, ApiError> {
-    let setup = setup(state)?;
+    // With instances switched off there is nothing to list. An error here would be polled by every
+    // player page and show up as a server fault in the monitor.
+    let Some(setup) = state.instance_setup() else {
+        return Ok(json!({ "instances": [] }));
+    };
     let now = state.now();
     let mut out = Vec::new();
     for row in store::live_of(&state.pool, play.event.id, play.scorer).await? {

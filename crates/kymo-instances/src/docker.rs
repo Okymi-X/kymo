@@ -43,9 +43,37 @@ pub struct DockerRuntime {
     scope: String,
     /// Per image: what the lab host's manifest relaxes. Empty on a platform's own runtime.
     hardening: std::sync::RwLock<HashMap<String, Hardening>>,
+    /// An OCI runtime for coding submissions, for example `runsc` (gVisor) or a Kata runtime,
+    /// so untrusted code does not share the host kernel. `None` uses the daemon's default.
+    judge_runtime: std::sync::RwLock<Option<String>>,
 }
 
+/// Docker's default seccomp profile without `ptrace`, `process_vm_readv`, `process_vm_writev`
+/// and the odd `personality` values: a submission has no use for them.
+const JUDGE_SECCOMP: &str = include_str!("profiles/judge-seccomp.json");
+
 impl DockerRuntime {
+    /// Runs coding submissions under another OCI runtime (gVisor `runsc`, Kata). The name must
+    /// be one the Docker daemon knows; letters, digits, dots, dashes and underscores only.
+    pub fn set_judge_runtime(&self, runtime: Option<String>) -> Result<(), RuntimeError> {
+        if let Some(r) = &runtime
+            && (r.is_empty()
+                || r.len() > 64
+                || !r
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+        {
+            return Err(RuntimeError::Failed(
+                "the judge runtime name is not valid".into(),
+            ));
+        }
+        *self
+            .judge_runtime
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = runtime;
+        Ok(())
+    }
+
     pub fn connect(bind_ip: impl Into<String>) -> Result<Self, RuntimeError> {
         Self::connect_scoped(bind_ip, "1")
     }
@@ -65,6 +93,7 @@ impl DockerRuntime {
             podman: tokio::sync::OnceCell::new(),
             scope: scope.to_owned(),
             hardening: std::sync::RwLock::new(HashMap::new()),
+            judge_runtime: std::sync::RwLock::new(None),
         })
     }
 
@@ -279,9 +308,12 @@ impl DockerRuntime {
             auto_remove: Some(false),
             network_mode: Some(spec.network.clone()),
             binds: Some(vec![format!("{}:/verifier:ro", spec.definition_dir)]),
+            // Nothing a check writes is ever run from here, and the container shares no IPC.
+            ipc_mode: Some("private".into()),
+            shm_size: Some(16 * 1024 * 1024),
             tmpfs: Some(HashMap::from([(
                 "/tmp".to_owned(),
-                "rw,nosuid,size=64m".to_owned(),
+                "rw,noexec,nosuid,nodev,size=64m".to_owned(),
             )])),
             ..Default::default()
         };
@@ -629,8 +661,317 @@ impl InstanceRuntime for DockerRuntime {
     }
 }
 
+// ---------- one-off jobs ----------
+
+const LABEL_JOB: &str = "kymo.job";
+/// Time given on top of a job's own limit for the container to be created and started.
+const JOB_START_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+impl DockerRuntime {
+    /// Whether an image is on this machine. A manifest that names an image nobody built is the
+    /// commonest lab host mistake, and Docker only says so when the first player starts it.
+    pub async fn image_present(&self, image: &str) -> Result<bool, RuntimeError> {
+        match self.docker.inspect_image(image).await {
+            Ok(_) => Ok(true),
+            Err(e) if is_missing(&e) => Ok(false),
+            Err(e) => Err(failed(e)),
+        }
+    }
+
+    /// Removes job containers a crashed process left behind. Returns how many.
+    pub async fn reap_jobs(&self) -> Result<usize, RuntimeError> {
+        let filters = HashMap::from([(
+            "label".to_owned(),
+            vec![format!("{LABEL_JOB}={}", self.scope)],
+        )]);
+        let options = ListContainersOptionsBuilder::new()
+            .all(true)
+            .filters(&filters)
+            .build();
+        let found = self
+            .docker
+            .list_containers(Some(options))
+            .await
+            .map_err(failed)?;
+        let mut removed = 0;
+        for c in found {
+            if let Some(id) = c.id {
+                let options = RemoveContainerOptionsBuilder::new()
+                    .force(true)
+                    .v(true)
+                    .build();
+                if self
+                    .docker
+                    .remove_container(&id, Some(options))
+                    .await
+                    .is_ok()
+                {
+                    removed += 1;
+                }
+            }
+        }
+        Ok(removed)
+    }
+}
+
+#[async_trait]
+impl crate::oneshot::JobRunner for DockerRuntime {
+    async fn run_job(
+        &self,
+        job: &crate::oneshot::Job,
+    ) -> Result<crate::oneshot::JobOutcome, RuntimeError> {
+        use bollard::container::LogOutput;
+        use bollard::models::ResourcesUlimits;
+        use bollard::query_parameters::AttachContainerOptionsBuilder;
+        use futures_util::StreamExt;
+        use tokio::io::AsyncWriteExt;
+
+        let mode = if job.writable { "rw" } else { "ro" };
+        let mb = i64::from(job.memory_mb) * 1024 * 1024;
+        let fsize = i64::from(job.file_size_mb) * 1024 * 1024;
+        let host_config = HostConfig {
+            memory: Some(mb),
+            memory_swap: Some(mb),
+            nano_cpus: Some(i64::from(job.cpu_millis) * 1_000_000),
+            pids_limit: Some(i64::from(job.pids)),
+            cap_drop: Some(vec!["ALL".into()]),
+            security_opt: Some(vec![
+                "no-new-privileges".into(),
+                format!("seccomp={JUDGE_SECCOMP}"),
+            ]),
+            runtime: self
+                .judge_runtime
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+            readonly_rootfs: Some(true),
+            privileged: Some(false),
+            auto_remove: Some(false),
+            network_mode: Some("none".into()),
+            binds: Some(vec![format!("{}:/work:{mode}", job.dir.display())]),
+            tmpfs: Some(HashMap::from([(
+                "/tmp".to_owned(),
+                "rw,noexec,nosuid,nodev,size=64m".to_owned(),
+            )])),
+            // No shared memory with anything else, and a small private one.
+            ipc_mode: Some("none".into()),
+            shm_size: Some(8 * 1024 * 1024),
+            ulimits: Some(vec![
+                ResourcesUlimits {
+                    name: Some("nofile".into()),
+                    soft: Some(256),
+                    hard: Some(256),
+                },
+                ResourcesUlimits {
+                    name: Some("fsize".into()),
+                    soft: Some(fsize),
+                    hard: Some(fsize),
+                },
+                ResourcesUlimits {
+                    name: Some("core".into()),
+                    soft: Some(0),
+                    hard: Some(0),
+                },
+            ]),
+            ..Default::default()
+        };
+        let body = ContainerCreateBody {
+            image: Some(job.image.clone()),
+            cmd: Some(job.cmd.clone()),
+            user: Some("65534:65534".into()),
+            working_dir: Some("/work".into()),
+            open_stdin: Some(true),
+            stdin_once: Some(true),
+            attach_stdin: Some(true),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            network_disabled: Some(true),
+            labels: Some(HashMap::from([(LABEL_JOB.to_owned(), self.scope.clone())])),
+            host_config: Some(host_config),
+            ..Default::default()
+        };
+        let created = self
+            .docker
+            .create_container(
+                None::<bollard::query_parameters::CreateContainerOptions>,
+                body,
+            )
+            .await
+            .map_err(failed)?;
+        let id = created.id;
+        let result = async {
+            let mut attached = self
+                .docker
+                .attach_container(
+                    &id,
+                    Some(
+                        AttachContainerOptionsBuilder::new()
+                            .stdin(true)
+                            .stdout(true)
+                            .stderr(true)
+                            .stream(true)
+                            .build(),
+                    ),
+                )
+                .await
+                .map_err(failed)?;
+            let started = std::time::Instant::now();
+            self.docker
+                .start_container(
+                    &id,
+                    None::<bollard::query_parameters::StartContainerOptions>,
+                )
+                .await
+                .map_err(failed)?;
+            let deadline = started + job.timeout + JOB_START_GRACE;
+            // The input is written and closed in the background, so a program that never reads it
+            // cannot stall the job; the deadline below still ends it.
+            let input = job.stdin.clone();
+            tokio::spawn(async move {
+                let _ = attached.input.write_all(&input).await;
+                let _ = attached.input.shutdown().await;
+            });
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let (mut timed_out, mut exceeded) = (false, false);
+            let mut output = attached.output;
+            loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                match tokio::time::timeout(left, output.next()).await {
+                    Err(_) => {
+                        timed_out = true;
+                        break;
+                    }
+                    Ok(None) => break,
+                    Ok(Some(Err(_))) => break,
+                    Ok(Some(Ok(chunk))) => {
+                        let (target, bytes) = match chunk {
+                            LogOutput::StdErr { message } => (&mut stderr, message),
+                            LogOutput::StdOut { message } | LogOutput::Console { message } => {
+                                (&mut stdout, message)
+                            }
+                            LogOutput::StdIn { .. } => continue,
+                        };
+                        if target.len() + bytes.len() > job.output_limit {
+                            let room = job.output_limit.saturating_sub(target.len());
+                            target.extend_from_slice(&bytes[..room.min(bytes.len())]);
+                            exceeded = true;
+                            break;
+                        }
+                        target.extend_from_slice(&bytes);
+                    }
+                }
+            }
+            // Close the stream now. The daemon waits for an attached stream to drain before it
+            // finishes a container, so a stream left open (after an output flood) stalls every
+            // later call, the kill and the removal included.
+            drop(output);
+            // Output has ended; the program may still be running (closed its streams). Wait for it
+            // within what is left of the deadline, then end it.
+            let mut state = None;
+            while !timed_out && !exceeded {
+                let inspected = self
+                    .docker
+                    .inspect_container(
+                        &id,
+                        None::<bollard::query_parameters::InspectContainerOptions>,
+                    )
+                    .await
+                    .map_err(failed)?;
+                let s = inspected.state.unwrap_or_default();
+                if s.running != Some(true) {
+                    state = Some(s);
+                    break;
+                }
+                if std::time::Instant::now() >= deadline {
+                    timed_out = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if timed_out || exceeded {
+                let _ = self
+                    .docker
+                    .kill_container(
+                        &id,
+                        Some(KillContainerOptionsBuilder::new().signal("KILL").build()),
+                    )
+                    .await;
+            }
+            let state = match state {
+                Some(s) => s,
+                None => self
+                    .docker
+                    .inspect_container(
+                        &id,
+                        None::<bollard::query_parameters::InspectContainerOptions>,
+                    )
+                    .await
+                    .map_err(failed)?
+                    .state
+                    .unwrap_or_default(),
+            };
+            Ok(crate::oneshot::JobOutcome {
+                exit_code: if timed_out || exceeded {
+                    None
+                } else {
+                    state.exit_code
+                },
+                stdout,
+                stderr,
+                timed_out,
+                oom: state.oom_killed == Some(true),
+                output_exceeded: exceeded,
+                wall_ms,
+            })
+        }
+        .await;
+        // Whatever happened, the container goes.
+        let options = RemoveContainerOptionsBuilder::new()
+            .force(true)
+            .v(true)
+            .build();
+        let _ = self.docker.remove_container(&id, Some(options)).await;
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_judge_seccomp_profile_is_valid_and_drops_what_a_submission_never_needs() {
+        let v: serde_json::Value = serde_json::from_str(JUDGE_SECCOMP).unwrap();
+        assert_eq!(v["defaultAction"], "SCMP_ACT_ERRNO");
+        let allowed: Vec<&str> = v["syscalls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            // Entries that name a capability only apply to containers holding it; the judge has none.
+            .filter(|s| s["action"] == "SCMP_ACT_ALLOW" && s["includes"]["caps"].is_null())
+            .flat_map(|s| {
+                s["names"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|n| n.as_str())
+            })
+            .collect();
+        for gone in ["ptrace", "process_vm_readv", "process_vm_writev"] {
+            assert!(!allowed.contains(&gone), "{gone} must not be allowed");
+        }
+        assert!(allowed.contains(&"read") && allowed.contains(&"execve"));
+        assert!(!allowed.contains(&"mount") && !allowed.contains(&"unshare"));
+    }
+
+    #[test]
+    fn the_judge_runtime_name_is_checked() {
+        let d = DockerRuntime::connect("127.0.0.1").unwrap();
+        assert!(d.set_judge_runtime(Some("runsc".into())).is_ok());
+        assert!(d.set_judge_runtime(Some("a b".into())).is_err());
+        assert!(d.set_judge_runtime(Some(String::new())).is_err());
+        assert!(d.set_judge_runtime(None).is_ok());
+    }
+
     use super::*;
 
     fn spec() -> InstanceSpec {

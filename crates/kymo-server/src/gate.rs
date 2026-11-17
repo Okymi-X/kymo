@@ -45,6 +45,7 @@ fn rule(method: &Method, path: &str) -> Rule {
     let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
     let get = method == Method::GET || method == Method::HEAD;
     match (parts.as_slice(), get) {
+        (["admin", "auth", "login"], _) if method == Method::POST => Rule::Open,
         (["auth", "login" | "logout" | "register" | "player-login"], _)
             if method == Method::POST =>
         {

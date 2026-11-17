@@ -42,7 +42,8 @@
           "file": { "type": "string", "description": "A file inside the definition directory." },
           "function": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
           "health": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
-          "timeout_secs": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 }
+          "timeout_secs": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+          "hint": { "type": "string", "minLength": 1, "maxLength": 200, "description": "A nudge shown under the step while it is still failing. Point the way without giving the fix away." }
         }
       }
     },

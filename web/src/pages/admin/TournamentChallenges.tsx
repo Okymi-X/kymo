@@ -47,7 +47,7 @@ export function TournamentChallengeSettings({ event }: { event: EventInfo }) {
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Challenges decide the matches</h2>
         <p className="mt-1 text-sm text-muted">
-          Each side answers the same challenges and its points become the match score. The format then decides wins, draws and standings as usual. Author the challenges in the Challenges tab; they are worth fixed points.
+          Each side answers the same challenges; its points become the match score. Author them in the Challenges tab (fixed points).
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">

@@ -13,7 +13,8 @@
       "file": "checks.sh",
       "function": "check_exposed_file",
       "health": "health_web",
-      "timeout_secs": 10
+      "timeout_secs": 10,
+      "hint": "Look at what the web server hands out without being asked."
     },
     {
       "id": "weak-credential",

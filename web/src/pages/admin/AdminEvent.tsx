@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, Plus, X } from 'lucide-react'
+import { Download, ExternalLink, Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { platform } from '../../api/platform'
@@ -10,7 +10,7 @@ import { DataTable, Empty, Gate, Loading, Panel, Pill, StatePill, TD, Toggle } f
 import { Pager } from '../../components/Pager'
 import { Tabs, type TabItem } from '../../components/Tabs'
 import { Button, ErrorText, Field, Input, PageTitle, Select, StatusPill, Textarea } from '../../components/ui'
-import { fromLocalInput, moveLabel, nextStates, scoringLabel, stateLabel, toLocalInput, verdictText, labLabel } from '../../lib/platform'
+import { fromLocalInput, scoringLabel, stateLabel, toLocalInput, verdictText, labLabel } from '../../lib/platform'
 import { timeAgo } from '../../lib/time'
 import { usePageTitle } from '../../lib/usePageTitle'
 import { useTournament } from '../../api/hooks'
@@ -18,11 +18,16 @@ import { RosterEditor } from '../../components/RosterEditor'
 import { TournamentAdmin } from '../../components/TournamentAdmin'
 import { formatLabel } from '../../lib/labels'
 import { ChallengeEditor } from './ChallengeEditor'
+import { challengeType } from '../../lib/delivery'
+import { StateStepper } from '../../components/platform/StateStepper'
+import { movesFrom, statusLine } from '../../lib/lifecycle'
+import { canGoLive, readiness, type Check } from '../../lib/readiness'
 import { InstanceDetails } from './InstanceDetails'
+import { IntegrityTab } from './Integrity'
 import { RulesEditor } from '../../components/platform/RulesEditor'
 import { TournamentChallengeSettings } from './TournamentChallenges'
 
-type View = 'overview' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'instances'
+type View = 'overview' | 'settings' | 'tournament' | 'challenges' | 'participants' | 'submissions' | 'integrity' | 'infrastructure' | 'instances'
 
 const TIE_BREAKS: { id: JeopardySettings['tie_breaks'][number]; label: string }[] = [
   { id: 'earliest_last_solve', label: 'Reached the score first' },
@@ -30,7 +35,72 @@ const TIE_BREAKS: { id: JeopardySettings['tie_breaks'][number]; label: string }[
   { id: 'first_blood', label: 'More first bloods' },
 ]
 
-function Overview({ event }: { event: EventInfo }) {
+/** What is still missing before the event can go live, each with the tab that fixes it. */
+function Readiness({ checks, loading, onOpen }: { checks: Check[]; loading: boolean; onOpen: (view: View) => void }) {
+  const ready = canGoLive(checks)
+  const tone = { ok: 'text-win', warn: 'text-accent', block: 'text-danger' } as const
+  const mark = { ok: 'OK', warn: 'Check', block: 'Needed' } as const
+  return (
+    <Panel className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold tracking-tight">Before it goes live</h2>
+        {!loading && <Pill tone={ready ? 'text-win' : 'text-danger'}>{ready ? 'Ready' : 'Not ready'}</Pill>}
+      </div>
+      {loading ? (
+        <Loading />
+      ) : (
+        <ul className="flex flex-col divide-y divide-line">
+          {checks.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+              <span className={`w-14 shrink-0 text-xs font-semibold ${tone[c.level]}`}>{mark[c.level]}</span>
+              <span className="min-w-0 flex-1">{c.text}</span>
+              {c.level !== 'ok' && (
+                <button type="button" onClick={() => onOpen(c.view)} className="text-sm font-medium text-accent hover:underline">
+                  Fix
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+/** What an organizer wants to know about a running event, and the places to act on it. */
+function AtAGlance({ event, onOpen }: { event: EventInfo; onOpen: (view: View) => void }) {
+  const where = event.lab_host_id === null ? 'This server' : 'Lab host'
+  const tile = (label: string, value: string) => (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="text-sm font-medium">{value}</dd>
+    </div>
+  )
+  return (
+    <Panel className="flex flex-col gap-4">
+      <dl className="grid gap-4 sm:grid-cols-3">
+        {tile('Scoreboard', event.scoreboard_public ? 'Public' : 'Players only')}
+        {tile('Instances', event.kind === 'jeopardy' ? `${where} · ${event.network_mode === 'vpn' ? 'VPN' : 'published ports'}` : 'Per match')}
+        {tile('Scoring', event.mode === 'team' ? 'Teams' : 'Solo')}
+      </dl>
+      <div className="-ml-3.5 flex flex-wrap gap-1">
+        {event.kind === 'jeopardy' && (
+          <Button variant="ghost" onClick={() => onOpen('submissions')}>
+            Submissions
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => onOpen('participants')}>
+          Participants
+        </Button>
+        <Button variant="ghost" onClick={() => onOpen('instances')}>
+          Instances
+        </Button>
+      </div>
+    </Panel>
+  )
+}
+
+function Overview({ event, onOpen }: { event: EventInfo; onOpen: (view: View) => void }) {
   const client = useQueryClient()
   const navigate = useNavigate()
   const done = () => {
@@ -44,9 +114,89 @@ function Overview({ event }: { event: EventInfo }) {
     mutationFn: () => platform.deleteEvent(event.id),
     onSuccess: () => {
       done()
-      navigate('/admin/events')
+      navigate('/organizer/events')
     },
   })
+  const exportBundle = useMutation({ mutationFn: () => platform.exportEvent(event.id, event.slug) })
+  const exportBoard = useMutation({ mutationFn: () => platform.exportScoreboard(event.id, event.slug) })
+  const [now] = useState(() => Date.now())
+  const cats = useQuery({ queryKey: ['admin-categories', event.id], queryFn: () => platform.categories(event.id), enabled: event.kind === 'jeopardy' })
+  const list = useQuery({ queryKey: ['admin-challenges', event.id], queryFn: () => platform.adminChallenges(event.id), enabled: event.kind === 'jeopardy' })
+  const checks = readiness({ event, categories: cats.data?.length ?? 0, challenges: list.data ?? [] })
+  const loadingChecks = event.kind === 'jeopardy' && (cats.isPending || list.isPending)
+  return (
+    <div className="flex flex-col gap-6">
+      <Panel className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-sm font-medium">{statusLine(event, now)}</span>
+            {event.effective_state !== event.state && <span className="text-xs text-muted">acting as {stateLabel[event.effective_state].toLowerCase()} by its schedule</span>}
+            {event.started_early && <Pill tone="text-accent">Started early</Pill>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {movesFrom(event.state).map((m) => (
+              <Button key={m.to} variant={m.tone === 'primary' ? 'primary' : m.tone === 'danger' ? 'danger' : undefined} onClick={() => move.mutate(m.to)} disabled={move.isPending}>
+                {m.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <StateStepper state={event.state} />
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 text-sm">
+          {event.state === 'draft' || event.state === 'archived' ? <span /> : (
+          <span className="flex items-center gap-3">
+            <span className="text-muted">Registration</span>
+            <span className={event.registration_open ? 'font-medium text-win' : 'font-medium'}>{event.registration_open ? 'Open' : (event.registration_note ?? 'Closed')}</span>
+            <Button variant="ghost" onClick={() => regSwitch.mutate(!event.registration_closed)} disabled={regSwitch.isPending}>
+              {event.registration_closed ? 'Reopen' : 'Close now'}
+            </Button>
+          </span>
+          )}
+          {(event.state === 'draft' || event.state === 'archived') && (
+            <button type="button" className="text-sm text-danger hover:underline" onClick={() => setRemoving(true)}>
+              Delete event
+            </button>
+          )}
+        </div>
+        <ErrorText error={move.error ?? remove.error ?? exportBundle.error} />
+      </Panel>
+
+      {(event.state === 'draft' || event.state === 'registration_open') && <Readiness checks={checks} loading={loadingChecks} onOpen={onOpen} />}
+      {(event.state === 'live' || event.state === 'paused') && <AtAGlance event={event} onOpen={onOpen} />}
+      {event.kind === 'jeopardy' && (
+        <div className="flex flex-wrap items-center gap-1 text-sm text-muted">
+          <span>Export</span>
+          <Button variant="ghost" onClick={() => exportBundle.mutate()} disabled={exportBundle.isPending}>
+            <Download size={14} aria-hidden="true" /> Event bundle
+          </Button>
+          <Button variant="ghost" onClick={() => exportBoard.mutate()} disabled={exportBoard.isPending}>
+            <Download size={14} aria-hidden="true" /> Scoreboard CSV
+          </Button>
+        </div>
+      )}
+
+      {removing && (
+        <ConfirmDialog
+          title={`Delete ${event.name}?`}
+          message="This removes the event with its challenges, submissions and registrations. It cannot be undone."
+          confirmLabel="Delete"
+          danger
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate()}
+          onClose={() => setRemoving(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+
+function Settings({ event }: { event: EventInfo }) {
+  const client = useQueryClient()
+  const done = () => {
+    void client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+    void client.invalidateQueries({ queryKey: ['admin-events'] })
+  }
   const [f, setF] = useState(() => ({
     name: event.name,
     description: event.description,
@@ -88,56 +238,13 @@ function Overview({ event }: { event: EventInfo }) {
       setBoardLocal(null)
     },
   })
-  const exportBundle = useMutation({ mutationFn: () => platform.exportEvent(event.id, event.slug) })
-  const exportBoard = useMutation({ mutationFn: () => platform.exportScoreboard(event.id, event.slug) })
   const submit = (e: FormEvent) => {
     e.preventDefault()
     save.mutate()
   }
   const teams = f.mode === 'team'
-  const options = nextStates[event.state]
   return (
     <div className="flex flex-col gap-6">
-      <Panel className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">State</h2>
-          <StatePill state={event.state} />
-          {event.effective_state !== event.state && <span className="text-sm text-muted">now acting as {stateLabel[event.effective_state].toLowerCase()} by its schedule</span>}
-          {event.started_early && <Pill tone="text-accent">Started ahead of schedule</Pill>}
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className={event.registration_open ? 'text-win' : 'text-muted'}>{event.registration_open ? 'Registration is open' : (event.registration_note ?? 'Registration is closed')}</span>
-          {event.state !== 'archived' && (
-            <Button onClick={() => regSwitch.mutate(!event.registration_closed)} disabled={regSwitch.isPending}>
-              {event.registration_closed ? 'Reopen registration' : 'Close registration now'}
-            </Button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {options.map((s) => (
-            <Button key={s} onClick={() => move.mutate(s)} disabled={move.isPending}>
-              {moveLabel(event.state, s)}
-            </Button>
-          ))}
-          {(event.state === 'draft' || event.state === 'archived') && (
-            <Button variant="danger" onClick={() => setRemoving(true)}>
-              Delete event
-            </Button>
-          )}
-          {event.kind === 'jeopardy' && (
-            <Button onClick={() => exportBundle.mutate()} disabled={exportBundle.isPending}>
-              <Download size={15} aria-hidden="true" /> Export bundle
-            </Button>
-          )}
-          {event.kind === 'jeopardy' && (
-            <Button onClick={() => exportBoard.mutate()} disabled={exportBoard.isPending}>
-              <Download size={15} aria-hidden="true" /> Scoreboard CSV
-            </Button>
-          )}
-        </div>
-        <ErrorText error={move.error ?? remove.error ?? exportBundle.error} />
-      </Panel>
-
       <Panel>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <h2 className="text-lg font-semibold tracking-tight">Details</h2>
@@ -219,23 +326,19 @@ function Overview({ event }: { event: EventInfo }) {
 
       {event.kind === 'tournament' && <TournamentChallengeSettings event={event} />}
 
+
+    </div>
+  )
+}
+
+function Infrastructure({ event }: { event: EventInfo }) {
+  return (
+    <div className="flex flex-col gap-6">
       <InstanceHost event={event} />
 
       <NetworkMode event={event} />
 
       {event.kind === 'jeopardy' && <JeopardySettingsForm eventId={event.id} />}
-
-      {removing && (
-        <ConfirmDialog
-          title={`Delete ${event.name}?`}
-          message="This removes the event with its challenges, submissions and registrations. It cannot be undone."
-          confirmLabel="Delete"
-          danger
-          pending={remove.isPending}
-          onConfirm={() => remove.mutate()}
-          onClose={() => setRemoving(false)}
-        />
-      )}
     </div>
   )
 }
@@ -267,10 +370,10 @@ function InstanceHost({ event }: { event: EventInfo }) {
     <Panel className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold tracking-tight">Where instances run</h2>
       <p className="text-sm text-muted">
-        This server runs the challenge containers itself, or a separate lab host does, which keeps a broken-into challenge away from the platform. With the private VPN, players connect to the lab host's gateway and nothing is published on its ports.{' '}
+        This server or a lab host runs the instances. With the private VPN, players reach the lab host's gateway and nothing is published.{' '}
         {list.length === 0 && (
           <>
-            There is no lab host yet: <Link to="/admin/labs" className="font-medium text-accent hover:underline">add one</Link>.
+            There is no lab host yet: <Link to="/organizer/labs" className="font-medium text-accent hover:underline">add one</Link>.
           </>
         )}
       </p>
@@ -401,7 +504,7 @@ function JeopardySettingsForm({ eventId }: { eventId: number }) {
             <Input type="number" min={0} value={s.rate_lockout_secs} onChange={(e) => setS({ ...s, rate_lockout_secs: Math.trunc(Number(e.target.value)) })} className="font-mono" />
           </Field>
         </div>
-        <Field label="Freeze the public scoreboard at" hint="From this moment players and visitors see the board as it was, until the event ends. Play carries on and staff keep seeing the live board. Leave empty for no freeze.">
+        <Field label="Freeze the public scoreboard at" hint="From then on the public board stays as it was until the event ends. Staff still see it live. Empty: no freeze.">
           <span className="flex gap-2">
             <Input type="datetime-local" value={toLocalInput(s.freeze_at)} onChange={(e) => setS({ ...s, freeze_at: fromLocalInput(e.target.value) })} className="max-w-xs" />
             {s.freeze_at !== null && (
@@ -416,14 +519,14 @@ function JeopardySettingsForm({ eventId }: { eventId: number }) {
             <Select value={s.sharing_action} onChange={(e) => setS({ ...s, sharing_action: e.target.value as JeopardySettings['sharing_action'] })}>
               <option value="off">Do nothing</option>
               <option value="manual">Warn, then report to the organizers</option>
-              <option value="auto_ban">Warn, then ban</option>
+              <option value="disqualify">Warn, then disqualify from the event</option>
+              <option value="auto_ban">Warn, then ban the account</option>
             </Select>
           </Field>
           <Field label="Warnings before the action">
             <Input type="number" min={0} max={10} value={s.sharing_warnings} disabled={s.sharing_action === 'off'} onChange={(e) => setS({ ...s, sharing_warnings: Math.trunc(Number(e.target.value)) })} className="font-mono" />
           </Field>
         </div>
-        <p className="text-sm text-muted">Wrong-format flags never count as an attempt. Dynamic challenges lose points for earlier solvers too, the board always recomputes.</p>
         <ErrorText error={save.error} />
         <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" disabled={save.isPending}>
@@ -497,19 +600,18 @@ function Challenges({ event }: { event: EventInfo }) {
       ) : challenges.length === 0 ? (
         <Empty>No challenges yet.</Empty>
       ) : (
-        <DataTable caption="Challenges" head={event.kind === 'tournament' ? ['Challenge', 'Category', 'Points', 'Type', 'State'] : ['Challenge', 'Category', 'Points', 'Solves', 'State']}>
+        <DataTable caption="Challenges" head={event.kind === 'tournament' ? ['Challenge', 'Category', 'Type', 'Points', 'State'] : ['Challenge', 'Category', 'Type', 'Points', 'Solves', 'State']}>
           {challenges.map((c) => (
             <tr key={c.id} className="hover:bg-line/30">
               <td className={TD}>
                 <button type="button" onClick={() => setEditing(c.id)} className="text-left font-medium text-accent hover:underline">
                   {c.title}
                 </button>
-                {c.requires_instance && <span className="ml-2 text-xs text-muted">instance</span>}
-                {c.kind === 'dfir' && <span className="ml-2 text-xs text-muted">multi-question</span>}
               </td>
               <td className={TD}>{categories.find((k) => k.id === c.category_id)?.name ?? ''}</td>
+              <td className={`${TD} text-xs text-muted`}>{challengeType(c)}</td>
               <td className={`${TD} font-mono text-xs`}>{scoringLabel(c.scoring)}</td>
-              <td className={`${TD} font-mono tabular-nums`}>{event.kind === 'tournament' ? (c.kind === 'dfir' ? 'Multi-question' : c.requires_instance ? 'Instance' : 'Single flag') : c.solves}</td>
+              {event.kind !== 'tournament' && <td className={`${TD} font-mono tabular-nums`}>{c.solves}</td>}
               <td className={TD}>
                 <Pill tone={c.state === 'published' ? 'text-win' : 'text-muted'}>{c.state}</Pill>
               </td>
@@ -518,7 +620,7 @@ function Challenges({ event }: { event: EventInfo }) {
         </DataTable>
       )}
       {editing !== null && (editing === 'new' || current) && (
-        <ChallengeEditor key={String(editing)} eventId={event.id} eventKind={event.kind} categories={categories} challenge={current} onClose={() => setEditing(null)} />
+        <ChallengeEditor key={String(editing)} eventId={event.id} eventKind={event.kind} categories={categories} eventLabHostId={event.lab_host_id} challenge={current} onClose={() => setEditing(null)} />
       )}
     </div>
   )
@@ -617,7 +719,14 @@ function Participants({ event }: { event: EventInfo }) {
         <DataTable caption="Participants" head={[event.mode === 'team' ? 'Team' : 'Player', 'Members', 'Registered', '']}>
           {rows.map((p) => (
             <tr key={p.id}>
-              <td className={`${TD} font-medium`}>{p.name}</td>
+              <td className={`${TD} font-medium`}>
+                {p.name}
+                {p.disqualified_at !== null && (
+                  <span className="ml-2" title={p.disqualified_reason}>
+                    <Pill tone="text-danger">Disqualified</Pill>
+                  </span>
+                )}
+              </td>
               <td className={`${TD} font-mono tabular-nums`}>{p.members}</td>
               <td className={`${TD} text-muted`}>{timeAgo(p.registered_at)}</td>
               <td className={TD}>
@@ -839,10 +948,12 @@ function Body() {
   const jeopardy = event.kind === 'jeopardy'
   const tabs: TabItem<View>[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'settings', label: 'Settings' },
     ...(jeopardy ? [] : [{ id: 'tournament' as const, label: 'Tournament' }]),
     { id: 'challenges', label: 'Challenges' },
     { id: 'participants', label: 'Participants' },
-    ...(jeopardy ? [{ id: 'submissions' as const, label: 'Submissions' }] : []),
+    ...(jeopardy ? [{ id: 'submissions' as const, label: 'Submissions' }, { id: 'integrity' as const, label: 'Integrity' }] : []),
+    { id: 'infrastructure', label: 'Infrastructure' },
     { id: 'instances', label: 'Instances' },
   ]
   const requested = params.get('view') as View | null
@@ -854,18 +965,19 @@ function Body() {
         <StatePill state={event.effective_state} />
         <Pill>{jeopardy ? 'Jeopardy' : 'Tournament'}</Pill>
         <Pill>{event.mode === 'team' ? 'Teams' : 'Solo'}</Pill>
-      </div>
-      <div className="flex gap-4 text-sm">
-        <a href={jeopardy ? `/e/${event.slug}` : `/t/${event.slug}`} className="text-accent hover:underline">
-          Open the public page
+        <a href={jeopardy ? `/e/${event.slug}` : `/t/${event.slug}`} className="ml-auto inline-flex items-center gap-1.5 rounded-control border border-line px-3 py-1.5 text-sm text-muted transition-colors hover:border-field-line hover:text-ink">
+          Public page <ExternalLink size={14} aria-hidden="true" />
         </a>
       </div>
       <Tabs<View> items={tabs} value={view} label="Event admin" onChange={(v) => setParams({ view: v }, { replace: true })}>
-        {view === 'overview' && <Overview event={event} />}
+        {view === 'overview' && <Overview event={event} onOpen={(v) => setParams({ view: v }, { replace: true })} />}
+        {view === 'settings' && <Settings event={event} />}
         {view === 'tournament' && <TournamentTab event={event} />}
         {view === 'challenges' && <Challenges event={event} />}
         {view === 'participants' && <Participants event={event} />}
         {view === 'submissions' && <Submissions event={event} />}
+        {view === 'integrity' && <IntegrityTab event={event} />}
+        {view === 'infrastructure' && <Infrastructure event={event} />}
         {view === 'instances' && <Instances event={event} />}
       </Tabs>
     </div>
@@ -875,7 +987,7 @@ function Body() {
 export function AdminEvent() {
   return (
     <div className="flex flex-col gap-6">
-      <BackLink to="/admin/events">Manage events</BackLink>
+      <BackLink to="/organizer/events">Manage events</BackLink>
       <Gate need="admin">
         <Body />
       </Gate>

@@ -92,6 +92,10 @@ pub struct Check {
     pub health: Option<String>,
     #[serde(default = "default_check_timeout")]
     pub timeout_secs: u64,
+    /// A nudge shown under the step while it is still failing, for a player who is stuck. The
+    /// author writes it so that it points the way without giving the fix away.
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 /// Optional replacements for the three messages players see.
@@ -206,6 +210,13 @@ impl Definition {
             }
             if check.title.trim().is_empty() || check.title.chars().count() > MAX_TITLE {
                 out.push(at("title is 1 to 80 characters"));
+            }
+            if check.hint.as_deref().is_some_and(|h| {
+                h.trim().is_empty()
+                    || h.chars().count() > MAX_MESSAGE
+                    || h.chars().any(char::is_control)
+            }) {
+                out.push(at("hint is 1 to 200 characters of plain text"));
             }
             if !safe_relative(&check.file) {
                 out.push(at(
@@ -364,6 +375,10 @@ mod tests {
         assert!(!bad(&|d| d.checks[0].id = "Bad Id".into()).is_empty());
         assert!(!bad(&|d| d.checks[1].id = "archive".into()).is_empty());
         assert!(!bad(&|d| d.checks[0].title = " ".into()).is_empty());
+        assert!(bad(&|d| d.checks[0].hint = Some("Look at the web root.".into())).is_empty());
+        assert!(!bad(&|d| d.checks[0].hint = Some(" ".into())).is_empty());
+        assert!(!bad(&|d| d.checks[0].hint = Some("x".repeat(201))).is_empty());
+        assert!(!bad(&|d| d.checks[0].hint = Some("two\nlines".into())).is_empty());
         assert!(!bad(&|d| d.checks[0].file = "../x.sh".into()).is_empty());
         assert!(!bad(&|d| d.checks[0].file = "/etc/passwd".into()).is_empty());
         assert!(!bad(&|d| d.checks[0].function = "1bad".into()).is_empty());

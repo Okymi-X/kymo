@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::auth::ClientIp;
+use crate::auth::{ClientIp, MaybeCaller};
 use crate::db::{self, Tournament};
 use crate::error::ApiError;
 use crate::events::{self, Event as LogEvent};
@@ -147,8 +147,42 @@ pub async fn me(
 /// The list only needs a few names for the avatar stack, not every roster.
 const LIST_TEAMS: usize = 4;
 
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>, ApiError> {
+/// True when the tournament belongs to an event that is still a draft.
+async fn is_draft(state: &AppState, slug: &str) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM tournament t JOIN event e ON e.id = t.event_id WHERE t.slug = ? AND e.state = 'draft'",
+    )
+    .bind(slug)
+    .fetch_one(&state.pool)
+    .await?
+        > 0)
+}
+
+/// A draft's tournament is 404 for anybody who may not manage events or referee.
+async fn ensure_visible(
+    state: &AppState,
+    caller: &Option<crate::auth::Caller>,
+    slug: &str,
+) -> Result<(), ApiError> {
+    if !crate::auth::sees_drafts(state, caller).await? && is_draft(state, slug).await? {
+        return Err(ApiError::NotFound);
+    }
+    Ok(())
+}
+
+pub async fn list(
+    MaybeCaller(caller): MaybeCaller,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Tournament>>, ApiError> {
     let mut all = db::list(&state.pool).await?;
+    if !crate::auth::sees_drafts(&state, &caller).await? {
+        let drafts: Vec<String> = sqlx::query_scalar(
+            "SELECT t.slug FROM tournament t JOIN event e ON e.id = t.event_id WHERE e.state = 'draft'",
+        )
+        .fetch_all(&state.pool)
+        .await?;
+        all.retain(|t| !drafts.contains(&t.slug));
+    }
     for t in &mut all {
         t.bracket = None;
         t.teams.truncate(LIST_TEAMS);
@@ -157,16 +191,20 @@ pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Tournament>>
 }
 
 pub async fn show(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Tournament>, ApiError> {
+    ensure_visible(&state, &caller, &slug).await?;
     Ok(Json(db::get_by_slug(&state.pool, &slug).await?))
 }
 
 pub async fn events(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    ensure_visible(&state, &caller, &slug).await?;
     db::get_by_slug(&state.pool, &slug).await?;
     let stream = BroadcastStream::new(state.events.subscribe()).filter_map(move |msg| match msg {
         Ok(changed) if changed == slug => {
@@ -182,17 +220,21 @@ pub async fn appearance(State(state): State<AppState>) -> Result<Json<Appearance
 }
 
 pub async fn activity(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Vec<LogEvent>>, ApiError> {
+    ensure_visible(&state, &caller, &slug).await?;
     let t = db::get_by_slug(&state.pool, &slug).await?;
     Ok(Json(events::list(&state.pool, t.id).await?))
 }
 
 pub async fn calendar(
+    MaybeCaller(caller): MaybeCaller,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ensure_visible(&state, &caller, &slug).await?;
     let t = db::get_by_slug(&state.pool, &slug).await?;
     let body = crate::calendar::ics(&t, crate::tokens::now());
     Ok((

@@ -8,6 +8,8 @@ pub mod error;
 pub mod flag;
 pub mod limit;
 pub mod scoring;
+pub mod similarity;
+pub mod template;
 
 pub use board::{
     BoardConfig, Challenge, DuplicatePolicy, MemberBreakdown, MemberSolve, Participant, Row, Solve,

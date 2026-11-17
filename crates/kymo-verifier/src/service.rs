@@ -229,11 +229,14 @@ button:disabled{opacity:.55;cursor:not-allowed}.bar{display:flex;align-items:cen
 .flag{border:2px solid var(--ok);border-radius:12px;padding:16px;margin-bottom:16px;background:var(--card)}
 .flag code{display:block;word-break:break-all;font-size:1.05rem;margin:8px 0}
 .flag p{margin:0;color:var(--muted);font-size:.9rem}.hide{display:none}
+.prog{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin:0 0 16px}.prog>div{height:100%;width:0;background:var(--ok)}
+.hint{color:var(--ink);font-size:.85rem;margin-top:4px}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 @media (prefers-reduced-motion:no-preference){.dot{transition:background .2s}}
 </style></head><body><main>
 <h1 id="title">Verifier</h1><p class="sub"><span id="clock"></span></p>
-<div class="bar"><button id="go">Verify</button><span class="sub" id="note"></span></div>
+<div class="bar"><button id="go">Verify</button><span class="sub" id="note"></span><span class="sub" id="progress" style="margin-left:auto"></span></div>
+<div class="prog" aria-hidden="true"><div id="progbar"></div></div>
 <div class="flag hide" id="flag"><strong>Every step is fixed.</strong><code id="flagtext"></code>
 <button class="ghost" id="copy">Copy</button><p>Paste this flag into the challenge page.</p></div>
 <div class="card" id="list" role="list"></div>
@@ -247,7 +250,10 @@ function render(v){
  document.getElementById('title').textContent=v.title||'Verifier';
  exp=v.expires_at;list.replaceChildren();
  v.checks.forEach(function(c){var r=el('div','row '+(c.state||''));r.setAttribute('role','listitem');
-  r.appendChild(el('span','dot'));var t=el('span','t',c.title);t.appendChild(el('span','m',c.message));r.appendChild(t);list.appendChild(r)});
+  r.appendChild(el('span','dot'));var t=el('span','t',c.title);t.appendChild(el('span','m',c.message));if(c.hint)t.appendChild(el('span','m hint','Hint: '+c.hint));r.appendChild(t);list.appendChild(r)});
+ var done=v.checks.filter(function(c){return c.state==='fixed'}).length,all=v.checks.length;
+ document.getElementById('progress').textContent=done+' of '+all+' fixed';
+ document.getElementById('progbar').style.width=(all?Math.round(100*done/all):0)+'%';
  if(v.flag){flag.classList.remove('hide');ft.textContent=v.flag}else{flag.classList.add('hide');ft.textContent=''}
  var wait=v.wait_secs||0;go.disabled=busy||v.running||wait>0;
  note.textContent=v.running?'Running...':(wait>0?'Next run in '+wait+' s':(v.last_run_at?'':'Not run yet'));
@@ -265,6 +271,14 @@ setInterval(tick,1000);setInterval(load,5000);load();tick();
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_page_shows_progress_and_the_hint_of_a_failing_step() {
+        assert!(PAGE.contains("id=\"progress\""));
+        assert!(PAGE.contains("' fixed'"));
+        assert!(PAGE.contains("c.hint"));
+    }
+
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;

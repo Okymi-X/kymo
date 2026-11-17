@@ -81,6 +81,9 @@ pub struct AttachmentPart {
     pub mime: String,
     pub sha256: String,
     pub data_base64: String,
+    /// A text file filled in with each downloader's own flag. Written only when true.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub template: bool,
 }
 
 fn flag_kind() -> String {
@@ -130,6 +133,9 @@ pub struct ChallengePart {
     pub flags: Vec<FlagInput>,
     pub hints: Vec<HintPart>,
     pub attachments: Vec<AttachmentPart>,
+    /// A coding challenge's languages, tests and limits. Written only for a coding challenge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<crate::code::CodeConfig>,
 }
 
 fn bad(message: impl Into<String>) -> ApiError {
@@ -162,6 +168,7 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
                 mime: meta.mime,
                 sha256: meta.sha256,
                 data_base64: STANDARD.encode(data),
+                template: meta.template,
             });
         }
         let fields = ChallengeFields::from(&row);
@@ -190,6 +197,7 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
             requires_instance: fields.requires_instance,
             instance_config: fields.instance_config,
             kind: row.kind.clone(),
+            code: crate::code::config_of(pool, row.id).await?,
             items: crate::duel_store::items(pool, row.id)
                 .await?
                 .into_iter()
@@ -254,8 +262,9 @@ struct Prepared {
     category: String,
     state: String,
     hints: Vec<(String, i64, i64)>,
-    attachments: Vec<(String, String, Vec<u8>)>,
+    attachments: Vec<(String, String, Vec<u8>, bool)>,
     items: Vec<crate::duel_store::ItemFields>,
+    code: Option<crate::code::CodeConfig>,
 }
 
 fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
@@ -326,8 +335,17 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             instance_config: part.instance_config.clone(),
             kind: part.kind.clone(),
         };
-        if !matches!(part.kind.as_str(), "flag" | "dfir") {
-            return Err(bad("a challenge type is flag or dfir"));
+        if !matches!(part.kind.as_str(), "flag" | "dfir" | "code") {
+            return Err(bad("a challenge type is flag, dfir or code"));
+        }
+        if part.kind == "code" {
+            let Some(code) = &part.code else {
+                return Err(bad("a coding challenge needs its languages and tests"));
+            };
+            code.validate()?;
+            if part.requires_instance {
+                return Err(bad("a coding challenge starts no instance"));
+            }
         }
         if part.kind == "dfir" {
             if !matches!(part.scoring, Scoring::Static { .. }) || part.requires_instance {
@@ -381,6 +399,7 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
                 store::clean_filename(&a.name),
                 store::clean_mime(&a.mime),
                 data,
+                a.template,
             ));
         }
         prepared.push(Prepared {
@@ -390,6 +409,7 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             state: part.state.clone(),
             hints,
             attachments,
+            code: part.code.clone(),
             items: part
                 .items
                 .iter()
@@ -466,8 +486,11 @@ async fn fill(
         for (content, cost, position) in &item.hints {
             store::hint_insert(pool, id, content, *cost, *position).await?;
         }
-        for (name, mime, data) in &item.attachments {
-            store::attachment_insert(pool, id, name, mime, data).await?;
+        for (name, mime, data, template) in &item.attachments {
+            store::attachment_insert(pool, id, name, mime, data, *template).await?;
+        }
+        if let Some(code) = &item.code {
+            crate::code::put_config(pool, id, code).await?;
         }
         if !item.items.is_empty() {
             crate::duel_store::replace_items(pool, id, &item.items).await?;

@@ -3,7 +3,9 @@ A Verifier definition. Copy this directory, give it a name, and edit it:
   cp -r /etc/kymo-lab/verifiers/template /etc/kymo-lab/verifiers/my-challenge
 
   verifier.json   the checks: id, the title players see, the language (bash, python or exec),
-                  the file and function to run, an optional health function, a timeout
+                  the file and function to run, an optional health function, a timeout, and an
+                  optional hint shown under the step while it is still failing (point the way,
+                  do not give the fix away)
   checks.sh       check functions in bash
   checks.py       check functions in Python (standard library only)
   keys/           the SSH private key the checks use to reach the machine (never put it in

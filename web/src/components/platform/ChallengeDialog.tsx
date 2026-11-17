@@ -8,6 +8,7 @@ import { fileSize, flagHint, verdictText } from '../../lib/platform'
 import { Modal, ModalBody, ModalHeader } from '../Modal'
 import { Button, ErrorText, Input } from '../ui'
 import { Pill } from './bits'
+import { CodePanel } from './CodePanel'
 import { InstancePanel } from './InstancePanel'
 
 interface Props {
@@ -92,7 +93,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
   const progress = flagProgress(found, total)
 
   return (
-    <Modal label={challenge.title} onClose={onClose} width="40rem">
+    <Modal label={challenge.title} onClose={onClose} width={challenge.kind === 'code' ? '48rem' : '40rem'}>
       <ModalHeader
         title={challenge.title}
         subtitle={
@@ -152,6 +153,8 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
           </ol>
         )}
 
+        {challenge.kind === 'code' && <CodePanel slug={slug} challenge={challenge} open={open} />}
+
         {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={challenge.lab_host_id ?? labHost} />}
         {challenge.requires_instance && challenge.solved && (
           <p className="text-sm text-muted">You solved this challenge, so a new instance cannot be started for it.</p>
@@ -193,7 +196,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
       </ModalBody>
 
       {/* The flag form stays in view while the rest scrolls: it is what the player came here to do. */}
-      {challenge.kind !== 'dfir' && (
+      {challenge.kind === 'flag' && (
       <form onSubmit={onSubmit} className="flex flex-col gap-2 border-t border-line bg-surface px-6 py-4">
         {challenge.solved ? (
           <p className="flex items-center gap-2 text-win" aria-live="polite">
@@ -217,7 +220,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
                 id="flag"
                 value={flag}
                 onChange={(e) => setFlag(e.target.value)}
-                placeholder={hintText || 'Enter the flag'}
+                placeholder={challenge.responder ? 'Paste the flag the Verifier shows' : hintText || 'Enter the flag'}
                 disabled={!open}
                 autoComplete="off"
                 spellCheck={false}
@@ -241,7 +244,9 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
               )}
               {result?.sharing && (
                 <p className="mt-1 text-danger">
-                  {result.sharing.status === 'warning'
+                  {result.sharing.status === 'disqualified'
+                    ? 'That flag belongs to another player. You have been disqualified from this event for sharing flags.'
+                    : result.sharing.status === 'warning'
                     ? 'That flag belongs to another player. Sharing flags is against the rules; doing it again can get you banned.'
                     : result.sharing.status === 'banned'
                       ? 'That flag belongs to another player. Your account has been banned for sharing flags.'

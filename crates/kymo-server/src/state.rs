@@ -69,6 +69,8 @@ pub struct AppState {
     connected: Arc<ConnectedCache>,
     /// The last answer to an anonymous visitor of a public view, by request: when, body, type.
     public_cache: Arc<PublicCache>,
+    /// Coding runs in progress, one per participant and challenge (see `code::RunGuard`).
+    code_runs: crate::code::Runs,
 }
 
 impl AppState {
@@ -85,6 +87,7 @@ impl AppState {
             admin_hash: Arc::new(hash.to_string()),
             clock: clock::system(),
             failures: Arc::default(),
+            code_runs: Arc::default(),
             rates: Arc::default(),
             instances: None,
             monitor: Arc::default(),
@@ -158,6 +161,10 @@ impl AppState {
     /// Connections to lab hosts, built from their database rows.
     pub fn labs(&self) -> &LabRegistry {
         &self.labs
+    }
+
+    pub fn code_runs(&self) -> &crate::code::Runs {
+        &self.code_runs
     }
 
     pub fn instance_setup(&self) -> Option<&InstanceSetup> {

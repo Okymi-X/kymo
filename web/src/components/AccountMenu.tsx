@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, KeyRound, Lock, LogOut, Palette, Server, ShieldAlert, Swords, User as UserIcon, Users, UsersRound } from 'lucide-react'
+import { ChevronDown, LogOut, Swords, User as UserIcon, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, session, useCanMonitor, useIsAdmin, useWho } from '../api/client'
@@ -11,6 +11,7 @@ export function AccountMenu() {
   const who = useWho()
   const admin = useIsAdmin()
   const monitor = useCanMonitor()
+  const staff = admin || monitor || who?.role === 'referee'
   const openAlerts = useOpenAlerts(monitor)
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -78,38 +79,14 @@ export function AccountMenu() {
               </Link>
             </>
           )}
-          {admin && (
+          {staff && (
             <>
               {who && <div className="my-1 border-t border-line" />}
-              <Link role="menuitem" to="/settings" className={ITEM} onClick={() => setOpen(false)}>
-                <Palette size={16} aria-hidden="true" /> Appearance
-              </Link>
-              <Link role="menuitem" to="/tokens" className={ITEM} onClick={() => setOpen(false)}>
-                <KeyRound size={16} aria-hidden="true" /> API tokens
-              </Link>
-              <div className="my-1 border-t border-line" />
-              <Link role="menuitem" to="/admin/events" className={ITEM} onClick={() => setOpen(false)}>
-                <Swords size={16} aria-hidden="true" /> Manage events
-              </Link>
-              <Link role="menuitem" to="/admin/users" className={ITEM} onClick={() => setOpen(false)}>
-                <Users size={16} aria-hidden="true" /> Users
-              </Link>
-              <Link role="menuitem" to="/admin/permissions" className={ITEM} onClick={() => setOpen(false)}>
-                <Lock size={16} aria-hidden="true" /> Permissions
-              </Link>
-              <Link role="menuitem" to="/admin/ops" className={ITEM} onClick={() => setOpen(false)}>
-                <Activity size={16} aria-hidden="true" /> Operations
-              </Link>
-              <Link role="menuitem" to="/admin/labs" className={ITEM} onClick={() => setOpen(false)}>
-                <Server size={16} aria-hidden="true" /> Lab hosts
+              <Link role="menuitem" to="/organizer" className={ITEM} onClick={() => setOpen(false)}>
+                <Swords size={16} aria-hidden="true" /> Organizer console
+                {openAlerts > 0 && <span className="ml-auto rounded-full bg-danger px-1.5 text-xs font-semibold text-bg">{openAlerts}</span>}
               </Link>
             </>
-          )}
-          {monitor && (
-            <Link role="menuitem" to="/monitor" className={ITEM} onClick={() => setOpen(false)}>
-              <ShieldAlert size={16} aria-hidden="true" /> Monitor
-              {openAlerts > 0 && <span className="ml-auto rounded-full bg-danger px-1.5 text-xs font-semibold text-bg">{openAlerts}</span>}
-            </Link>
           )}
           <div className="my-1 border-t border-line" />
           <button role="menuitem" type="button" className={ITEM} onClick={signOut}>

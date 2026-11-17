@@ -315,8 +315,14 @@ async fn a_public_tournament_is_readable_for_embeds_and_a_private_one_is_not() {
         )
         .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+    // The update stream only pings, but a draft's stream must not give its existence away: it
+    // answers like a slug that does not exist. A published tournament's stream stays open.
     assert_eq!(
         site.status(&format!("/tournaments/{private}/events")).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        site.status(&format!("/tournaments/{public}/events")).await,
         StatusCode::OK
     );
 }
@@ -476,4 +482,114 @@ async fn each_event_has_its_own_rules() {
         .call("GET", &format!("/events/{a_slug}/rules"), Some(&pat), None)
         .await;
     assert_eq!(gone, json!({ "title": "Rules", "body": "" }));
+}
+
+#[tokio::test]
+async fn a_draft_is_invisible_to_players_even_with_a_session_and_open_to_organizers() {
+    let site = Site::new().await;
+    let admin = site.admin().await;
+    let player = site.player("pat").await;
+
+    // A draft event: its rules and its short summary are as hidden as the event itself.
+    let (id, slug) = site.event(&admin, "Secret Draft", "draft", false).await;
+    let (s, _) = site
+        .call(
+            "PUT",
+            &format!("/admin/events/{id}/rules"),
+            Some(&admin),
+            Some(json!({ "title": "Rules", "body": "SECRET" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    for path in [
+        format!("/events/{slug}/rules"),
+        format!("/public/events/{slug}"),
+    ] {
+        let (s, b) = site.call("GET", &path, Some(&player), None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}: {b}");
+        let (s, b) = site.call("GET", &path, Some(&admin), None).await;
+        assert_eq!(s, StatusCode::OK, "{path}: {b}");
+    }
+    // Once it is published, players read it.
+    sqlx::query("UPDATE event SET state = 'registration_open' WHERE id = ?")
+        .bind(id)
+        .execute(&site.pool)
+        .await
+        .unwrap();
+    let (s, _) = site
+        .call("GET", &format!("/events/{slug}/rules"), Some(&player), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // A draft tournament: not in the list, and no page of it opens, for a player.
+    let (s, t) = site
+        .call(
+            "POST",
+            "/tournaments",
+            Some(&admin),
+            Some(json!({ "name": "Hidden Cup", "format": "single_elimination" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{t}");
+    let slug = t["slug"].as_str().unwrap().to_owned();
+    let listed = |who: String| {
+        let site = &site;
+        async move {
+            let (_, b) = site.call("GET", "/tournaments", Some(&who), None).await;
+            b.as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x["slug"] == json!("hidden-cup"))
+        }
+    };
+    assert!(
+        !listed(player.clone()).await,
+        "a player sees a draft tournament listed"
+    );
+    assert!(listed(admin.clone()).await);
+    for path in [
+        format!("/tournaments/{slug}"),
+        format!("/tournaments/{slug}/activity"),
+        format!("/tournaments/{slug}/calendar.ics"),
+    ] {
+        let (s, _) = site.call("GET", &path, Some(&player), None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}");
+        let (s, _) = site.call("GET", &path, Some(&admin), None).await;
+        assert_eq!(s, StatusCode::OK, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_player_page_polling_instances_on_a_server_without_them_gets_an_empty_list_not_an_error()
+{
+    let site = Site::new().await;
+    let admin = site.admin().await;
+    let player = site.player("pat").await;
+    let (id, slug) = site
+        .event(&admin, "No Machines", "registration_open", false)
+        .await;
+    let (s, b) = site
+        .call(
+            "POST",
+            &format!("/events/{slug}/register"),
+            Some(&player),
+            None,
+        )
+        .await;
+    assert!(s.is_success(), "{b}");
+    sqlx::query("UPDATE event SET state = 'live' WHERE id = ?")
+        .bind(id)
+        .execute(&site.pool)
+        .await
+        .unwrap();
+    let (s, b) = site
+        .call(
+            "GET",
+            &format!("/events/{slug}/instances"),
+            Some(&player),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["instances"], json!([]));
 }

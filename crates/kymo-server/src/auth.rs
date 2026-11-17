@@ -125,6 +125,16 @@ impl FromRequestParts<AppState> for MaybeCaller {
     }
 }
 
+/// Whether the caller may see events and tournaments that are still drafts: organizers and
+/// referees. Everybody else, signed in or not, is told a draft does not exist.
+pub async fn sees_drafts(state: &AppState, caller: &Option<Caller>) -> Result<bool, ApiError> {
+    let Some(caller) = caller else {
+        return Ok(false);
+    };
+    Ok(state.can(caller.role, Permission::ManageEvents).await?
+        || state.can(caller.role, Permission::Referee).await?)
+}
+
 /// Any signed in, not banned player account.
 pub struct Player {
     pub id: i64,

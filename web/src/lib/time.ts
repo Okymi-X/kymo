@@ -17,3 +17,17 @@ export function timeAgo(unixSeconds: number, nowMs: number = Date.now()): string
   }
   return '1 minute ago'
 }
+
+/** "in 5 minutes", "in 2 days", "any moment". Past times read "now": callers say what already happened. */
+export function timeUntil(unixSeconds: number, nowMs: number = Date.now()): string {
+  const seconds = Math.floor(unixSeconds - nowMs / 1000)
+  if (seconds <= 0) return 'now'
+  if (seconds < 45) return 'any moment'
+  for (const [size, name] of UNITS) {
+    if (seconds >= size) {
+      const n = Math.floor(seconds / size)
+      return `in ${n} ${name}${n === 1 ? '' : 's'}`
+    }
+  }
+  return 'in 1 minute'
+}

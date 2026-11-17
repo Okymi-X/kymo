@@ -54,3 +54,55 @@ export function heatGrid(from: number, hours: number[]): { day: string; cells: {
   })
   return rows
 }
+
+export interface Window {
+  from: number
+  to: number
+}
+
+/** The part of a series inside a window, with its alert markers. `from` follows the first bucket
+ *  that is left, because alert markers are placed by their distance from it. */
+export function cropSeries<S extends { from: number; step: number; buckets: { t: number }[]; markers: { last_at: number }[] }>(series: S, w: Window): S {
+  const buckets = series.buckets.filter((b) => b.t >= w.from && b.t < w.to)
+  return {
+    ...series,
+    buckets,
+    from: buckets[0]?.t ?? w.from,
+    markers: series.markers.filter((m) => m.last_at >= w.from && m.last_at < w.to),
+  }
+}
+
+/** The window one step in (`factor` below 1) or out (above 1) around its middle, never wider than the
+ *  whole range and never narrower than `minSpan` (a handful of buckets). Null means the whole range. */
+export function scaleWindow(full: Window, current: Window | null, factor: number, minSpan: number): Window | null {
+  const now = current ?? full
+  const fullSpan = full.to - full.from
+  const span = Math.min(fullSpan, Math.max(minSpan, (now.to - now.from) * factor))
+  if (span >= fullSpan) return null
+  const mid = (now.from + now.to) / 2
+  const from = Math.min(full.to - span, Math.max(full.from, mid - span / 2))
+  return { from, to: from + span }
+}
+
+/** The window between two bucket positions of the series on screen, both ends included. */
+export function windowOf(times: number[], step: number, a: number, b: number): Window | null {
+  if (times.length === 0) return null
+  const lo = Math.max(0, Math.min(a, b))
+  const hi = Math.min(times.length - 1, Math.max(a, b))
+  return { from: times[lo], to: times[hi] + step }
+}
+
+/** Axis ticks for counts: whole numbers only, at most about five, the last at or above `top`. */
+export function countTicks(top: number): number[] {
+  const max = Math.max(1, Math.ceil(top))
+  if (max <= 4) return Array.from({ length: max + 1 }, (_, i) => i)
+  const rough = max / 4
+  const power = 10 ** Math.floor(Math.log10(rough))
+  const unit = Math.max(1, [1, 2, 5, 10].map((m) => m * power).find((u) => u >= rough) ?? 10 * power)
+  const ticks: number[] = []
+  for (let v = 0; v < max + unit; v += unit) {
+    ticks.push(v)
+    if (v >= max) break
+  }
+  return ticks
+}

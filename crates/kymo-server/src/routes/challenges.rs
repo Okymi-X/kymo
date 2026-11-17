@@ -79,6 +79,9 @@ struct ChallengeOut {
     lab_host_id: Option<i64>,
     /// `flag` (also instance backed) or `dfir`, answered question by question.
     kind: String,
+    /// A coding challenge's languages, sample tests and limits. Hidden tests are never here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<Value>,
     items: Vec<ItemOut>,
     hints: Vec<HintOut>,
     attachments: Vec<AttachmentOut>,
@@ -129,6 +132,7 @@ pub async fn list(
     for flag in store::flag_rows_of_event(&state.pool, event_id).await? {
         *flag_totals.entry(flag.challenge_id).or_default() += 1;
     }
+    let codes = crate::code::configs_of_event(&state.pool, event_id).await?;
     let mut challenges = Vec::new();
     for row in store::challenges(&state.pool, event_id).await? {
         if row.state == "draft" || released(&row, now).is_err() {
@@ -196,6 +200,7 @@ pub async fn list(
                 solved_at.get(&row.id).copied()
             },
             kind: row.kind.clone(),
+            code: codes.get(&row.id).map(crate::code::CodeConfig::for_player),
             items,
             solved_by,
             status: if open_for_play(&play, &row, now).is_ok() {
@@ -312,7 +317,19 @@ pub async fn download(
     if meta.challenge_id != challenge.id {
         return Err(ApiError::NotFound);
     }
-    let data = store::attachment_data(&state.pool, attachment_id).await?;
+    let mut data = store::attachment_data(&state.pool, attachment_id).await?;
+    if meta.template {
+        // Each participant's own flags go into their copy; the same ones every time they ask.
+        let values = crate::flag_set::participant_values(
+            &state.pool,
+            challenge.id,
+            play.scorer,
+            state.now(),
+        )
+        .await?;
+        let text = String::from_utf8_lossy(&data).into_owned();
+        data = kymo_jeopardy::template::render(&text, &values).into_bytes();
+    }
     let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", meta.name))
         .map_err(|_| ApiError::Internal)?;
     let mime = HeaderValue::from_str(&meta.mime).map_err(|_| ApiError::Internal)?;
@@ -321,6 +338,12 @@ pub async fn download(
     headers.insert(CONTENT_TYPE, mime);
     headers.insert(CONTENT_DISPOSITION, disposition);
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    if meta.template {
+        headers.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        );
+    }
     Ok(response)
 }
 

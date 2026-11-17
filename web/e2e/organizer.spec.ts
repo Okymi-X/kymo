@@ -2,10 +2,13 @@ import { expect, test, type Page } from '@playwright/test'
 import { PASSWORD } from './constants.js'
 
 async function signIn(page: Page) {
-  await page.goto('/login')
-  await page.getByLabel('Password').fill(PASSWORD)
+  await page.goto('/organizer/login')
+  await page.getByRole('radio', { name: 'Password' }).click()
+  await page.getByLabel('Organizer password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Organizer', exact: true })).toBeVisible()
+  // Sign in lands on the dashboard; these tests start from the events list, where events are made.
+  await page.goto('/organizer/events')
 }
 
 /** The schedule shows one round at a time; this reveals every round when there are several. */
@@ -31,7 +34,7 @@ test('organizer runs a four team knockout to a champion', async ({ page, browser
 
   await page.getByLabel('New event').fill('E2E Cup')
   await page.getByRole('button', { name: 'Create' }).click()
-  await expect(page.getByRole('heading', { name: 'E2E Cup' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'E2E Cup', level: 1 })).toBeVisible()
 
   await page.getByLabel(/Add teams/).fill('Alpha\nBravo\nCharlie\nDelta')
   await page.getByRole('button', { name: 'Add to roster' }).click()
@@ -51,8 +54,9 @@ test('organizer runs a four team knockout to a champion', async ({ page, browser
 })
 
 test('wrong password is rejected', async ({ page }) => {
-  await page.goto('/login')
-  await page.getByLabel('Password').fill('not the password')
+  await page.goto('/organizer/login')
+  await page.getByRole('radio', { name: 'Password' }).click()
+  await page.getByLabel('Organizer password').fill('not the password')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('alert')).toBeVisible()
 })
@@ -62,7 +66,7 @@ test('command palette jumps to a tournament from the keyboard', async ({ page })
   await page.getByLabel('Type').selectOption('tournament')
   await page.getByLabel('New event').fill('Palette Cup')
   await page.getByRole('button', { name: 'Create' }).click()
-  await expect(page.getByRole('heading', { name: 'Palette Cup' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Palette Cup', level: 1 })).toBeVisible()
 
   await page.goto('/')
   await page.keyboard.press('Control+k')
@@ -116,7 +120,7 @@ test('appearance changes are saved for everyone and can be restored', async ({ p
   await page.getByLabel('Site name').fill('HTB Club')
   await page.getByLabel('Accent, light mode hex').fill('#aa2200')
   await page.getByRole('button', { name: 'Save appearance' }).click()
-  await expect(page.getByRole('link', { name: 'HTB Club home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'HTB Club Organizer' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start tournament' })).toHaveCSS('background-color', 'rgb(170, 34, 0)')
 
   const visitor = await browser.newPage()
@@ -126,7 +130,7 @@ test('appearance changes are saved for everyone and can be restored', async ({ p
   await visitor.close()
 
   await page.getByRole('button', { name: 'Restore defaults' }).click()
-  await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Kymo Organizer' })).toBeVisible()
 })
 
 test('standings, matches and team views show the same results', async ({ page }) => {
@@ -184,9 +188,9 @@ test('site name previews in the header before saving', async ({ page }) => {
   await signIn(page)
   await page.goto('/settings')
   await page.getByLabel('Site name').fill('Preview Club')
-  await expect(page.getByRole('link', { name: 'Preview Club home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Preview Club Organizer' })).toBeVisible()
   await page.getByRole('button', { name: 'Discard changes' }).click()
-  await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Kymo Organizer' })).toBeVisible()
 })
 
 test('sign out ends the session on the server', async ({ page, request }) => {
@@ -302,7 +306,7 @@ test('a saved look is in the very first paint, so a refresh never flips', async 
   await visitor.close()
 
   await page.getByRole('button', { name: 'Restore defaults' }).click()
-  await expect(page.getByRole('link', { name: 'Kymo home' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Kymo Organizer' })).toBeVisible()
 })
 
 test('organizer menu opens, is keyboard friendly and leads to the settings pages', async ({ page }) => {
@@ -333,7 +337,7 @@ test('the header shows the tournament once its title scrolls away', async ({ pag
   await page.getByLabel(/Add teams/).fill(Array.from({ length: 16 }, (_, i) => `N${i + 1}`).join('\n'))
   await page.getByRole('button', { name: 'Add to roster' }).click()
   await page.getByRole('button', { name: 'Start tournament' }).click()
-  await expect(page.getByRole('heading', { name: 'Nav Cup' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Nav Cup', level: 1 })).toBeVisible()
   const header = page.getByRole('banner')
   await expect(header.getByText('Nav Cup')).toHaveCount(0)
   // The bracket is a bounded map now, so use the long list of matches to make the page scroll.
@@ -577,7 +581,7 @@ test('an organizer can rename a tournament, and unknown pages show a 404', async
   await page.getByLabel('Tournament name').fill('Fresh Name')
   await page.getByLabel(/^Description/).fill('Bring a laptop.')
   await page.getByRole('button', { name: 'Save name' }).click()
-  await expect(page.getByRole('heading', { name: 'Fresh Name' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Fresh Name', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'tournament page' }).click()
   await expect(page.getByText('Bring a laptop.')).toBeVisible()
 
@@ -594,8 +598,10 @@ test('a logo can be uploaded in appearance and shows in the header', async ({ pa
   await page.getByLabel('Upload logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png })
   await expect(page.getByAltText('Current logo')).toBeVisible()
   await page.getByRole('button', { name: 'Save appearance' }).click()
-  await page.reload()
+  // The logo is part of the player site's header; the console keeps a plain name.
+  await page.goto('/')
   await expect(page.getByRole('link', { name: 'Kymo home' }).locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/)
+  await page.goto('/organizer/appearance')
   await page.getByRole('button', { name: 'Remove logo' }).click()
   await page.getByRole('button', { name: 'Save appearance' }).click()
   await expect(page.getByAltText('Current logo')).toHaveCount(0)
@@ -687,13 +693,13 @@ test('a tournament can be duplicated and a setup file imported', async ({ page }
   // Copying asks first and says what it will make.
   await expect(page.getByRole('dialog', { name: /Duplicate Original Cup/ })).toBeVisible()
   await page.getByRole('button', { name: 'Create the copy' }).click()
-  await expect(page.getByRole('heading', { name: 'Original Cup copy' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Original Cup copy', level: 1 })).toBeVisible()
   await expect(page.getByText(/4 teams/)).toBeVisible()
 
   await page.goto('/')
   const setup = JSON.stringify({ name: 'From File', format: 'swiss', teams: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }] })
   await page.getByLabel('Import a tournament setup file').setInputFiles({ name: 'setup.json', mimeType: 'application/json', buffer: Buffer.from(setup) })
-  await expect(page.getByRole('heading', { name: 'From File' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'From File', level: 1 })).toBeVisible()
 })
 
 test('the newest result can be undone from the activity log', async ({ page }) => {
@@ -762,10 +768,10 @@ test('a referee token signs in, records results and sees no organizer tools', as
 
   await page.getByRole('button', { name: 'Organizer menu' }).click()
   await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await page.goto('/login')
-  await page.getByText('I am a referee with a token').click()
+  await page.goto('/organizer/login')
+  await page.getByRole('radio', { name: 'Referee' }).click()
   await page.getByLabel('Referee token').fill(secret)
-  await page.getByRole('button', { name: 'Sign in as referee' }).click()
+  await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('button', { name: 'Referee, sign out' })).toBeVisible()
 
   await page.goto('/t/referee-cup')

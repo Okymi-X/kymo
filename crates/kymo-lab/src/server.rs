@@ -143,6 +143,14 @@ pub struct LabConfig {
     /// Wait for a new Verifier to answer before the instance is handed out. Tests that run
     /// against an in memory runtime switch it off.
     pub verifier_health_check: bool,
+    /// Where coding submissions are unpacked while they run. Private to the lab host, emptied
+    /// after every run.
+    pub judge_dir: PathBuf,
+    /// Submissions judged at the same time. Each one is a container; the rest wait.
+    pub judge_parallel: usize,
+    /// OCI runtime for coding submissions (`runsc` for gVisor, a Kata runtime), so they do not
+    /// share the host kernel. `None` uses the Docker daemon's default.
+    pub judge_runtime: Option<String>,
 }
 
 impl LabConfig {
@@ -161,6 +169,9 @@ impl LabConfig {
             verifier_image: "localhost/kymo/verifier:1".into(),
             verifiers_dir: PathBuf::from("/etc/kymo-lab/verifiers"),
             verifier_health_check: true,
+            judge_runtime: None,
+            judge_dir: PathBuf::from("/var/lib/kymo-lab/judge"),
+            judge_parallel: 2,
         }
     }
 }
@@ -258,6 +269,8 @@ pub struct Lab {
     token_hash: [u8; 32],
     vpn: std::sync::OnceLock<Arc<LabVpn>>,
     vpn_only: std::sync::atomic::AtomicBool,
+    judge_runner: std::sync::OnceLock<Arc<dyn kymo_instances::JobRunner>>,
+    judge_slots: tokio::sync::Semaphore,
 }
 
 /// Whether a Verifier answers on its address, tried for a while as it starts.
@@ -367,6 +380,7 @@ impl Lab {
         clock: Clock,
     ) -> Arc<Self> {
         let token_hash = Sha256::digest(cfg.token.as_bytes()).into();
+        let judge_parallel = cfg.judge_parallel.max(1);
         Arc::new(Self {
             cfg,
             runtime,
@@ -378,6 +392,8 @@ impl Lab {
             token_hash,
             vpn: std::sync::OnceLock::new(),
             vpn_only: std::sync::atomic::AtomicBool::new(false),
+            judge_runner: std::sync::OnceLock::new(),
+            judge_slots: tokio::sync::Semaphore::new(judge_parallel),
         })
     }
 
@@ -703,6 +719,11 @@ impl Lab {
 
     /// Turns the VPN on. `only` refuses every instance that is not on a lab network, so nothing
     /// can be published on the host by mistake.
+    /// What runs coding submissions. Without one the lab host refuses to judge.
+    pub fn set_judge_runner(&self, runner: Arc<dyn kymo_instances::JobRunner>) {
+        let _ = self.judge_runner.set(runner);
+    }
+
     pub fn set_vpn(&self, vpn: Arc<LabVpn>, only: bool) {
         let _ = self.vpn.set(vpn);
         self.vpn_only
@@ -1425,6 +1446,55 @@ async fn health(State(lab): State<Arc<Lab>>) -> Json<HealthInfo> {
     })
 }
 
+/// Judges a coding submission in disposable containers. What may run is the manifest's: the
+/// request names an artifact whose manifest has a `judge` block, and nothing else.
+async fn judge_route(
+    State(lab): State<Arc<Lab>>,
+    Json(request): Json<crate::judge::JudgeRequest>,
+) -> Result<Json<crate::judge::JudgeReport>, ApiError> {
+    let Some(runner) = lab.judge_runner.get().cloned() else {
+        return Err(ApiError::Runtime(RuntimeError::Unavailable(
+            "this lab host does not judge code".into(),
+        )));
+    };
+    let manifest = lab
+        .cfg
+        .manifests
+        .iter()
+        .find(|m| m.artifact == request.artifact)
+        .ok_or_else(|| ApiError::BadRequest("this lab host has no such language".into()))?;
+    let block = manifest
+        .judge
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("that artifact is not a judge language".into()))?;
+    crate::judge::check_request(&request).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    // A full queue is told so after a while instead of piling up unseen work.
+    let _slot = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        lab.judge_slots.acquire(),
+    )
+    .await
+    .map_err(|_| {
+        ApiError::Runtime(RuntimeError::Unavailable(
+            "the judge is busy, try again in a moment".into(),
+        ))
+    })?
+    .map_err(|_| ApiError::Full)?;
+    crate::judge::judge(
+        runner.as_ref(),
+        &manifest.artifact,
+        block,
+        &request,
+        &lab.cfg.judge_dir,
+    )
+    .await
+    .map(Json)
+    .map_err(|e| match e {
+        crate::judge::JudgeError::Refused(m) => ApiError::BadRequest(m),
+        crate::judge::JudgeError::Runner(m) => ApiError::Runtime(RuntimeError::Failed(m)),
+    })
+}
+
 async fn artifacts(State(lab): State<Arc<Lab>>) -> Json<Vec<ArtifactInfo>> {
     Json(
         lab.cfg
@@ -1451,6 +1521,18 @@ async fn artifacts(State(lab): State<Arc<Lab>>) -> Json<Vec<ArtifactInfo>> {
                     ports: m.declared_ports(),
                     ready,
                     note,
+                    cpu_millis: m.cpu_millis,
+                    memory_mb: m.memory_mb,
+                    pids: m.pids,
+                    flags: m
+                        .inject
+                        .as_ref()
+                        .map(|i| i.flags.iter().map(|f| f.name.clone()).collect())
+                        .unwrap_or_default(),
+                    verifier: m.verifier.is_some(),
+                    display: m.display.clone(),
+                    judge: m.judge.is_some(),
+                    judge_label: m.judge.as_ref().and_then(|j| j.label.clone()),
                 }
             })
             .collect(),
@@ -1726,6 +1808,7 @@ pub fn router(lab: Arc<Lab>) -> Router {
     let authed = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/artifacts", get(artifacts))
+        .route("/v1/judge", post(judge_route))
         .route("/v1/log", get(log))
         .route("/v1/instances", post(create).get(list))
         .route("/v1/instances/{id}", get(get_one).delete(remove))

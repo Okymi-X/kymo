@@ -1,0 +1,11 @@
+{
+  "artifact": "localhost/kymo-judge/c:1",
+  "runtime": "docker",
+  "judge": {
+    "label": "C (gcc)",
+    "file": "main.c",
+    "compile": ["gcc", "-O2", "-std=c17", "-o", "main", "main.c", "-lm"],
+    "compile_timeout_secs": 30,
+    "run": ["./main"]
+  }
+}

@@ -46,7 +46,7 @@ export function EditUserDialog({ user, onClose }: { user: User; onClose: () => v
           <Field label="Email" hint="Leave empty to remove it.">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
           </Field>
-          <Field label="New password" hint="Sets the password and signs the account out everywhere. Tell them the new one yourself; it is not shown again.">
+          <Field label="New password" hint="Signs the account out everywhere. The new password is not shown again.">
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
           </Field>
           <ErrorText error={save.error} />

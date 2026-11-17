@@ -116,6 +116,8 @@ pub struct AttachmentMeta {
     pub mime: String,
     pub size: i64,
     pub sha256: String,
+    /// A text file whose `{{flag}}` tokens each downloader gets filled in.
+    pub template: bool,
 }
 
 /// The editable part of a challenge, validated before it is written.
@@ -336,20 +338,43 @@ pub async fn category_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError>
 
 // Challenges
 
+/// A coding challenge is stored with kind `flag` (the column only allows `flag` and `dfir`, and a
+/// table's CHECK cannot be changed in place) and told apart by its `challenge_code` row, which is
+/// created with it. Every read goes through here, so the rest of the code just sees `code`.
 pub async fn challenge_by_id(pool: &SqlitePool, id: i64) -> Result<ChallengeRow, ApiError> {
-    Ok(sqlx::query_as("SELECT * FROM challenge WHERE id = ?")
+    let mut row: ChallengeRow = sqlx::query_as("SELECT * FROM challenge WHERE id = ?")
         .bind(id)
         .fetch_one(pool)
-        .await?)
+        .await?;
+    let coding: Option<i64> =
+        sqlx::query_scalar("SELECT challenge_id FROM challenge_code WHERE challenge_id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    if coding.is_some() {
+        row.kind = "code".into();
+    }
+    Ok(row)
 }
 
 pub async fn challenges(pool: &SqlitePool, event_id: i64) -> Result<Vec<ChallengeRow>, ApiError> {
-    Ok(
+    let mut rows: Vec<ChallengeRow> =
         sqlx::query_as("SELECT * FROM challenge WHERE event_id = ? ORDER BY position, id")
             .bind(event_id)
             .fetch_all(pool)
-            .await?,
+            .await?;
+    let coding: Vec<i64> = sqlx::query_scalar(
+        "SELECT c.challenge_id FROM challenge_code c JOIN challenge ch ON ch.id = c.challenge_id WHERE ch.event_id = ?",
     )
+    .bind(event_id)
+    .fetch_all(pool)
+    .await?;
+    for row in &mut rows {
+        if coding.contains(&row.id) {
+            row.kind = "code".into();
+        }
+    }
+    Ok(rows)
 }
 
 /// The category must belong to the same event as the challenge.
@@ -394,7 +419,8 @@ pub async fn challenge_insert(
     .bind(fields.position)
     .bind(fields.requires_instance)
     .bind(fields.instance_config.as_ref().map(Value::to_string))
-    .bind(&fields.kind)
+    // The kind column only allows flag and dfir; a coding challenge is marked by its code row.
+    .bind(if fields.kind == "code" { "flag" } else { fields.kind.as_str() })
     .bind(now)
     .execute(pool)
     .await?;
@@ -585,9 +611,8 @@ impl FlagSet {
         if fields.kind != "flag" {
             return Err(bad("only a single flag challenge can have these settings"));
         }
-        if self.mode == "dynamic" && !fields.requires_instance {
-            return Err(bad("dynamic flags need an instance"));
-        }
+        // A dynamic flag needs somewhere to go. With no instance it goes into template files
+        // (text files with {{flag}} tokens) the author attaches; that is checked when they are added.
         if self.responder {
             if !fields.requires_instance {
                 return Err(bad("a Responder needs an instance"));
@@ -714,7 +739,7 @@ pub async fn flag_rows(pool: &SqlitePool, challenge_id: i64) -> Result<Vec<FlagR
 /// the labels).
 pub async fn flags_locked(pool: &SqlitePool, challenge_id: i64) -> Result<bool, ApiError> {
     let used: i64 = sqlx::query_scalar(
-        "SELECT (SELECT COUNT(*) FROM instance WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM flag_solve WHERE challenge_id = ?1)",
+        "SELECT (SELECT COUNT(*) FROM instance WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM flag_solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM participant_flag WHERE challenge_id = ?1)",
     )
     .bind(challenge_id)
     .fetch_one(pool)
@@ -946,6 +971,7 @@ pub async fn attachment_insert(
     name: &str,
     mime: &str,
     data: &[u8],
+    template: bool,
 ) -> Result<AttachmentMeta, ApiError> {
     let sha = Sha256::digest(data)
         .iter()
@@ -953,7 +979,7 @@ pub async fn attachment_insert(
         .collect::<String>();
     let size = i64::try_from(data.len()).map_err(|_| ApiError::Internal)?;
     let done = sqlx::query(
-        "INSERT INTO attachment (challenge_id, name, mime, size, sha256, data) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attachment (challenge_id, name, mime, size, sha256, data, template) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(challenge_id)
     .bind(name)
@@ -961,6 +987,7 @@ pub async fn attachment_insert(
     .bind(size)
     .bind(&sha)
     .bind(data)
+    .bind(template)
     .execute(pool)
     .await?;
     Ok(AttachmentMeta {
@@ -970,6 +997,7 @@ pub async fn attachment_insert(
         mime: mime.to_owned(),
         size,
         sha256: sha,
+        template,
     })
 }
 
@@ -978,7 +1006,7 @@ pub async fn attachments_of_challenge(
     challenge_id: i64,
 ) -> Result<Vec<AttachmentMeta>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT id, challenge_id, name, mime, size, sha256 FROM attachment WHERE challenge_id = ? ORDER BY id",
+        "SELECT id, challenge_id, name, mime, size, sha256, template FROM attachment WHERE challenge_id = ? ORDER BY id",
     )
     .bind(challenge_id)
     .fetch_all(pool)
@@ -990,7 +1018,7 @@ pub async fn attachments_of_event(
     event_id: i64,
 ) -> Result<Vec<AttachmentMeta>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT a.id, a.challenge_id, a.name, a.mime, a.size, a.sha256 FROM attachment a JOIN challenge c ON c.id = a.challenge_id WHERE c.event_id = ? ORDER BY a.id",
+        "SELECT a.id, a.challenge_id, a.name, a.mime, a.size, a.sha256, a.template FROM attachment a JOIN challenge c ON c.id = a.challenge_id WHERE c.event_id = ? ORDER BY a.id",
     )
     .bind(event_id)
     .fetch_all(pool)
@@ -999,7 +1027,7 @@ pub async fn attachments_of_event(
 
 pub async fn attachment_meta(pool: &SqlitePool, id: i64) -> Result<AttachmentMeta, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT id, challenge_id, name, mime, size, sha256 FROM attachment WHERE id = ?",
+        "SELECT id, challenge_id, name, mime, size, sha256, template FROM attachment WHERE id = ?",
     )
     .bind(id)
     .fetch_one(pool)

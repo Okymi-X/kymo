@@ -16,7 +16,7 @@ pub struct PlannedFlag {
     pub flag: RunFlag,
 }
 
-fn random_bytes(random_len: usize) -> Vec<u8> {
+pub(crate) fn random_bytes(random_len: usize) -> Vec<u8> {
     (0..dynamic::bytes_needed(random_len))
         .map(|_| rand::random::<u8>())
         .collect()

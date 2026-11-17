@@ -2,6 +2,7 @@
 //! platform interface with an in memory fake; `docker` (feature) talks to a Docker daemon.
 
 mod error;
+mod oneshot;
 mod policy;
 mod runtime;
 mod spec;
@@ -12,6 +13,7 @@ pub mod hardening;
 
 pub use error::{RuntimeError, SpecError};
 pub use hardening::{ALLOWED_CAPS, Hardening};
+pub use oneshot::{FakeJobRunner, Job, JobOutcome, JobRunner};
 pub use policy::{
     Action, Denied, InstanceRecord, InstanceState, Policy, Usage, authorize, due_for_reaping,
     effective_state, expires_at,

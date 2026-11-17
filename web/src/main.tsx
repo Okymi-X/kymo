@@ -8,6 +8,9 @@ import type { Appearance } from './api/types'
 import { resolveScheme } from './lib/scheme'
 import { RequireSession } from './components/RequireSession'
 import { Shell } from './components/Shell'
+import { OrganizerShell } from './components/organizer/OrganizerShell'
+import { RequireStaff } from './components/organizer/RequireStaff'
+import { LegacyRedirect } from './components/organizer/LegacyRedirect'
 import { Home } from './pages/Home'
 import { NotFound } from './pages/NotFound'
 import './index.css'
@@ -28,7 +31,8 @@ const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.P
 const PublicScoreboard = lazy(() => import('./pages/PublicScoreboard').then((m) => ({ default: m.PublicScoreboard })))
 const SignIn = lazy(() => import('./pages/SignIn').then((m) => ({ default: m.SignIn })))
 const TeamPage = lazy(() => import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })))
-const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })))
+const OrganizerLogin = lazy(() => import('./pages/organizer/OrganizerLogin').then((m) => ({ default: m.OrganizerLogin })))
+const OrganizerHome = lazy(() => import('./pages/organizer/OrganizerHome').then((m) => ({ default: m.OrganizerHome })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const Tokens = lazy(() => import('./pages/Tokens').then((m) => ({ default: m.Tokens })))
 const EmbedPage = lazy(() => import('./pages/EmbedPage').then((m) => ({ default: m.EmbedPage })))
@@ -63,10 +67,29 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             <Route path="/t/:slug/stage" element={<Suspense fallback={null}><StagePage /></Suspense>} />
             <Route path="/embed/:slug" element={<Suspense fallback={null}><EmbedPage /></Suspense>} />
+            <Route path="/organizer/login" element={<Suspense fallback={null}><OrganizerLogin /></Suspense>} />
+            <Route element={<RequireStaff />}>
+              <Route path="/organizer" element={<OrganizerShell />}>
+                <Route index element={<OrganizerHome />} />
+                <Route path="events" element={<AdminEvents />} />
+                <Route path="events/:id" element={<AdminEvent />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="permissions" element={<AdminPermissions />} />
+                <Route path="ops" element={<Ops />} />
+                <Route path="labs" element={<Labs />} />
+                <Route path="monitor" element={<Monitor />} />
+                <Route path="appearance" element={<Settings />} />
+                <Route path="tokens" element={<Tokens />} />
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Route>
+            {/* The addresses the console had before it had its own area. */}
+            {['/admin', '/admin/*', '/monitor', '/settings', '/tokens', '/login'].map((path) => (
+              <Route key={path} path={path} element={<LegacyRedirect />} />
+            ))}
             <Route element={<Shell />}>
               {/* Open to visitors: the front page, sign in, a public scoreboard and a team's score report (its code is its key). */}
               <Route path="/" element={<Home />} />
-              <Route path="/login" element={<Login />} />
               <Route path="/signin" element={<SignIn />} />
               <Route path="/s/:slug" element={<PublicScoreboard />} />
               <Route path="/report/:code" element={<ReportPage />} />
@@ -76,16 +99,7 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/e/:slug" element={<EventPage />} />
                 <Route path="/team" element={<TeamPage />} />
                 <Route path="/profile" element={<Profile />} />
-                <Route path="/admin/events" element={<AdminEvents />} />
-                <Route path="/admin/events/:id" element={<AdminEvent />} />
-                <Route path="/admin/users" element={<AdminUsers />} />
-                <Route path="/admin/permissions" element={<AdminPermissions />} />
-                <Route path="/admin/ops" element={<Ops />} />
-                <Route path="/admin/labs" element={<Labs />} />
-                <Route path="/monitor" element={<Monitor />} />
                 <Route path="/ladder" element={<Ladder />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/tokens" element={<Tokens />} />
                 <Route path="/t/:slug" element={<TournamentPage />} />
                 <Route path="/t/:slug/match/:matchId" element={<MatchPage />} />
               </Route>

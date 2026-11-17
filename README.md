@@ -20,6 +20,8 @@ Open source tournament manager for CTF events. Run a knockout, double eliminatio
 - [Formats](#formats)
 - [Challenge instances with Docker or Podman](#challenge-instances-with-docker-or-podman)
 - [Separate lab host](#separate-lab-host)
+- [Coding challenges](#coding-challenges)
+- [Integrity and disqualification](#integrity-and-disqualification)
 - [Dynamic flags and several flags](#dynamic-flags-and-several-flags)
 - [Responder challenges and the Verifier](#responder-challenges-and-the-verifier)
 - [Backup and restore](#backup-and-restore)
@@ -42,6 +44,9 @@ CTF events have a few recurring problems: a score that is disputed, players aski
 
 - **Jeopardy CTFs, solo or in teams:** categories, static or dynamic points, hints with a point cost, attachments, flag formats and regex flags, attempt limits, a scoreboard that stays hidden until you publish it, and per teammate progress. Players sign up, form teams with invite codes, register for an event and play in the browser.
 - **Challenge instances:** a challenge can start a private Docker container per player or team, with CPU, memory, process and lifetime limits, an expiry reaper and cleanup of orphaned containers.
+- **Every kind of challenge:** flag, instance, virtual machine, DFIR questions, coding challenges judged on a lab host, and Responder challenges where players patch a machine and a Verifier releases the flag. Every kind can use a dynamic flag, so each player gets their own.
+- **Integrity:** per player flags catch flag sharing, near identical code solutions are flagged for review, and an organizer can disqualify a participant from one event without banning the account. Every step is in the audit log.
+- **Organizer console:** a launch readiness list that says what blocks going live, an event state stepper, per challenge checks in the editor, and instance details with the generated flags and the Verifier log.
 - **A front page you shape:** `/` is a home page with sign in and sign up. The default page is built from texts the organizer edits (headline, buttons, banner, about, footer); the organizer can instead write their own HTML and CSS. Signed in players see a greeting, their running instance and their events on top. See "Home page, sign in and public scoreboards".
 - **A live monitor:** live graphs (requests by outcome, sign ins, flag submissions, instances started, players online, response time, a week heat map, the busiest players and addresses) that refresh every 5 seconds with automatic peak marks, and attack alerts for players who go after the platform instead of the challenges. See "Monitor: live graphs and attack alerts".
 - **Roles and safety:** visitors, players, referees, monitors and admins; per endpoint rate limits with automatic and manual bans, a request log, a moderation audit trail, health and backup tools, and event bundles you can export and import.
@@ -243,6 +248,22 @@ players ──► platform (web, accounts, scores)  ──── HTTPS + token �
 - **Solo and team events** behave the same; only the owner of an instance changes.
 - **Private VPN on a lab host**: see [Players reach a lab host through its VPN](#players-reach-a-lab-host-through-its-vpn). With it nothing vulnerable is published on the internet.
 
+### What each kind of challenge needs
+
+Most challenges need nothing from a lab host. Only a challenge that runs something does. This is the whole list, so you know what to prepare before an event:
+
+| Challenge | What you prepare | On the lab host | Manifest |
+| --- | --- | --- | --- |
+| **Flag only**, **multi-question** | Files to attach. No lab host. | Nothing | None |
+| **Dynamic flag, no instance** | A text file with `{{flag}}` in it, attached as a per-player template | Nothing | None |
+| **Container** (Docker or Podman) | A built image: a `Dockerfile` (see `lab/`) | The image, built or pulled there (`docker build -t localhost/ctf/web:1 .`) | `artifact` (the image name), `port`, limits. `deploy/lab/manifests/flag-server.json.example` |
+| **Virtual machine** | A disk image: `.ova`, `.vmdk`, `.vdi`, `.qcow2`, `.img` or `.raw` | QEMU installed, the file in `/var/lib/kymo-lab/images/`. KVM makes it fast | `runtime: "vm"`, `file`. `vm-example.json.example` |
+| **Dynamic flag in an instance** | Where the flag goes (an environment variable, or a file in the machine) | Same as the container or machine | add `inject`. `dynamic-flag.json.example`, `boot2root.json.example` |
+| **Responder** (patch the machine, a Verifier gives the flag) | The machine or container, and a Verifier definition: a folder with `verifier.json` and check scripts | The folder in `/etc/kymo-lab/verifiers/`, the Verifier image | add `verifier`. `responder.json.example` |
+| **Coding** | One image per language (`lab/judge/`) | The language images, built or pulled there | `judge` block: source file, compile and run commands. `judge-python.json.example`, `judge-cpp.json.example` |
+
+The artifact name in the manifest is the name a challenge uses, and in `manifest` mode (the default) the lab host runs **only** what a manifest lists. `kymo-lab check` tells you what is missing, and the Lab hosts page shows each manifest's runtime and whether it is ready.
+
 ### Players reach a lab host through its VPN
 
 Published ports are the weak point of a CTF server: every instance is a vulnerable machine on an open port, reachable by anyone on the internet who finds it. A lab host avoids that with a **gateway of its own**. It is on by default in the installer (`--no-vpn` turns it off).
@@ -440,6 +461,35 @@ curl -sk -H "Authorization: Bearer $TOKEN" https://203.0.113.7:7400/v1/instances
 
 The platform side is the admin API (`/api/v1/admin/labs`: list, add, update, delete, test, list instances, reconcile, and `PUT /admin/events/{id}/lab` to choose a lab host for an event), and the same operations are in the **Lab hosts** page.
 
+## Coding challenges
+
+A coding challenge gives players a text box, a language and a set of tests. They write a program that reads standard input and prints standard output; Kymo runs it against every test on a lab host and the challenge is solved when all of them pass. It is scored like any other challenge (fixed or dynamic points, attempt limit, hints).
+
+**Languages come from the lab host.** A language is an image plus a manifest with a `judge` block. The platform only names the manifest's artifact, so it can never choose an image or a command. Samples are in `lab/judge/` (Python, Node, C, C++) and `deploy/lab/manifests/judge-*.json.example`:
+
+```json
+{
+  "artifact": "localhost/kymo-judge/cpp:1",
+  "runtime": "docker",
+  "judge": {
+    "label": "C++ (g++)",
+    "file": "main.cpp",
+    "compile": ["g++", "-O2", "-std=c++20", "-o", "main", "main.cpp"],
+    "run": ["./main"]
+  }
+}
+```
+
+Build the image on the lab host (`docker build -t localhost/kymo-judge/cpp:1 lab/judge/cpp`), copy the manifest to `/etc/kymo-lab/manifests/`, restart, and the language shows up in the challenge editor. An interpreted language leaves `compile` out; the official `python` and `node` images work as they are. Run Python with `-u` (unbuffered): a program killed at its time limit otherwise loses everything it printed, and the player sees an empty output.
+
+**The author** sets the languages, the tests (input and expected output; up to five can be shown to players as examples, the rest stay hidden), the time and memory per test and how output is compared (by line, by word, exactly). *Try a reference solution* runs a program against the saved tests, hidden ones included, and records nothing. A coding challenge cannot be published before it has tests, and its event needs a lab host.
+
+**What keeps it safe.** Every run is a disposable container: no network, a read-only root, all capabilities dropped, `no-new-privileges`, an unprivileged user, and hard limits on memory, CPU, processes, open files, file size and output. The program is killed at its time limit, and a program that hits a limit is not run on the remaining tests. The container is always removed, a crashed lab host removes leftovers when it restarts, and the source lives in a private directory that is emptied after each run. A player can run one submission at a time; a compile error does not use an attempt.
+
+On the lab host, `KYMO_LAB_JUDGE_DIR` is where submissions are unpacked (default `/var/lib/kymo-lab/judge`) and `KYMO_LAB_JUDGE_PARALLEL` how many run at once (default 2). A busy lab host answers "try again in a moment" instead of queueing without end.
+
+Submissions run in containers with no network, no capabilities, a read-only root, a stricter seccomp profile than Docker's default (no `ptrace`, `process_vm_readv` or `process_vm_writev`) and a private IPC namespace. They still share the host kernel. For a public event set `KYMO_LAB_JUDGE_RUNTIME` to a sandboxed OCI runtime the Docker daemon knows, such as `runsc` (gVisor) or a Kata runtime, and keep `KYMO_LAB_JUDGE_DIR` a generic directory: a submission can read its own mount path.
+
 ## Dynamic flags and several flags
 
 By default a challenge has one static flag that every player submits. Two options change that, both for **instance challenges** and both chosen per challenge in the *New challenge* form:
@@ -485,6 +535,14 @@ A **Responder** is an instance challenge where the player *patches* a machine in
 - **See what happened.** On the event's *Instances* tab, *Details* shows the flags generated for a run (the reading is audited) and what the Verifier recorded.
 
 The lab host needs Docker, the VPN gateway and the Verifier image (the installer builds it). The installer also adds a firewall rule that keeps the lab networks away from the lab host itself, because a player may have root in a challenge machine on a bridge whose address is that host. The full design is in `docs/DYNAMIC_FLAGS_AND_RESPONDER.md`.
+
+## Integrity and disqualification
+
+Kymo reports suspicion and leaves the decision to an organizer.
+
+- **Flag sharing.** With dynamic flags each player or team has their own value. Submitting another participant's flag is recorded as sharing, and the player is told so.
+- **Copy detection.** Accepted coding solutions are fingerprinted, so renamed variables and changed spacing do not hide a copy. Pairs of different participants above a similarity threshold appear under Integrity in the event, with both programs side by side, and can be dismissed or acted on.
+- **Disqualify.** An organizer can remove a participant from one event with a reason. They leave the scoreboard and cannot play it any more, they are told why, and their account stays. It can be reversed. Every disqualification, dismissal and flag read is in the audit log.
 
 ## Backup and restore
 

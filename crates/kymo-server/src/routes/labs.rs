@@ -202,6 +202,49 @@ pub async fn test(
     Ok(Json(check(&state, &row).await?))
 }
 
+/// The lab hosts a challenge may run on, for the challenge editor: names only, no addresses or
+/// tokens, and open to whoever may edit challenges (the full list needs the settings permission).
+pub async fn choices(
+    _: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let labs: Vec<Value> = store::list(&state.pool)
+        .await?
+        .into_iter()
+        .map(|r| json!({ "id": r.id, "name": r.name, "enabled": r.enabled }))
+        .collect();
+    Ok(Json(json!({ "labs": labs })))
+}
+
+/// What one lab host will run, so the challenge editor can offer its artifacts and show the
+/// runtime of each (container, virtual machine). An unreachable lab host answers `ok: false`
+/// with the reason, so the editor can say so instead of failing.
+pub async fn artifacts(
+    _: Require<needs::ManageChallenges>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let row = store::get(&state.pool, id).await?;
+    let client = state.labs().client(&row)?;
+    let health = match client.health().await {
+        Ok(h) => h,
+        Err(e) => {
+            return Ok(Json(
+                json!({ "ok": false, "error": explain(&e.to_string()) }),
+            ));
+        }
+    };
+    let artifacts = client.artifacts().await.unwrap_or_default();
+    Ok(Json(json!({
+        "ok": true,
+        "mode": health.mode,
+        "runtime": health.runtime,
+        "runtimes": health.runtimes,
+        "accel": health.accel,
+        "artifacts": artifacts,
+    })))
+}
+
 /// What the lab host is running, with a flag for each instance the platform does not know.
 pub async fn instances(
     _: Require<needs::ManageSettings>,
@@ -356,7 +399,9 @@ pub async fn set_event_lab(
             "event_lab",
             "event",
             id,
-            &format!("{:?}", body.lab_host_id),
+            &body
+                .lab_host_id
+                .map_or_else(|| "this server".to_owned(), |id| format!("lab host {id}")),
         )
         .await?;
     }
@@ -419,7 +464,9 @@ pub async fn set_challenge_lab(
             "challenge_lab",
             "challenge",
             id,
-            &format!("{:?}", body.lab_host_id),
+            &body
+                .lab_host_id
+                .map_or_else(|| "this server".to_owned(), |id| format!("lab host {id}")),
         )
         .await?;
     }

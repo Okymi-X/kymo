@@ -108,6 +108,15 @@ fn settings() -> Result<Settings, String> {
     if let Some(image) = var("KYMO_LAB_VERIFIER_IMAGE") {
         config.verifier_image = image;
     }
+    if let Some(dir) = var("KYMO_LAB_JUDGE_DIR") {
+        config.judge_dir = PathBuf::from(dir);
+    }
+    if let Some(r) = var("KYMO_LAB_JUDGE_RUNTIME") {
+        config.judge_runtime = Some(r);
+    }
+    if let Some(n) = var("KYMO_LAB_JUDGE_PARALLEL").and_then(|v| v.parse::<usize>().ok()) {
+        config.judge_parallel = n.clamp(1, 16);
+    }
     if let Some(dir) = var("KYMO_LAB_VERIFIERS") {
         config.verifiers_dir = PathBuf::from(dir);
     }
@@ -287,12 +296,19 @@ async fn check(s: &Settings) -> Result<(), String> {
         s.manifests.display()
     );
     for m in &s.config.manifests {
-        println!(
-            "  - {} ({}, port {})",
-            m.artifact,
-            m.runtime,
-            m.primary_port()
-        );
+        match &m.judge {
+            Some(j) => println!(
+                "  - {} (language: {})",
+                m.artifact,
+                j.label.as_deref().unwrap_or(&j.file)
+            ),
+            None => println!(
+                "  - {} ({}, port {})",
+                m.artifact,
+                m.runtime,
+                m.primary_port()
+            ),
+        }
     }
     if s.config.mode == Mode::Manifest && s.config.manifests.is_empty() {
         println!("warning: manifest mode with no manifests: the lab host will refuse every start");
@@ -308,6 +324,17 @@ async fn check(s: &Settings) -> Result<(), String> {
             "docker:        reachable, {} managed container(s)",
             managed.len()
         );
+        // A manifest names an image; it has to exist here, built or pulled, before a start can work.
+        for m in s.config.manifests.iter().filter(|m| !m.is_vm()) {
+            match runtime.image_present(&m.artifact).await {
+                Ok(true) => {}
+                Ok(false) => println!(
+                    "warning: image {} is not on this machine: build or pull it (docker build -t {} ...)",
+                    m.artifact, m.artifact
+                ),
+                Err(e) => println!("warning: could not look for image {}: {e}", m.artifact),
+            }
+        }
     } else {
         println!("docker:        off (KYMO_LAB_RUNTIMES)");
     }
@@ -553,6 +580,7 @@ async fn prepare(s: &Settings) -> Result<(), String> {
 }
 
 async fn run(s: Settings) -> Result<(), String> {
+    let mut judge_runner: Option<Arc<dyn kymo_instances::JobRunner>> = None;
     let runtime: Arc<dyn InstanceRuntime> = if s.docker {
         let docker = DockerRuntime::connect_scoped(s.bind.clone(), "lab")
             .map_err(|e| format!("docker: {e}"))?;
@@ -565,7 +593,18 @@ async fn run(s: Settings) -> Result<(), String> {
                 .map(|m| (m.artifact.clone(), m.hardening()))
                 .collect(),
         );
-        Arc::new(docker)
+        docker
+            .set_judge_runtime(s.config.judge_runtime.clone())
+            .map_err(|e| format!("KYMO_LAB_JUDGE_RUNTIME: {e}"))?;
+        // The same connection runs coding submissions; leftovers of a crashed run are removed.
+        let docker = Arc::new(docker);
+        match docker.reap_jobs().await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!("removed {n} leftover judge containers"),
+            Err(e) => tracing::warn!("could not look for leftover judge containers: {e}"),
+        }
+        judge_runner = Some(Arc::clone(&docker) as Arc<dyn kymo_instances::JobRunner>);
+        docker
     } else {
         Arc::new(server::Absent)
     };
@@ -583,7 +622,14 @@ async fn run(s: Settings) -> Result<(), String> {
         None
     };
     let vm = s.vm.map(VmRuntime::new);
+    let judge_dir = s.config.judge_dir.clone();
     let lab = Lab::with_vm(s.config, Arc::clone(&runtime), vm);
+    if let Some(runner) = judge_runner {
+        if let Err(e) = std::fs::create_dir_all(&judge_dir) {
+            tracing::warn!("judge directory {}: {e}", judge_dir.display());
+        }
+        lab.set_judge_runner(runner);
+    }
     if let Some(v) = s.vpn {
         let gateway = kymo_vpn::docker::DockerGateway::connect()
             .map_err(|e| format!("docker (for the VPN gateway): {e}"))?;

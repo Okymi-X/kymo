@@ -46,7 +46,7 @@ export const defaultTournamentOptions: TournamentOptions = {
 /** Where a freshly created tournament is managed. */
 export function tournamentTarget(t: { event_id: number | null; slug: string }) {
   return t.event_id !== null
-    ? `/admin/events/${t.event_id}?view=tournament`
+    ? `/organizer/events/${t.event_id}?view=tournament`
     : `/t/${t.slug}`;
 }
 

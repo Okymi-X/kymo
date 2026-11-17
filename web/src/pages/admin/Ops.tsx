@@ -57,7 +57,7 @@ function HealthView({ h }: { h: Health }) {
             ))}
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">Lab hosts</h2>
-            <Link to="/admin/labs" className="text-sm font-medium text-accent hover:underline">
+            <Link to="/organizer/labs" className="text-sm font-medium text-accent hover:underline">
               Manage
             </Link>
           </div>

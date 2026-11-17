@@ -20,9 +20,15 @@ pub async fn run_values(
     challenge_id: i64,
     scorer: Scorer,
 ) -> Result<HashMap<i64, Vec<String>>, ApiError> {
+    // The flags of its runs, and the flags given to it in template files (a challenge with no run).
     let rows: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT f.flag_id, f.value FROM instance_flag f JOIN instance i ON i.id = f.instance_id WHERE i.challenge_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND (i.failure IS NULL OR i.failure <> 'start_failed')",
+        "SELECT f.flag_id, f.value FROM instance_flag f JOIN instance i ON i.id = f.instance_id WHERE i.challenge_id = ? AND i.scorer_kind = ? AND i.scorer_id = ? AND (i.failure IS NULL OR i.failure <> 'start_failed') \
+         UNION ALL \
+         SELECT flag_id, value FROM participant_flag WHERE challenge_id = ? AND scorer_kind = ? AND scorer_id = ?",
     )
+    .bind(challenge_id)
+    .bind(scorer.kind())
+    .bind(scorer.id())
     .bind(challenge_id)
     .bind(scorer.kind())
     .bind(scorer.id())
@@ -77,12 +83,59 @@ pub async fn owner_of_value(
     value: &str,
 ) -> Result<Option<(String, i64)>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT i.scorer_kind, i.scorer_id FROM instance_flag f JOIN instance i ON i.id = f.instance_id WHERE i.challenge_id = ? AND f.value = ? LIMIT 1",
+        "SELECT i.scorer_kind, i.scorer_id FROM instance_flag f JOIN instance i ON i.id = f.instance_id WHERE i.challenge_id = ? AND f.value = ? \
+         UNION ALL \
+         SELECT scorer_kind, scorer_id FROM participant_flag WHERE challenge_id = ? AND value = ? LIMIT 1",
     )
+    .bind(challenge_id)
+    .bind(value)
     .bind(challenge_id)
     .bind(value)
     .fetch_optional(pool)
     .await?)
+}
+
+/// The flags of a challenge that starts nothing, for this participant: made the first time they
+/// are asked for and the same ever after. `(name, value)` in the challenge's flag order.
+pub async fn participant_values(
+    pool: &SqlitePool,
+    challenge_id: i64,
+    scorer: Scorer,
+    now: i64,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let mut out = Vec::new();
+    for row in crate::challenge_store::flag_rows(pool, challenge_id).await? {
+        let random_len =
+            usize::try_from(row.random_len).unwrap_or(kymo_jeopardy::dynamic::DEFAULT_RANDOM_LEN);
+        let value = kymo_jeopardy::dynamic::generate(
+            &row.value,
+            &row.closing,
+            random_len,
+            &crate::run_flags::random_bytes(random_len),
+        );
+        // Two requests at once both try to insert; the unique key keeps one, and both read it.
+        sqlx::query(
+            "INSERT OR IGNORE INTO participant_flag (challenge_id, flag_id, scorer_kind, scorer_id, value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(challenge_id)
+        .bind(row.id)
+        .bind(scorer.kind())
+        .bind(scorer.id())
+        .bind(&value)
+        .bind(now)
+        .execute(pool)
+        .await?;
+        let kept: String = sqlx::query_scalar(
+            "SELECT value FROM participant_flag WHERE flag_id = ? AND scorer_kind = ? AND scorer_id = ?",
+        )
+        .bind(row.id)
+        .bind(scorer.kind())
+        .bind(scorer.id())
+        .fetch_one(pool)
+        .await?;
+        out.push((row.name, kept));
+    }
+    Ok(out)
 }
 
 #[allow(clippy::too_many_arguments)]

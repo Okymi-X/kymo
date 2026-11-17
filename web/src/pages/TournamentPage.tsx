@@ -205,7 +205,7 @@ export function TournamentPage() {
           )}
           {mapBracket && <BracketDownload bracket={mapBracket} teamName={teamName} title={t.name} slug={t.slug} />}
           {admin && t.event_id !== null && (
-            <Link to={`/admin/events/${t.event_id}?view=tournament`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
+            <Link to={`/organizer/events/${t.event_id}?view=tournament`} className="inline-flex h-10 items-center gap-2 rounded-control border border-line bg-surface px-3.5 font-medium transition-colors hover:bg-line/40">
               <Settings size={16} aria-hidden="true" /> Manage tournament
             </Link>
           )}
@@ -247,7 +247,7 @@ export function TournamentPage() {
             {admin && t.event_id !== null && (
               <>
                 {' '}
-                <Link to={`/admin/events/${t.event_id}?view=tournament`} className="font-medium text-accent hover:underline">
+                <Link to={`/organizer/events/${t.event_id}?view=tournament`} className="font-medium text-accent hover:underline">
                   Set up the roster and start it
                 </Link>
                 .

@@ -7,6 +7,7 @@
 
 pub mod client;
 pub mod inject;
+pub mod judge;
 pub mod manifest;
 pub mod naming;
 pub mod protocol;

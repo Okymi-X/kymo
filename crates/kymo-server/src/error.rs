@@ -26,6 +26,8 @@ pub enum ApiError {
     },
     /// 403 for a banned network address.
     AddressBanned,
+    /// Removed from this event by an organizer; the account itself is fine.
+    Disqualified,
     /// 503 for a missing or failing backend such as the container platform.
     Unavailable(String),
     Internal,
@@ -70,6 +72,10 @@ impl IntoResponse for ApiError {
                 )
             }
             ApiError::AddressBanned => (StatusCode::FORBIDDEN, "this address is banned".into()),
+            ApiError::Disqualified => (
+                StatusCode::FORBIDDEN,
+                "you are disqualified from this event".into(),
+            ),
             ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
             ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
         };

@@ -420,6 +420,7 @@ A directory, for example `/etc/kymo-lab/verifiers/ghost-files/`, holds one `veri
 | `checks[]` | yes | 1 to 20 checks, run in the order listed |
 | `checks[].id` | yes | Unique, `[a-z0-9_-]`, 1 to 32 characters |
 | `checks[].title` | yes | Shown to the player, 1 to 80 characters. The author is responsible for choosing a title that does not give the weakness away |
+| `checks[].hint` | no | A nudge shown under the step while it is still failing (not while it is broken or fixed), 1 to 200 characters of plain text. Point the way, do not give the fix away |
 | `checks[].language` | yes | `bash`, `python` or `exec` (below) |
 | `checks[].file` | yes | A file in the definition directory (no `..`, no absolute path) |
 | `checks[].function` | yes | The function to run, for example `check_archive`. Letters, digits and `_`, starting with a letter or `_` |

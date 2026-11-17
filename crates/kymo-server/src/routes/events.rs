@@ -53,8 +53,19 @@ pub async fn show(
             .is_ok(),
         None => false,
     };
+    // Told up front, so a player removed from the event does not find out by being refused.
+    let disqualified = match caller.and_then(|c| c.user_id) {
+        Some(user_id) => match crate::jeopardy_store::scorer_of(&state.pool, &row, user_id).await {
+            Ok(scorer) => {
+                crate::jeopardy_store::is_disqualified(&state.pool, row.id, scorer).await?
+            }
+            Err(_) => false,
+        },
+        None => false,
+    };
     let mut value = serde_json::to_value(out(&state, row)?).map_err(|_| ApiError::Internal)?;
     value["registered"] = json!(registered);
+    value["disqualified"] = json!(disqualified);
     Ok(Json(value))
 }
 

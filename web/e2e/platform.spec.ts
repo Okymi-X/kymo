@@ -2,17 +2,18 @@ import { expect, test, type Page } from '@playwright/test'
 import { PASSWORD } from './constants.js'
 
 async function organizer(page: Page) {
-  await page.goto('/login')
-  await page.getByLabel('Password').fill(PASSWORD)
+  await page.goto('/organizer/login')
+  await page.getByRole('radio', { name: 'Password' }).click()
+  await page.getByLabel('Organizer password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Organizer', exact: true })).toBeVisible()
 }
 
 test('a player registers, solves a challenge and reaches the scoreboard', async ({ page, browser }) => {
   test.setTimeout(120_000)
   // The organizer builds a solo Jeopardy event with one challenge and starts it.
   await organizer(page)
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await page.getByLabel('New event').fill('E2E Jeopardy')
   await page.getByLabel('Players').selectOption({ label: 'Solo' })
   await page.getByRole('button', { name: 'Create event' }).click()
@@ -110,7 +111,7 @@ test('a player registers, solves a challenge and reaches the scoreboard', async 
   await expect(page.getByRole('cell', { name: 'event_state' }).first()).toBeVisible()
 
   // The staff submission list hides the correct flag until it is revealed.
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await page.getByRole('link', { name: /E2E Jeopardy/ }).first().click()
   await page.getByRole('tab', { name: 'Submissions' }).click()
   await expect(page.getByText('KYMO{wrong}')).toBeVisible()
@@ -156,7 +157,7 @@ test('team members share a team and a visitor is asked to sign in', async ({ pag
 
 test('the VPN controls say plainly when the server has no VPN', async ({ page }) => {
   await organizer(page)
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await page.getByLabel('New event').fill('VPN Check')
   await page.getByLabel('Players').selectOption({ label: 'Solo' })
   await page.getByRole('button', { name: 'Create event' }).click()
@@ -167,14 +168,14 @@ test('the VPN controls say plainly when the server has no VPN', async ({ page })
   await expect(page.getByRole('option', { name: /Private VPN/ })).toBeDisabled()
   await expect(page.getByRole('option', { name: /Private VPN/ })).toContainText('not enabled on this server')
 
-  await page.goto('/admin/ops')
+  await page.goto('/organizer/ops')
   await expect(page.getByRole('heading', { name: 'VPN gateway' })).toBeVisible()
   await expect(page.getByText(/Not enabled\. Set KYMO_VPN=1/)).toBeVisible()
 })
 
 test('closed sign-ups are explained up front and the server says so in plain words', async ({ page, browser }) => {
   await organizer(page)
-  await page.goto('/admin/users')
+  await page.goto('/organizer/users')
   const toggle = page.getByLabel('Anyone can create a player account')
   await expect(toggle).toBeChecked()
 
@@ -343,7 +344,7 @@ test('administration pages fit a phone and keep their actions on screen', async 
   await organizer(page)
   const fits = async () => expect(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')).toBe(true)
 
-  await page.goto('/admin/users')
+  await page.goto('/organizer/users')
   const ban = page.getByRole('button', { name: /^(Ban|Unban)$/ }).first()
   await expect(ban).toBeVisible()
   const box = await ban.boundingBox()
@@ -359,7 +360,7 @@ test('administration pages fit a phone and keep their actions on screen', async 
     await fits()
   }
 
-  await page.goto('/admin/ops')
+  await page.goto('/organizer/ops')
   await expect(page.getByRole('heading', { name: 'Background jobs' })).toBeVisible()
   await fits()
   await context.close()
@@ -372,7 +373,7 @@ test('an organizer creates an account without opening sign-ups, and correct flag
   await request.put('/api/v1/admin/registration', { headers, data: { open: false } })
   try {
     await organizer(page)
-    await page.goto('/admin/users')
+    await page.goto('/organizer/users')
     // Sign-ups are closed, yet the organizer can make an account.
     await page.getByRole('button', { name: 'Create account' }).click()
     await page.getByLabel('Username').fill('walkin-player')
@@ -401,7 +402,7 @@ test('an organizer creates an account without opening sign-ups, and correct flag
 
 test('the contact form appears exactly once on the Users page, before and after a sign-up change', async ({ page }) => {
   await organizer(page)
-  await page.goto('/admin/users')
+  await page.goto('/organizer/users')
   const field = page.getByLabel('How people reach an organizer')
   await expect(field).toHaveCount(1)
   await page.getByLabel('Anyone can create a player account').click()
@@ -463,7 +464,7 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
   await organizer(page)
   await fits()
   // Creating an event: the host choice fits the screen.
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await expect(page.getByLabel('Instances run on')).toBeVisible()
   await fits()
   // The Lab hosts page: long names and addresses wrap instead of widening the page.
@@ -471,7 +472,7 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
     headers,
     data: { name: 'Narrow lab host', api_url: 'https://lab-host-with-a-rather-long-name.example.org:7400', token: 'a-long-token-for-the-test-1234', public_host: 'lab-host-with-a-rather-long-name.example.org' },
   })).json()) as { lab: { id: number } }
-  await page.goto('/admin/labs')
+  await page.goto('/organizer/labs')
   await expect(page.getByRole('heading', { name: 'Narrow lab host' })).toBeVisible()
   await fits()
   await request.delete(`/api/v1/admin/labs/${narrow.lab.id}`, { headers })
@@ -481,7 +482,7 @@ test('on the smallest phone nothing scrolls sideways and dialogs keep their titl
   await check()
   await page.keyboard.press('Escape')
 
-  await page.goto('/admin/users')
+  await page.goto('/organizer/users')
   await page.getByRole('button', { name: 'Create account' }).first().click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await check()
@@ -503,7 +504,7 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   const event = (await made.json()) as { id: number }
 
   await organizer(page)
-  await page.goto('/admin/labs')
+  await page.goto('/organizer/labs')
   await expect(page.getByText('No lab host yet')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Run challenges on a separate machine' })).toBeVisible()
 
@@ -535,7 +536,7 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   await expect(page.getByRole('heading', { name: 'Unplugged Lab 2' })).toBeVisible()
 
   // Operations lists it, as unreachable.
-  await page.goto('/admin/ops')
+  await page.goto('/organizer/ops')
   await expect(page.getByRole('region', { name: 'Lab hosts' }).getByText('Unplugged Lab 2')).toBeVisible()
 
   // The event can be moved to it, and the choice survives a reload.
@@ -548,7 +549,7 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   await expect(page.getByLabel('Where instances run')).toHaveValue(/\d+/)
 
   // While an event uses it, it cannot be removed, and the reason is given.
-  await page.goto('/admin/labs')
+  await page.goto('/organizer/labs')
   const again = page.getByRole('heading', { name: 'Unplugged Lab 2' }).locator('xpath=ancestor::section[1]')
   await again.getByRole('button', { name: 'Remove' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
@@ -558,7 +559,7 @@ test('an organizer adds a lab host, sees it is unreachable, chooses it for an ev
   await page.goto(`/admin/events/${event.id}`)
   await page.getByLabel('Where instances run').selectOption({ label: 'This server' })
   await expect(page.getByLabel('Where instances run')).toHaveValue('')
-  await page.goto('/admin/labs')
+  await page.goto('/organizer/labs')
   await page.getByRole('heading', { name: 'Unplugged Lab 2' }).locator('xpath=ancestor::section[1]').getByRole('button', { name: 'Remove' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
   await expect(page.getByText('No lab host yet')).toBeVisible()
@@ -589,7 +590,7 @@ test('the lab host is chosen when the event is created, with what each host is a
     data: { name: 'Pick me', api_url: 'http://127.0.0.1:9', token: 'a-long-token-for-the-test-1234', public_host: '127.0.0.1' },
   })).json()) as { lab: { id: number } }
   await organizer(page)
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await page.getByLabel('New event').fill('Placed at creation')
   await page.getByLabel('Players').selectOption({ label: 'Solo' })
   // The choice shows how busy each host is, so the admin can decide by what it has to spare.
@@ -599,7 +600,7 @@ test('the lab host is chosen when the event is created, with what each host is a
   await expect(page.getByRole('heading', { name: 'Placed at creation' })).toBeVisible()
   await expect(page.getByLabel('Where instances run')).toHaveValue(String(lab.lab.id))
   // A tournament has no instances, so the choice is not offered for it.
-  await page.goto('/admin/events')
+  await page.goto('/organizer/events')
   await page.getByLabel('Type').selectOption({ label: 'Tournament' })
   await expect(page.getByLabel('Instances run on')).toHaveCount(0)
   await request.delete(`/api/v1/admin/labs/${lab.lab.id}`, { headers }).catch(() => undefined)

@@ -9,6 +9,7 @@ import { LiveTab } from '../components/monitor/LiveTab'
 import { useOpenAlerts } from '../components/monitor/useOpenAlerts'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable, Empty, Gate, Loading, Panel, Pill, Stat, TD, Toggle } from '../components/platform/bits'
+import { KIND_TONE, describeAction, describeTarget } from '../lib/audit'
 import { Pager } from '../components/Pager'
 import { Tabs, type TabItem } from '../components/Tabs'
 import { Button, ErrorText, Field, Input, PageTitle, Select } from '../components/ui'
@@ -24,6 +25,8 @@ interface Focus {
   until?: number
   ip?: string
   userId?: number
+  /** Only requests answered with this status or a higher one. */
+  minStatus?: number
   label: string
 }
 
@@ -67,6 +70,7 @@ function Traffic({ focus, onClear }: { focus: Focus | null; onClear: () => void 
         page,
         ip: focus?.ip ?? (ip.trim() || undefined),
         user_id: focus?.userId,
+        min_status: focus?.minStatus,
         route: route.trim() || undefined,
         status: status ? Number(status) : undefined,
         since: focus?.since,
@@ -236,7 +240,7 @@ function Rules({ canEdit }: { canEdit: boolean }) {
   const rules = q.data?.rules ?? []
   return (
     <div className="flex flex-col gap-4">
-      <p className="max-w-2xl text-sm text-muted">Rules limit how often one address or user may call an endpoint. Staff are never limited. Endpoints are matched on the route pattern, so a rule on a path with parameters covers every value.</p>
+      <p className="max-w-2xl text-sm text-muted">Limit how often one address or user may call an endpoint. Staff are never limited. Rules match the route pattern.</p>
       {canEdit && (
         <Button variant="primary" className="self-start" onClick={() => setEditing('new')}>
           New rule
@@ -431,7 +435,7 @@ function Audit() {
             <option value="">All actions</option>
             {known.map(([a, n]) => (
               <option key={a} value={a}>
-                {a.replace(/_/g, ' ')} ({n})
+                {describeAction(a).label} ({n})
               </option>
             ))}
           </Select>
@@ -476,10 +480,13 @@ function Audit() {
                 </td>
                 <td className={TD}>{a.actor_name ?? a.actor_role}</td>
                 <td className={`${TD} whitespace-nowrap font-mono text-xs`}>{a.ip ?? <span className="text-muted">-</span>}</td>
-                <td className={`${TD} font-mono text-xs`}>{a.action}</td>
-                <td className={`${TD} font-mono text-xs`}>
-                  {a.target_kind} {a.target_id}
+                <td className={TD} title={a.action}>
+                  <span className="flex items-center gap-2">
+                    <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${KIND_TONE[describeAction(a.action).kind]}`} />
+                    {describeAction(a.action).label}
+                  </span>
                 </td>
+                <td className={`${TD} text-muted`}>{describeTarget(a.target_kind, a.target_id)}</td>
                 <td className={`${TD} break-words text-muted`}>{a.detail}</td>
               </tr>
             ))}
@@ -522,6 +529,7 @@ function Body() {
         <LiveTab
           onInspect={(since, until) => look({ since, until, label: `the requests from ${clock(since)} to ${clock(until)}` })}
           onAlert={setAlertId}
+          onFailures={(minStatus, since, label) => look({ minStatus, since, label })}
           onSubject={(kind, key) => look(kind === 'ip' ? { ip: key, label: `the requests from ${key}` } : { userId: Number(key), label: `the requests of player #${key}` })}
         />
       )}

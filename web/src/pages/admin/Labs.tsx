@@ -24,30 +24,45 @@ function encryption(lab: LabHost): string {
   return lab.fingerprint ? 'Encrypted, certificate pinned' : 'Encrypted, certificate authority'
 }
 
+const NEEDS: { kind: string; you: string }[] = [
+  { kind: 'Container', you: 'A built image on the lab host, and a manifest naming it (artifact, port).' },
+  { kind: 'Virtual machine', you: 'An .ova, .vmdk, .qcow2, .vdi, .img or .raw file in the images folder, QEMU installed, and a manifest with runtime vm.' },
+  { kind: 'Dynamic flag', you: 'An inject block in the manifest saying where the flag goes.' },
+  { kind: 'Responder', you: 'A verifier folder with checks, and a verifier block in the manifest.' },
+  { kind: 'Coding', you: 'One image per language, and a manifest with a judge block (see lab/judge).' },
+]
+
 function Setup() {
   return (
-    <Panel className="flex flex-col gap-3">
-      <div className="flex items-start gap-3">
-        <Server size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-accent" />
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold tracking-tight">Run challenges on a separate machine</h2>
-          <p className="text-sm text-muted">
-            A lab host runs only challenge containers. Keeping them off this server means a challenge that is broken into cannot reach the accounts, flags or database here. Each event picks where its instances run.
-          </p>
-        </div>
+    <details className="group rounded-card border border-line bg-surface p-4">
+      <summary className="flex cursor-pointer list-none items-center gap-3 text-sm font-medium">
+        <Server size={18} aria-hidden="true" className="shrink-0 text-accent" />
+        <span className="flex-1">Set up a lab host</span>
+        <span className="text-xs font-normal text-muted group-open:hidden">What it needs</span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-4 text-sm">
+        <ol className="ml-5 list-decimal space-y-2">
+          <li>
+            On the machine (Linux, Docker, systemd), unpack the lab release and run:{' '}
+            <span className="inline-flex flex-wrap items-center gap-2 align-middle">
+              <code className="rounded-control border border-line bg-bg px-2 py-1 font-mono text-xs">{INSTALL}</code>
+              <CopyButton text={INSTALL} />
+            </span>
+          </li>
+          <li>Add the address, token and fingerprint it prints with Add a lab host.</li>
+          <li>Give it what your challenges need, below. Run <code className="font-mono text-xs">kymo-lab check</code> to see what is missing.</li>
+        </ol>
+        <dl className="divide-y divide-line rounded-control border border-line">
+          {NEEDS.map((n) => (
+            <div key={n.kind} className="grid gap-1 px-3 py-2 sm:grid-cols-[9rem_1fr]">
+              <dt className="font-medium">{n.kind}</dt>
+              <dd className="text-muted">{n.you}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="text-xs text-muted">A flag-only or multi-question challenge needs no lab host. Sample manifests are in deploy/lab/manifests.</p>
       </div>
-      <ol className="ml-5 list-decimal space-y-2 text-sm">
-        <li>
-          On the new machine (Linux with Docker and systemd), download <code className="font-mono text-xs">kymo-lab-…-linux-x86_64.tar.gz</code> from the Kymo releases page, unpack it and run the installer:{' '}
-          <span className="inline-flex flex-wrap items-center gap-2 align-middle">
-            <code className="rounded-control border border-line bg-bg px-2 py-1 font-mono text-xs">{INSTALL}</code>
-            <CopyButton text={INSTALL} />
-          </span>
-        </li>
-        <li>It prints an API address, a token and a certificate fingerprint. Add them here with Add a lab host.</li>
-        <li>Put the images your challenges use on the lab host and describe them in its manifest folder. Then choose the lab host in the event's settings.</li>
-      </ol>
-    </Panel>
+    </details>
   )
 }
 
@@ -88,6 +103,7 @@ function CheckView({ check }: { check: LabCheck }) {
             >
               {a.artifact}
               {a.runtime === 'vm' && <span className="rounded bg-line/60 px-1 font-sans text-[10px] uppercase tracking-wide text-muted">vm</span>}
+              {a.judge && <span className="rounded bg-line/60 px-1 font-sans text-[10px] uppercase tracking-wide text-muted">language</span>}
               {a.ready === false && <span className="font-sans text-[10px] text-danger">{a.note?.includes('unpacked') ? 'preparing' : 'not ready'}</span>}
             </li>
           ))}
@@ -277,7 +293,7 @@ function Body() {
           Add a lab host
         </Button>
       </div>
-      {q.isPending ? <Loading /> : q.error ? <ErrorText error={q.error} /> : q.data.labs.length === 0 ? <Empty>No lab host yet. Events run their instances on this server until you add one.</Empty> : q.data.labs.map((lab) => <LabCard key={lab.id} lab={lab} onEdit={() => setEditing(lab)} />)}
+      {q.isPending ? <Loading /> : q.error ? <ErrorText error={q.error} /> : q.data.labs.length === 0 ? <Empty>No lab host yet. Instances run on this server.</Empty> : q.data.labs.map((lab) => <LabCard key={lab.id} lab={lab} onEdit={() => setEditing(lab)} />)}
       {editing && <LabDialog key={editing === 'new' ? 'new' : editing.id} lab={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
     </div>
   )
@@ -288,9 +304,6 @@ export function Labs() {
   return (
     <div className="flex flex-col gap-6">
       <PageTitle>Lab hosts</PageTitle>
-      <p className="max-w-3xl text-sm text-muted">
-        Lab hosts are shared by the whole platform: add each machine once here. Every Jeopardy event then chooses where its instances run (Event, Overview, Where instances run): this server or any lab host, and different events can use different ones.
-      </p>
       <Gate need="admin">
         <Body />
       </Gate>

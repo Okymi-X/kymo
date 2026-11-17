@@ -115,7 +115,7 @@ export function InstancePanel({ slug, challengeId, open, vpn = false, labHost = 
           )}
           {machine && (
             <p className="text-sm text-muted">
-              This is a machine on your private network. Every port is open on this address, so scan it to find what runs there, for example <code className="font-mono text-ink">nmap -sV -p- {view.host}</code>.
+              A machine on your private network. Every port is open: scan it, for example <code className="font-mono text-ink">nmap -sV -p- {view.host}</code>.
             </p>
           )}
           {(view.services ?? []).length > 0 && (
