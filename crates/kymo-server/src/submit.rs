@@ -313,7 +313,7 @@ pub async fn run_item(
 }
 
 /// A spec that never matches, used to ask only whether a submission has the accepted shape.
-fn shape_only() -> FlagSpec {
+pub fn shape_only() -> FlagSpec {
     FlagSpec::PerTeam {
         expected: String::new(),
     }
@@ -321,7 +321,7 @@ fn shape_only() -> FlagSpec {
 
 /// Judges a submission against the flag generated for this participant's own runs. Every run's
 /// flag is compared, with no early exit, so timing does not say which run matched.
-async fn judge_dynamic(
+pub async fn judge_dynamic(
     state: &AppState,
     challenge: &ChallengeRow,
     scorer: Scorer,

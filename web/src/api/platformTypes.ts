@@ -1103,6 +1103,8 @@ export interface DuelChallenge {
   attachments: { id: number; name: string; size: number }[]
   kind: 'flag' | 'instance' | 'dfir'
   points: number
+  /** Flags in all and flags your side has found, for a challenge with several flags. */
+  flags: [number, number] | null
   /** Points each side has earned on this challenge. */
   earned: [number, number]
   solved: boolean

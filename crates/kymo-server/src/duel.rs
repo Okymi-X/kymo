@@ -32,6 +32,8 @@ const RATE: RateRule = RateRule {
 pub struct Unit {
     pub challenge_id: i64,
     pub item_id: Option<i64>,
+    /// One flag of a challenge with several flags.
+    pub flag_id: Option<i64>,
     pub points: u32,
     pub max_attempts: Option<u32>,
 }
@@ -79,14 +81,27 @@ async fn units_of(state: &AppState, rows: &[ChallengeRow]) -> Result<Vec<Unit>, 
                 units.push(Unit {
                     challenge_id: row.id,
                     item_id: Some(item.id),
+                    flag_id: None,
                     points: u32::try_from(item.points).unwrap_or(0),
                     max_attempts: cap(item.max_attempts),
+                });
+            }
+        } else if row.multi_flag {
+            // Each flag is worth its weight: 1 point unless the organizer set another value.
+            for flag in store::flag_rows(&state.pool, row.id).await? {
+                units.push(Unit {
+                    challenge_id: row.id,
+                    item_id: None,
+                    flag_id: Some(flag.id),
+                    points: u32::try_from(flag.weight.max(0)).unwrap_or(0),
+                    max_attempts: cap(row.max_attempts),
                 });
             }
         } else {
             units.push(Unit {
                 challenge_id: row.id,
                 item_id: None,
+                flag_id: None,
                 points: points_of(row),
                 max_attempts: cap(row.max_attempts),
             });
@@ -114,6 +129,7 @@ impl Eval {
                 && a.side_team_id == self.teams[side]
                 && a.challenge_id == unit.challenge_id
                 && a.item_id == unit.item_id
+                && a.flag_id == unit.flag_id
         })
     }
 
@@ -126,6 +142,8 @@ impl Eval {
                     && a.side_team_id == self.teams[side]
                     && a.challenge_id == unit.challenge_id
                     && a.item_id == unit.item_id
+                    // Wrong tries on a challenge with several flags belong to the challenge.
+                    && (unit.flag_id.is_none() || a.flag_id.is_none())
             })
             .count();
         u32::try_from(n).unwrap_or(u32::MAX)
@@ -444,6 +462,8 @@ pub struct ChallengeView {
     /// `flag`, `instance` or `dfir`.
     pub kind: &'static str,
     pub points: u32,
+    /// Flags in all and flags this side has found, for a challenge with several flags.
+    pub flags: Option<[usize; 2]>,
     /// Points each side has earned on this challenge.
     pub earned: [u32; 2],
     pub solved: bool,
@@ -566,6 +586,8 @@ pub async fn view(
             }
         }
         let flag_unit = units.iter().find(|u| u.item_id.is_none());
+        let flag_units: Vec<&&Unit> = units.iter().filter(|u| u.flag_id.is_some()).collect();
+        let found = |side: usize| flag_units.iter().filter(|u| ev.correct(side, u)).count();
         challenges.push(ChallengeView {
             id: row.id,
             title: row.title.clone(),
@@ -596,10 +618,24 @@ pub async fn view(
             } else {
                 "flag"
             },
-            points: points_of(row),
+            points: if row.multi_flag {
+                flag_units.iter().map(|u| u.points).sum()
+            } else {
+                points_of(row)
+            },
+            flags: row.multi_flag.then(|| [flag_units.len(), found(me)]),
             earned: [ev.earned_in(0, row.id), ev.earned_in(1, row.id)],
-            solved: you.is_some() && flag_unit.is_some_and(|u| ev.correct(me, u)),
-            attempts_left: you.and_then(|_| flag_unit.and_then(|u| ev.attempts_left(me, u))),
+            solved: you.is_some()
+                && if row.multi_flag {
+                    !flag_units.is_empty() && found(me) == flag_units.len()
+                } else {
+                    flag_unit.is_some_and(|u| ev.correct(me, u))
+                },
+            attempts_left: you.and_then(|_| {
+                flag_unit
+                    .or(flag_units.first().copied())
+                    .and_then(|u| ev.attempts_left(me, u))
+            }),
             items,
         });
     }
@@ -683,31 +719,102 @@ pub async fn submit(
         .iter()
         .find(|r| r.id == sub.challenge_id)
         .ok_or(ApiError::NotFound)?;
-    let unit = ev
-        .units
-        .iter()
-        .find(|u| u.challenge_id == row.id && u.item_id == sub.item_id)
-        .ok_or_else(|| ApiError::BadRequest("answer one of the listed questions".into()))?;
-    if ev.correct(side, unit) {
-        return Err(ApiError::Conflict("already answered correctly".into()));
-    }
-    if ev.attempts_left(side, unit) == Some(0) {
-        return Err(ApiError::Conflict(
-            "no attempts left for this question".into(),
-        ));
-    }
-    let (spec, format, case_sensitive): (FlagSpec, FlagFormat, bool) = match sub.item_id {
-        Some(item_id) => {
-            let item: ItemRow = dstore::items(&state.pool, row.id)
-                .await?
-                .into_iter()
-                .find(|i| i.id == item_id)
-                .ok_or(ApiError::NotFound)?;
-            (item.answer, FlagFormat::default(), item.case_sensitive)
+    let multi = row.multi_flag && sub.item_id.is_none();
+    // For a challenge with several flags the submitted value picks the flag it belongs to.
+    let (unit, matched_flag, verdict): (&Unit, Option<i64>, Verdict) = if multi {
+        let scorer = crate::jeopardy_store::scorer_of(&state.pool, &event, sub.user_id).await?;
+        let flags = store::flag_rows(&state.pool, row.id).await?;
+        let format = row.format();
+        let submitted = sub.value.trim();
+        let shape = check(
+            &crate::submit::shape_only(),
+            &format,
+            row.case_sensitive,
+            submitted,
+        );
+        let dynamic = row.flag_mode == "dynamic";
+        let own = if dynamic {
+            crate::flag_set::run_values(&state.pool, row.id, scorer).await?
+        } else {
+            HashMap::new()
+        };
+        let mut matched = None;
+        if shape != Verdict::BadFormat {
+            for flag in &flags {
+                let candidates: Vec<String> = if dynamic {
+                    own.get(&flag.id).cloned().unwrap_or_default()
+                } else {
+                    vec![flag.value.clone()]
+                };
+                for value in candidates {
+                    let spec = FlagSpec::PerTeam { expected: value };
+                    if check(&spec, &format, row.case_sensitive, submitted) == Verdict::Correct {
+                        matched = Some(flag.id);
+                    }
+                }
+            }
         }
-        None => (row.flag.clone(), row.format(), row.case_sensitive),
+        let first = ev
+            .units
+            .iter()
+            .find(|u| u.challenge_id == row.id)
+            .ok_or(ApiError::NotFound)?;
+        let unit = match matched {
+            Some(id) => ev
+                .units
+                .iter()
+                .find(|u| u.challenge_id == row.id && u.flag_id == Some(id))
+                .ok_or(ApiError::NotFound)?,
+            None => first,
+        };
+        if matched.is_some() && ev.correct(side, unit) {
+            return Err(ApiError::Conflict("already answered correctly".into()));
+        }
+        if ev.attempts_left(side, unit) == Some(0) && matched.is_none() {
+            return Err(ApiError::Conflict(
+                "no attempts left for this question".into(),
+            ));
+        }
+        let verdict = match (shape, matched) {
+            (Verdict::BadFormat, _) => Verdict::BadFormat,
+            (_, Some(_)) => Verdict::Correct,
+            _ => Verdict::Incorrect,
+        };
+        (unit, matched, verdict)
+    } else {
+        let unit = ev
+            .units
+            .iter()
+            .find(|u| u.challenge_id == row.id && u.item_id == sub.item_id)
+            .ok_or_else(|| ApiError::BadRequest("answer one of the listed questions".into()))?;
+        if ev.correct(side, unit) {
+            return Err(ApiError::Conflict("already answered correctly".into()));
+        }
+        if ev.attempts_left(side, unit) == Some(0) {
+            return Err(ApiError::Conflict(
+                "no attempts left for this question".into(),
+            ));
+        }
+        let (spec, format, case_sensitive): (FlagSpec, FlagFormat, bool) = match sub.item_id {
+            Some(item_id) => {
+                let item: ItemRow = dstore::items(&state.pool, row.id)
+                    .await?
+                    .into_iter()
+                    .find(|i| i.id == item_id)
+                    .ok_or(ApiError::NotFound)?;
+                (item.answer, FlagFormat::default(), item.case_sensitive)
+            }
+            None => (row.flag.clone(), row.format(), row.case_sensitive),
+        };
+        let verdict = if sub.item_id.is_none() && row.flag_mode == "dynamic" {
+            // The flag was generated for this side's own run of the instance.
+            let scorer = crate::jeopardy_store::scorer_of(&state.pool, &event, sub.user_id).await?;
+            crate::submit::judge_dynamic(state, row, scorer, sub.value).await?
+        } else {
+            check(&spec, &format, case_sensitive, sub.value)
+        };
+        (unit, None, verdict)
     };
-    let verdict = check(&spec, &format, case_sensitive, sub.value);
     if verdict == Verdict::BadFormat {
         return Err(ApiError::BadRequest(
             "that answer is not in the expected format".into(),
@@ -721,8 +828,10 @@ pub async fn submit(
         })?;
     let correct = verdict == Verdict::Correct;
     // Partial credit never goes above the challenge's total.
-    let remaining = points_of(row).saturating_sub(ev.earned_in(side, row.id));
-    let points = if correct {
+    let points = if correct && matched_flag.is_some() {
+        unit.points
+    } else if correct {
+        let remaining = points_of(row).saturating_sub(ev.earned_in(side, row.id));
         unit.points.min(remaining)
     } else {
         0
@@ -737,6 +846,7 @@ pub async fn submit(
             match_id: match_id as i64,
             challenge_id: row.id,
             item_id: sub.item_id,
+            flag_id: matched_flag,
             side_team_id: team_id,
             user_id: sub.user_id,
             correct,

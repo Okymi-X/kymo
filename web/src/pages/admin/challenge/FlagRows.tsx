@@ -5,7 +5,7 @@ import { exampleFlag, MAX_FLAGS, rowProblems, splitPoints, type FlagRowDraft } f
 import { int, type Draft } from './draft'
 
 /** The flags of a dynamic or multi flag challenge: one card each, with the share of the points a weight gives. */
-export function FlagRows({ d, set, shown, locked, known, delivery }: { d: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; shown?: string; locked: boolean; known: string[]; delivery: Delivery }) {
+export function FlagRows({ d, set, shown, locked, known, delivery, tournament = false }: { tournament?: boolean; d: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; shown?: string; locked: boolean; known: string[]; delivery: Delivery }) {
   const dynamic = d.flagMode === 'dynamic'
   const count = Math.max(1, Math.min(MAX_FLAGS, int(d.flagCount) || 1))
   const rows = d.rows.slice(0, count)
@@ -34,7 +34,7 @@ export function FlagRows({ d, set, shown, locked, known, delivery }: { d: Draft;
                 <Input value={r.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={i === 0 ? 'User flag' : ''} maxLength={60} />
               </Field>
               {several && (
-                <Field label="Weight" error={bad.weight} hint={Number.isFinite(shares[i]) && d.points !== '' ? `${shares[i]} pts` : undefined}>
+                <Field label={tournament ? 'Points' : 'Weight'} error={bad.weight} hint={tournament ? 'Default 1.' : Number.isFinite(shares[i]) && d.points !== '' ? `${shares[i]} pts` : undefined}>
                   <Input type="number" min={1} value={r.weight} onChange={(e) => update(i, { weight: e.target.value })} disabled={locked} className="font-mono" aria-invalid={bad.weight ? true : undefined} />
                 </Field>
               )}

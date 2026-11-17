@@ -370,3 +370,164 @@ async fn challenges_decide_a_solo_match() {
     .await;
     assert_eq!(staff["answers"].as_array().unwrap().len(), 4);
 }
+
+/// A full pwn box in a match: two flags, each worth its own points, found once per side.
+#[tokio::test]
+async fn several_flags_score_one_by_one_in_a_match() {
+    let pool = db::connect("sqlite::memory:").await.unwrap();
+    let app = app_over(&pool);
+    let admin = admin_token(&app).await;
+    let (alice, _) = player(&app, "alice").await;
+    let (bob, _) = player(&app, "bob").await;
+    let (_, t) = call(
+        &app,
+        "POST",
+        "/tournaments",
+        Some(&admin),
+        Some(json!({ "name": "Pwn Cup", "format": "single_elimination" })),
+    )
+    .await;
+    let (tid, event_id, slug) = (
+        t["id"].as_i64().unwrap(),
+        t["event_id"].as_i64().unwrap(),
+        t["slug"].as_str().unwrap().to_owned(),
+    );
+    sqlx::query("UPDATE event SET mode = 'solo', state = 'registration_open' WHERE id = ?")
+        .bind(event_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for token in [&alice, &bob] {
+        call(
+            &app,
+            "POST",
+            &format!("/events/{slug}/register"),
+            Some(token),
+            None,
+        )
+        .await;
+    }
+    let (_, cat) = call(
+        &app,
+        "POST",
+        &format!("/admin/events/{event_id}/categories"),
+        Some(&admin),
+        Some(json!({ "name": "Pwn" })),
+    )
+    .await;
+    let (status, ch) = call(
+        &app,
+        "POST",
+        &format!("/admin/events/{event_id}/challenges"),
+        Some(&admin),
+        Some(json!({
+            "category_id": cat["id"], "title": "Box", "kind": "flag",
+            "scoring": { "kind": "static", "points": 4 },
+            "flag_mode": "static",
+            "flags": [
+                { "name": "user", "value": "user_flag", "weight": 1 },
+                { "name": "root", "value": "root_flag", "weight": 3 },
+            ],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{ch}");
+    let cid = ch["id"].as_i64().unwrap();
+    call(
+        &app,
+        "POST",
+        &format!("/admin/challenges/{cid}/publish"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    call(
+        &app,
+        "PUT",
+        &format!("/admin/tournaments/{tid}/challenge-settings"),
+        Some(&admin),
+        Some(json!({ "assignment": "per_match", "solo": 1, "team": 1, "seed": 1, "time_limit": null })),
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        &format!("/admin/tournaments/{tid}/roster/from-registrations"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    call(
+        &app,
+        "POST",
+        &format!("/admin/tournaments/{tid}/start"),
+        Some(&admin),
+        Some(json!({})),
+    )
+    .await;
+
+    let (_, view) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}/matches/0/play"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(view["challenges"][0]["points"], 4);
+    assert_eq!(view["challenges"][0]["flags"], json!([2, 0]));
+    assert!(!view.to_string().contains("root_flag"));
+
+    let submit = |token: &str, value: &str| {
+        let app = app.clone();
+        let token = token.to_owned();
+        let uri = format!("/tournaments/{slug}/matches/0/challenges/{cid}/submit");
+        let body = json!({ "value": value });
+        async move { call(&app, "POST", &uri, Some(&token), Some(body)).await }
+    };
+    let (_, r) = submit(&alice, "user_flag").await;
+    assert_eq!(
+        (r["correct"].as_bool(), r["points"].as_u64()),
+        (Some(true), Some(1))
+    );
+    let (status, _) = submit(&alice, "user_flag").await;
+    assert_eq!(status, StatusCode::CONFLICT, "a flag scores once per side");
+    let (_, r) = submit(&alice, "root_flag").await;
+    assert_eq!(
+        (r["correct"].as_bool(), r["points"].as_u64()),
+        (Some(true), Some(3))
+    );
+    let (_, r) = submit(&bob, "user_flag").await;
+    assert_eq!(r["points"], 1, "the other side scores the same flag too");
+    let (_, r) = submit(&bob, "guess").await;
+    assert_eq!(r["correct"], false);
+
+    let (_, view) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}/matches/0/play"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(view["challenges"][0]["flags"], json!([2, 2]));
+    assert_eq!(view["challenges"][0]["solved"], true);
+    let (status, done) = call(
+        &app,
+        "POST",
+        &format!("/admin/tournaments/{tid}/matches/0/finalize"),
+        Some(&admin),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    let (_, t) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    assert_eq!(t["bracket"]["matches"][0]["score"], json!([4, 1]));
+}

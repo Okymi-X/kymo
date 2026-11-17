@@ -14,7 +14,7 @@ import { Extras } from './challenge/Extras'
 import { FlagRows } from './challenge/FlagRows'
 import { DeliverySection } from './challenge/DeliverySection'
 import { Num, Section, When } from './challenge/parts'
-import { applyResponder, blank, dynamicSummary, fromChallenge, int, isMulti, toBody, toCodeConfig, usesRows, validate, type Draft, type Problems } from './challenge/draft'
+import { applyResponder, blank, dynamicSummary, flagPointsTotal, fromChallenge, int, isMulti, toBody, toCodeConfig, usesRows, validate, type Draft, type Problems } from './challenge/draft'
 
 interface Props {
   eventId: number
@@ -33,7 +33,7 @@ const QUIET = ['title', 'category_id', 'image', 'flagValue', 'rows']
 export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId, challenge, onClose }: Props) {
   const tournament = eventKind === 'tournament'
   const client = useQueryClient()
-  const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : blank(categories[0]?.id ?? 0)))
+  const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : { ...blank(categories[0]?.id ?? 0), ...(tournament ? { points: '1' } : {}) }))
   const [d, setD] = useState<Draft>(start)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setD((prev) => ({ ...prev, [key]: value }))
   const dirty = JSON.stringify(d) !== JSON.stringify(start)
@@ -203,7 +203,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
 
           {plainFlag && (
           <Section title={multi ? 'Flags' : 'Flag'} help="What a player must submit, and the shape that is accepted before it is even compared.">
-            {!tournament && (
+            {(
               <>
                 <div className="grid gap-4 sm:grid-cols-[14rem_10rem_1fr] sm:items-start">
                   <Field label="Flag mode" hint={flagsLocked || d.requiresInstance ? undefined : 'Dynamic: flag in template files.'}>
@@ -226,7 +226,7 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
             )}
             {rowsMode ? (
               <>
-                <FlagRows d={d} set={set} shown={shown.rows} locked={flagsLocked} known={artifact?.flags ?? []} delivery={delivery} />
+                <FlagRows d={d} set={set} shown={shown.rows} locked={flagsLocked} known={artifact?.flags ?? []} delivery={delivery} tournament={tournament} />
                 {undelivered.length > 0 && (
                   <p className="text-xs text-danger">
                     The manifest for {artifact?.artifact} does not deliver {undelivered.join(', ')}: those flags would have nowhere to go. It delivers {artifact?.flags?.join(', ')}.
@@ -266,13 +266,15 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
 
           <Section title="Points">
             <div className="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-start">
-              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : multi ? 'The total, split between the flags by weight.' : 'A match score is the points earned.') : undefined}>
+              <Field label="Scoring" hint={fixedPoints ? (dfir ? 'Split between the questions.' : multi ? (tournament ? 'The sum of the points of the flags.' : 'The total, split between the flags by weight.') : 'A match score is the points earned.') : undefined}>
                 <Select value={fixedPoints ? 'static' : d.scoring} onChange={(e) => set('scoring', e.target.value as Draft['scoring'])} aria-label="Scoring type" disabled={fixedPoints}>
                   <option value="static">Fixed points</option>
                   <option value="dynamic">Dynamic points</option>
                 </Select>
               </Field>
-              {fixedPoints || d.scoring === 'static' ? (
+              {tournament && multi && !dfir ? (
+                <p className="text-sm text-muted sm:pt-6">Worth {flagPointsTotal(d)} points in all: set the points of each flag above.</p>
+              ) : fixedPoints || d.scoring === 'static' ? (
                 <Num label="Points" value={d.points} onChange={(v) => set('points', v)} error={shown.points} />
               ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

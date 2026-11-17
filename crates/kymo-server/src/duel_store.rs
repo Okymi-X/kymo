@@ -34,6 +34,7 @@ pub struct AnswerRow {
     pub id: i64,
     pub challenge_id: i64,
     pub item_id: Option<i64>,
+    pub flag_id: Option<i64>,
     pub side_team_id: i64,
     pub user_id: i64,
     pub verdict: String,
@@ -191,7 +192,7 @@ pub async fn answers(
     match_id: i64,
 ) -> Result<Vec<AnswerRow>, ApiError> {
     Ok(sqlx::query_as(
-        "SELECT id, challenge_id, item_id, side_team_id, user_id, verdict, points, value, ip, at FROM duel_answer WHERE tournament_id = ? AND match_id = ? ORDER BY id",
+        "SELECT id, challenge_id, item_id, flag_id, side_team_id, user_id, verdict, points, value, ip, at FROM duel_answer WHERE tournament_id = ? AND match_id = ? ORDER BY id",
     )
     .bind(tournament_id)
     .bind(match_id)
@@ -204,6 +205,7 @@ pub struct NewAnswer<'a> {
     pub match_id: i64,
     pub challenge_id: i64,
     pub item_id: Option<i64>,
+    pub flag_id: Option<i64>,
     pub side_team_id: i64,
     pub user_id: i64,
     pub correct: bool,
@@ -218,11 +220,12 @@ pub struct NewAnswer<'a> {
 /// retries can never score twice.
 pub async fn insert_answer(pool: &SqlitePool, a: &NewAnswer<'_>) -> Result<(), ApiError> {
     let value: String = a.value.chars().take(200).collect();
-    let done = sqlx::query("INSERT INTO duel_answer (tournament_id, match_id, challenge_id, item_id, side_team_id, user_id, verdict, points, value, ip, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    let done = sqlx::query("INSERT INTO duel_answer (tournament_id, match_id, challenge_id, item_id, flag_id, side_team_id, user_id, verdict, points, value, ip, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(a.tournament_id)
         .bind(a.match_id)
         .bind(a.challenge_id)
         .bind(a.item_id)
+        .bind(a.flag_id)
         .bind(a.side_team_id)
         .bind(a.user_id)
         .bind(if a.correct { "correct" } else { "incorrect" })

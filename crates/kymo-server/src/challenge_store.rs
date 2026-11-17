@@ -594,19 +594,14 @@ impl FlagSet {
     }
 
     /// Checks the settings against the rest of the challenge. `tournament` is true when the
-    /// event is a tournament, where only plain single static flags are allowed.
-    pub fn validate(&self, fields: &ChallengeFields, tournament: bool) -> Result<(), ApiError> {
+    /// event is a tournament, where each flag's weight is its points.
+    pub fn validate(&self, fields: &ChallengeFields, _tournament: bool) -> Result<(), ApiError> {
         if !matches!(self.mode.as_str(), "static" | "dynamic") {
             return Err(bad("the flag mode is static or dynamic"));
         }
         let special = self.mode == "dynamic" || self.responder || self.flags.len() > 1;
         if !special {
             return Ok(());
-        }
-        if tournament {
-            return Err(bad(
-                "dynamic flags, several flags and Responder challenges are for Jeopardy events",
-            ));
         }
         if fields.kind != "flag" {
             return Err(bad("only a single flag challenge can have these settings"));
@@ -735,11 +730,11 @@ pub async fn flag_rows(pool: &SqlitePool, challenge_id: i64) -> Result<Vec<FlagR
     )
 }
 
-/// Whether a run or a solve exists, after which the flag settings can no longer change (only
+/// Whether a run or a solve exists (a start that failed never ran, so it does not count), after which the flag settings can no longer change (only
 /// the labels).
 pub async fn flags_locked(pool: &SqlitePool, challenge_id: i64) -> Result<bool, ApiError> {
     let used: i64 = sqlx::query_scalar(
-        "SELECT (SELECT COUNT(*) FROM instance WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM flag_solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM participant_flag WHERE challenge_id = ?1)",
+        "SELECT (SELECT COUNT(*) FROM instance WHERE challenge_id = ?1 AND (failure IS NULL OR failure <> 'start_failed')) + (SELECT COUNT(*) FROM solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM flag_solve WHERE challenge_id = ?1) + (SELECT COUNT(*) FROM participant_flag WHERE challenge_id = ?1)",
     )
     .bind(challenge_id)
     .fetch_one(pool)

@@ -9,6 +9,7 @@ import { Modal, ModalBody, ModalHeader } from '../components/Modal'
 import { Empty, Gate, Loading, Pill, useNow } from '../components/platform/bits'
 import { Button, ErrorText, Input, PageTitle } from '../components/ui'
 import { InstancePanel } from '../components/platform/InstancePanel'
+import { VpnPanel } from '../components/platform/VpnPanel'
 import { fileSize, flagHint } from '../lib/platform'
 import { usePageTitle } from '../lib/usePageTitle'
 
@@ -76,7 +77,7 @@ function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slu
     <Modal label={challenge.title} onClose={onClose} width="40rem">
       <ModalHeader
         title={challenge.title}
-        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'Multi-question' : challenge.kind === 'instance' ? 'Instance' : 'Single flag'}${open ? '' : ' · closed'}`}
+        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'Multi-question' : challenge.kind === 'instance' ? 'Instance' : challenge.flags ? `${challenge.flags[0]} flags` : 'Single flag'}${open ? '' : ' · closed'}`}
         actions={<Pill tone="text-ink">{challenge.earned[me]} / {challenge.points} pts</Pill>}
       />
       <ModalBody>
@@ -129,7 +130,7 @@ function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slu
             </p>
           ) : (
             <>
-              <span className="text-sm font-semibold">Flag</span>
+              <span className="text-sm font-semibold">{challenge.flags ? `Flag (${challenge.flags[1]} of ${challenge.flags[0]} found)` : 'Flag'}</span>
               <AnswerBox slug={slug} matchId={view.match_id} challenge={challenge.id} label="Flag" placeholder={placeholder} locked={!open || challenge.attempts_left === 0} />
               {challenge.attempts_left !== null && <p className="text-xs text-muted">{challenge.attempts_left} attempts left on this challenge.</p>}
             </>
@@ -181,6 +182,7 @@ export function MatchBoard({ slug, matchId: id, embedded = false }: { slug: stri
           </div>
         ))}
       </div>
+      {event.data?.network_mode === 'vpn' && view.you !== null && <VpnPanel labHost={event.data.lab_host_id ?? null} />}
       <p className="text-sm text-muted">
         {STATUS[view.status]}
         {left !== null && view.status === 'open' && <span className="ml-2 font-mono tabular-nums text-ink">{clock(left)} left</span>}
@@ -211,7 +213,7 @@ export function MatchBoard({ slug, matchId: id, embedded = false }: { slug: stri
                         <span className="font-mono tabular-nums text-ink">
                           {c.earned[me]} / {c.points} pts
                         </span>
-                        <span>{c.kind === 'dfir' ? `${answered} of ${c.items.length} answered` : done ? 'Solved' : 'Open'}</span>
+                        <span>{c.kind === 'dfir' ? `${answered} of ${c.items.length} answered` : c.flags ? `${c.flags[1]} of ${c.flags[0]} flags` : done ? 'Solved' : 'Open'}</span>
                       </span>
                     </button>
                   </li>

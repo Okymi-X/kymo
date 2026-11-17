@@ -147,6 +147,9 @@ export const int = (s: string) => Math.trunc(Number(s))
 
 /** The flags come from the rows, not from the single flag field. */
 export const usesRows = (d: Draft): boolean => d.kind === 'flag' && (d.flagMode === 'dynamic' || int(d.flagCount) > 1)
+/** In a tournament each flag's weight is its own points (1 when left empty): the challenge is worth their sum. */
+export const flagPointsTotal = (d: Draft): number => d.rows.slice(0, Math.max(1, int(d.flagCount))).reduce((sum, r) => sum + (int(r.weight) || 1), 0)
+
 /** Several flags: static points, split by weight. */
 export const isMulti = (d: Draft): boolean => d.kind === 'flag' && int(d.flagCount) > 1
 
@@ -156,7 +159,7 @@ export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
   const noFlag = d.kind !== 'flag'
   const scoring: Scoring =
     d.scoring === 'static' || fixedPoints || dfir || isMulti(d)
-      ? { kind: 'static', points: int(d.points) }
+      ? { kind: 'static', points: fixedPoints && isMulti(d) && !dfir ? flagPointsTotal(d) : int(d.points) }
       : { kind: 'dynamic', initial: int(d.initial), minimum: int(d.minimum), decay: int(d.decay), curve: d.curve }
   const flag: FlagSpec =
     d.flagKind === 'static' ? { kind: 'static', value: d.flagValue } : d.flagKind === 'regex' ? { kind: 'regex', pattern: d.flagValue } : { kind: 'per_team', expected: d.flagValue }
@@ -208,7 +211,7 @@ export function validate(d: Draft, fixedPoints = false): Problems {
   if (d.title.trim() === '') p.title = 'Give the challenge a title.'
   if (d.category_id === 0) p.category_id = 'Add a category first.'
   if (d.scoring === 'static' || fixedPoints || dfir || isMulti(d)) {
-    if (!inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
+    if (!(fixedPoints && isMulti(d) && !dfir) && !inRange(d.points, 0, 100000)) p.points = 'Points are a whole number, 0 or more.'
   } else {
     if (!inRange(d.initial, 1, 100000)) p.initial = 'A whole number, 1 or more.'
     if (!inRange(d.minimum, 0, 100000)) p.minimum = 'A whole number, 0 or more.'
