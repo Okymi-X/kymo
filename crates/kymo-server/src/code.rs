@@ -334,13 +334,18 @@ pub async fn judge(
         ));
     }
     let client = state.labs().client(&row)?;
-    client
-        .judge(&config.request(language, source))
-        .await
-        .map_err(|e| match e {
-            kymo_instances::RuntimeError::Unavailable(m) => ApiError::Unavailable(m),
-            other => ApiError::Unavailable(format!("the judge could not run this: {other}")),
-        })
+    match client.judge(&config.request(language, source)).await {
+        Ok(report) => Ok(report),
+        Err(e) => {
+            if let Some(hint) = crate::labs::judge_version_hint(state, host).await {
+                return Err(ApiError::Unavailable(hint));
+            }
+            Err(match e {
+                kymo_instances::RuntimeError::Unavailable(m) => ApiError::Unavailable(m),
+                other => ApiError::Unavailable(format!("the judge could not run this: {other}")),
+            })
+        }
+    }
 }
 
 /// A report as JSON. A player sees every verdict and time, and the input, expected and actual

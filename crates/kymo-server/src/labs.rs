@@ -184,6 +184,26 @@ pub async fn usable(state: &AppState, id: i64) -> Result<LabHostRow, ApiError> {
 /// The first lab host version that hands out flags and starts a Verifier.
 const FLAGS_SINCE: (u64, u64, u64) = (0, 4, 0);
 
+/// The first lab host version that can judge coding submissions.
+const JUDGE_SINCE: (u64, u64, u64) = (0, 5, 0);
+
+/// Whether a lab host version is too old to judge code.
+fn too_old_to_judge(version: &str) -> bool {
+    !matches!(parse_version(version), Some(v) if v >= JUDGE_SINCE)
+}
+
+/// After a failed judge call: say so plainly when the lab host is simply too old to have one.
+pub async fn judge_version_hint(state: &AppState, id: i64) -> Option<String> {
+    let row = lab_store::get(&state.pool, id).await.ok()?;
+    let health = state.labs().client(&row).ok()?.health().await.ok()?;
+    too_old_to_judge(&health.version).then(|| {
+        format!(
+            "the lab host {} runs version {}; coding challenges need 0.5.0 or later",
+            row.name, health.version
+        )
+    })
+}
+
 /// Parses `major.minor.patch`, ignoring anything after the patch number (`0.4.0-rc1`).
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
     let mut parts = text.split('.');
@@ -251,6 +271,12 @@ mod tests {
         assert_eq!(parse_version("0.10.2-rc1"), Some((0, 10, 2)));
         assert!(parse_version("0.3.9") < Some(FLAGS_SINCE));
         assert!(parse_version("0.4.0") >= Some(FLAGS_SINCE));
+        assert!(too_old_to_judge("0.4.0") && too_old_to_judge("nonsense"));
+        assert!(
+            !too_old_to_judge("0.5.0")
+                && !too_old_to_judge("0.5.1-rc1")
+                && !too_old_to_judge("1.0.0")
+        );
         assert!(parse_version("1.0.0") >= Some(FLAGS_SINCE));
         assert_eq!(parse_version("dev"), None);
         assert_eq!(parse_version("0.4"), None);

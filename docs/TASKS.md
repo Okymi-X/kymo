@@ -244,3 +244,9 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] `KYMO_LAB_JUDGE_RUNTIME` runs submissions under gVisor `runsc` or Kata instead of sharing the host kernel (name validated; off by default; not exercised here, no such runtime installed)
 - [x] Mount path: the default judge root is generic and the README says to keep it so; copying files in instead of bind mounting was rejected, because extracting a tar produced by an untrusted compiler would open a worse hole than the path leak
 
+## Release 0.5.0 (2026-11-17)
+- [x] Merged `origin/update` (dynamic and several flags in tournament matches): its migration is now `0041_duel_flags.sql`, its editor changes ported into the split editor (`draft.ts`, `FlagRows.tsx`), its duel tests pass
+- [x] Coding challenges need a lab host of 0.5.0 or later; a failed run on an older one says so (`labs::judge_version_hint`)
+- [x] Fixed: the console nav and the event filter widened the page on a phone; anonymous answers were served stale after a change (the public cache is cleared on every notify)
+- [x] e2e specs brought up to date with the organizer console, the Infrastructure tab, the sign-in gate and the redesigned cards; all specs pass locally on Chromium
+

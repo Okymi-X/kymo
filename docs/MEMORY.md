@@ -110,3 +110,5 @@
 ## Sandbox (2026-11-17)
 - Code judge containers: no network, all caps dropped, no-new-privileges, uid 65534, read-only root, `/tmp` 64 MB noexec/nosuid/nodev, private IPC, limits on memory, CPU, pids, files and output. Verified by live escape probes; see TASKS.md for accepted residual risks
 
+- 2026-11-17: 0.5.0 = everything since 0.4.0 plus `origin/update` 4044440 (migration renumbered to 0041). A release is automatic: bump `version` in `Cargo.toml`, refresh `Cargo.lock` (CI uses `--locked`), push to main. Anonymous public answers are cached 5 s but cleared by `AppState::notify`
+

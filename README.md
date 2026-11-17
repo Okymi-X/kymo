@@ -463,7 +463,7 @@ The platform side is the admin API (`/api/v1/admin/labs`: list, add, update, del
 
 ## Coding challenges
 
-A coding challenge gives players a text box, a language and a set of tests. They write a program that reads standard input and prints standard output; Kymo runs it against every test on a lab host and the challenge is solved when all of them pass. It is scored like any other challenge (fixed or dynamic points, attempt limit, hints).
+A coding challenge needs a lab host of version 0.5.0 or later. It gives players a text box, a language and a set of tests. They write a program that reads standard input and prints standard output; Kymo runs it against every test on a lab host and the challenge is solved when all of them pass. It is scored like any other challenge (fixed or dynamic points, attempt limit, hints).
 
 **Languages come from the lab host.** A language is an image plus a manifest with a `judge` block. The platform only names the manifest's artifact, so it can never choose an image or a command. Samples are in `lab/judge/` (Python, Node, C, C++) and `deploy/lab/manifests/judge-*.json.example`:
 
