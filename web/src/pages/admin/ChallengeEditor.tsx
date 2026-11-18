@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { platform } from '../../api/platform'
 import type { AdminChallenge, Category, FlagSpec, LabArtifact } from '../../api/platformTypes'
@@ -116,6 +117,23 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
       onClose()
     },
   })
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => platform.deleteChallenge(challenge!.id),
+    onSuccess: () => {
+      refresh()
+      onClose()
+    },
+    onSettled: () => setConfirmDelete(false),
+  })
+  // The server refuses a challenge with solves; the button says why before anyone tries.
+  const whyNotDelete = !challenge
+    ? null
+    : challenge.state === 'published'
+      ? 'Retire it first.'
+      : !tournament && challenge.solves > 0
+        ? `${challenge.solves} ${challenge.solves === 1 ? 'player has' : 'players have'} solved it. Keep it as retired instead.`
+        : null
   const state = useMutation({
     mutationFn: (action: 'publish' | 'retire') => (action === 'publish' ? platform.publishChallenge(challenge!.id) : platform.retireChallenge(challenge!.id)),
     onSuccess: refresh,
@@ -148,12 +166,32 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
                     Retire
                   </Button>
                 )}
+                {confirmDelete ? (
+                  <>
+                    <Button variant="danger" onClick={() => remove.mutate()} disabled={remove.isPending}>
+                      Delete for good
+                    </Button>
+                    <Button onClick={() => setConfirmDelete(false)} disabled={remove.isPending}>
+                      Keep
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    aria-label="Delete challenge"
+                    title={whyNotDelete ?? 'Delete this challenge. This cannot be undone.'}
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={whyNotDelete !== null || state.isPending}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </Button>
+                )}
               </>
             )
           }
         />
         <ModalBody>
           <ErrorText error={state.error} />
+          <ErrorText error={remove.error} />
 
           <Section title="Basics">
             <div className="grid gap-4 sm:grid-cols-[1fr_14rem_12rem]">
