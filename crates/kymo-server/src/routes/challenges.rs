@@ -56,6 +56,9 @@ struct ChallengeOut {
     category_id: i64,
     title: String,
     description: String,
+    /// Who made it, when the organizer chose to credit someone.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    author: String,
     /// What a solve is worth right now, before this participant's hint costs.
     points: i64,
     solved: bool,
@@ -245,6 +248,7 @@ pub async fn list(
             category_id: row.category_id,
             title: row.title,
             description: row.description,
+            author: row.author,
             release_at: row.release_at,
             retire_at: row.retire_at,
             max_attempts: row.max_attempts,

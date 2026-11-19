@@ -113,11 +113,6 @@ export function InstancePanel({ slug, challengeId, open, vpn = false, labHost = 
               <p className="text-sm text-muted">Press Verify after each fix. When every check passes, it shows the flag: paste it into the flag box below.</p>
             </div>
           )}
-          {machine && (
-            <p className="text-sm text-muted">
-              A machine on your private network. Every port is open: scan it, for example <code className="font-mono text-ink">nmap -sV -p- {view.host}</code>.
-            </p>
-          )}
           {(view.services ?? []).length > 0 && (
             <ul className="flex flex-col gap-1.5" aria-label="Other services">
               {view.services?.map((svc) => (

@@ -12,6 +12,7 @@ use crate::error::ApiError;
 
 pub const MAX_ATTACHMENT: usize = 10 * 1024 * 1024;
 pub const MAX_TITLE: usize = 120;
+pub const MAX_AUTHOR: usize = 80;
 const MAX_CHALLENGE_DESCRIPTION: usize = 20_000;
 const MAX_HINT: usize = 5_000;
 const MAX_POINTS: i64 = 1_000_000;
@@ -39,6 +40,8 @@ pub struct ChallengeRow {
     pub category_id: i64,
     pub title: String,
     pub description: String,
+    /// Who made it (credited to players); empty when nobody is.
+    pub author: String,
     #[sqlx(json)]
     pub scoring: Scoring,
     #[sqlx(json)]
@@ -126,6 +129,7 @@ pub struct ChallengeFields {
     pub category_id: i64,
     pub title: String,
     pub description: String,
+    pub author: String,
     pub scoring: Scoring,
     pub flag: FlagSpec,
     pub flag_prefix: String,
@@ -146,6 +150,7 @@ impl From<&ChallengeRow> for ChallengeFields {
             category_id: row.category_id,
             title: row.title.clone(),
             description: row.description.clone(),
+            author: row.author.clone(),
             scoring: row.scoring,
             flag: row.flag.clone(),
             flag_prefix: row.flag_prefix.clone(),
@@ -199,6 +204,11 @@ impl ChallengeFields {
                 .any(|c| crate::text::is_hidden_char(c) && !matches!(c, '\n' | '\t'))
         {
             return Err(bad("the description is at most 20000 characters of text"));
+        }
+        if self.author.chars().count() > MAX_AUTHOR
+            || self.author.chars().any(crate::text::is_hidden_char)
+        {
+            return Err(bad("the author is at most 80 characters of plain text"));
         }
         self.scoring
             .validate()
@@ -402,12 +412,13 @@ pub async fn challenge_insert(
 ) -> Result<i64, ApiError> {
     check_category(pool, event_id, fields.category_id).await?;
     let done = sqlx::query(
-        "INSERT INTO challenge (event_id, category_id, title, description, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO challenge (event_id, category_id, title, description, author, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(event_id)
     .bind(fields.category_id)
     .bind(&fields.title)
     .bind(&fields.description)
+    .bind(&fields.author)
     .bind(to_json(&fields.scoring)?)
     .bind(to_json(&fields.flag)?)
     .bind(&fields.flag_prefix)
@@ -434,11 +445,12 @@ pub async fn challenge_update(
 ) -> Result<(), ApiError> {
     check_category(pool, row.event_id, fields.category_id).await?;
     sqlx::query(
-        "UPDATE challenge SET category_id = ?, title = ?, description = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ? WHERE id = ?",
+        "UPDATE challenge SET category_id = ?, title = ?, description = ?, author = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ? WHERE id = ?",
     )
     .bind(fields.category_id)
     .bind(&fields.title)
     .bind(&fields.description)
+    .bind(&fields.author)
     .bind(to_json(&fields.scoring)?)
     .bind(to_json(&fields.flag)?)
     .bind(&fields.flag_prefix)

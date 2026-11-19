@@ -594,6 +594,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
                 category_id: categories[c.category],
                 title: c.title.to_owned(),
                 description: c.about.to_owned(),
+                author: String::new(),
                 scoring: c.scoring,
                 flag: FlagSpec::Static {
                     value: c.flag.to_owned(),

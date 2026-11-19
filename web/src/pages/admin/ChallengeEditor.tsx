@@ -218,6 +218,9 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
             <Field label="Description" hint="Shown to players as plain text. Say what to do, not how to solve it.">
               <Textarea value={d.description} onChange={(e) => set('description', e.target.value)} rows={4} />
             </Field>
+            <Field label="Author (optional)" hint="Credited to players as “Created by …”. Leave empty to show nobody.">
+              <Input value={d.author} onChange={(e) => set('author', e.target.value)} maxLength={80} />
+            </Field>
           </Section>
 
           {plainFlag && (

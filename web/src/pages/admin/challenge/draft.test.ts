@@ -86,7 +86,7 @@ describe('a Responder', () => {
 describe('fromChallenge', () => {
   it('reads the flag settings back into the form', () => {
     const c = {
-      id: 1, event_id: 1, category_id: 2, lab_host_id: null, title: 'Box', description: '', scoring: { kind: 'static', points: 100 },
+      id: 1, event_id: 1, category_id: 2, lab_host_id: null, title: 'Box', description: '', author: '', scoring: { kind: 'static', points: 100 },
       flag: { kind: 'static', value: 'x' }, flag_prefix: 'KYMO{', flag_suffix: '}', case_sensitive: true, max_attempts: null,
       state: 'draft', release_at: null, retire_at: null, position: 0, requires_instance: true, instance_config: null, kind: 'flag',
       created_at: 0, flag_mode: 'dynamic', multi_flag: true, responder: false, solves: 0, hints: [], attachments: [],

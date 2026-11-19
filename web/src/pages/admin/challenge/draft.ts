@@ -23,6 +23,8 @@ export interface Draft {
   kind: 'flag' | 'dfir' | 'code'
   title: string
   description: string
+  /** Credited to players; may stay empty. */
+  author: string
   category_id: number
   /** The languages, tests and limits when `kind` is `code`. */
   code: CodeDraft
@@ -66,6 +68,7 @@ export const blank = (category: number): Draft => ({
   kind: 'flag',
   title: '',
   description: '',
+  author: '',
   category_id: category,
   code: blankCode(),
   scoring: 'static',
@@ -110,6 +113,7 @@ export function fromChallenge(c: AdminChallenge): Draft {
     code: c.code ? { languages: c.code.languages, cases: c.code.cases, time: String(c.code.time_limit_ms), memory: String(c.code.memory_mb), compare: c.code.compare } : blankCode(),
     title: c.title,
     description: c.description,
+    author: c.author ?? '',
     scoring: c.scoring.kind,
     points: c.scoring.kind === 'static' ? String(c.scoring.points) : '100',
     initial: c.scoring.kind === 'dynamic' ? String(c.scoring.initial) : '500',
@@ -177,6 +181,7 @@ export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
     category_id: d.category_id,
     title: d.title.trim(),
     description: d.description,
+    author: d.author.trim(),
     scoring,
     kind: d.kind,
     ...(noFlag || rows ? {} : { flag }),

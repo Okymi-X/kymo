@@ -143,6 +143,8 @@ export interface PlayerChallenge {
   category_id: number
   title: string
   description: string
+  /** Who made it, when the organizer credited someone. */
+  author?: string
   points: number
   solved: boolean
   solved_at: number | null
@@ -418,6 +420,7 @@ export interface AdminChallenge {
   category_id: number
   title: string
   description: string
+  author: string
   scoring: Scoring
   flag: FlagSpec
   flag_prefix: string

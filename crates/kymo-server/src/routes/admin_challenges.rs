@@ -133,6 +133,7 @@ pub struct AdminChallenge {
     category_id: i64,
     title: String,
     description: String,
+    author: String,
     scoring: Scoring,
     flag: FlagSpec,
     flag_prefix: String,
@@ -178,6 +179,7 @@ fn admin_out(
         category_id: row.category_id,
         title: row.title,
         description: row.description,
+        author: row.author,
         scoring: row.scoring,
         flag: row.flag,
         flag_prefix: row.flag_prefix,
@@ -261,6 +263,9 @@ pub struct ChallengeBody {
     title: String,
     #[serde(default)]
     description: String,
+    /// Credited to players; optional.
+    #[serde(default)]
+    author: String,
     scoring: Scoring,
     /// Required for `flag` challenges; a DFIR challenge keeps its answers in its questions.
     flag: Option<FlagSpec>,
@@ -358,6 +363,7 @@ pub async fn create_challenge(
         category_id: body.category_id,
         title: clean_name(&body.title, MAX_TITLE)?,
         description: body.description.trim().to_owned(),
+        author: body.author.trim().to_owned(),
         scoring: body.scoring,
         flag,
         flag_prefix: body.flag_prefix,
@@ -396,6 +402,7 @@ pub struct ChallengePatch {
     category_id: Option<i64>,
     title: Option<String>,
     description: Option<String>,
+    author: Option<String>,
     scoring: Option<Scoring>,
     flag: Option<FlagSpec>,
     flag_prefix: Option<String>,
@@ -431,6 +438,9 @@ pub async fn update_challenge(
     }
     if let Some(description) = body.description {
         f.description = description.trim().to_owned();
+    }
+    if let Some(author) = body.author {
+        f.author = author.trim().to_owned();
     }
     f.scoring = body.scoring.unwrap_or(f.scoring);
     let flag_given = body.flag.is_some();

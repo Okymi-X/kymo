@@ -107,6 +107,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
       />
       <ModalBody>
         {challenge.description && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{challenge.description}</p>}
+        {challenge.author && <p className="text-xs text-muted">Created by <span className="font-medium text-ink">{challenge.author}</span></p>}
 
         {challenge.attachments.length > 0 && (
           <div className="flex flex-col gap-2">

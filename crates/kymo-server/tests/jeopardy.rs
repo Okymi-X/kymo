@@ -1532,3 +1532,51 @@ async fn the_score_timeline_ends_on_the_board_totals_and_follows_the_same_visibi
     let (status, _) = call(&c.w.app, "GET", &format!("{uri}?top=9999"), None, None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn the_author_is_optional_and_players_see_it() {
+    let c = Ctx::new("solo", json!({})).await;
+    let plain = c.challenge(json!({ "title": "No credit" })).await;
+    let credited = c
+        .challenge(json!({ "title": "With credit", "author": "  Dan  " }))
+        .await;
+    let (alice, _) = player(&c.w.app, "alice").await;
+    c.register(&alice).await;
+    c.set_state("live").await;
+
+    let (_, list) = c.list(&alice).await;
+    assert_eq!(challenge_in(&list, credited).unwrap()["author"], "Dan");
+    assert!(
+        challenge_in(&list, plain).unwrap().get("author").is_none(),
+        "no author is not shown"
+    );
+
+    // The organizer can credit it later and remove the credit again.
+    let (status, body) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{plain}"),
+            Some(json!({ "author": "Marie" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["author"], "Marie");
+    let (_, body) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{plain}"),
+            Some(json!({ "author": "" })),
+        )
+        .await;
+    assert_eq!(body["author"], "");
+
+    // Plain text of a sensible length only.
+    let (status, _) = c
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{plain}"),
+            Some(json!({ "author": "x".repeat(81) })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

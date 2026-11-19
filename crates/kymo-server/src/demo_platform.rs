@@ -339,6 +339,7 @@ async fn add_challenges(
                 category_id: categories[spec.category],
                 title: spec.title.to_owned(),
                 description: spec.about.to_owned(),
+                author: String::new(),
                 scoring,
                 flag: FlagSpec::Static {
                     value: flag.to_owned(),
