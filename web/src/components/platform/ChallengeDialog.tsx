@@ -7,6 +7,7 @@ import { flagProgress } from '../../lib/flags'
 import { fileSize, flagHint, verdictText } from '../../lib/platform'
 import { Modal, ModalBody, ModalHeader } from '../Modal'
 import { Button, ErrorText, Input } from '../ui'
+import { Markdown } from '../Markdown'
 import { Pill } from './bits'
 import { CodePanel } from './CodePanel'
 import { InstancePanel } from './InstancePanel'
@@ -106,7 +107,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
         actions={<Pill tone="text-ink">{challenge.points} pts</Pill>}
       />
       <ModalBody>
-        {challenge.description && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{challenge.description}</p>}
+        {challenge.description && <Markdown text={challenge.description} />}
         {challenge.author && <p className="text-xs text-muted">Created by <span className="font-medium text-ink">{challenge.author}</span></p>}
 
         {challenge.attachments.length > 0 && (

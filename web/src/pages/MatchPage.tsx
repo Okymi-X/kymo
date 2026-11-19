@@ -9,6 +9,7 @@ import { Modal, ModalBody, ModalHeader } from '../components/Modal'
 import { Empty, Gate, Loading, Pill, useNow } from '../components/platform/bits'
 import { Button, ErrorText, Input, PageTitle } from '../components/ui'
 import { InstancePanel } from '../components/platform/InstancePanel'
+import { Markdown } from '../components/Markdown'
 import { VpnPanel } from '../components/platform/VpnPanel'
 import { fileSize, flagHint } from '../lib/platform'
 import { usePageTitle } from '../lib/usePageTitle'
@@ -81,7 +82,7 @@ function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slu
         actions={<Pill tone="text-ink">{challenge.earned[me]} / {challenge.points} pts</Pill>}
       />
       <ModalBody>
-        {challenge.description && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{challenge.description}</p>}
+        {challenge.description && <Markdown text={challenge.description} />}
         {challenge.attachments.length > 0 && (
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">Files</h3>
