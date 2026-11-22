@@ -172,6 +172,7 @@ export function Settings() {
   const { data: saved } = useAppearance()
   const [draft, setDraft] = useState<Appearance | null>(null)
   const [logoError, setLogoError] = useState<string | null>(null)
+  const [iconError, setIconError] = useState<string | null>(null)
   const current = draft ?? saved ?? DEFAULT_APPEARANCE
 
   useEffect(() => {
@@ -199,7 +200,8 @@ export function Settings() {
   if (!admin) return <Navigate to="/organizer/login" replace />
 
   const set = <K extends keyof Appearance>(key: K, value: Appearance[K]) => setDraft({ ...current, [key]: value })
-  const valid = isHex(current.accent_light) && isHex(current.accent_dark) && current.site_name.trim().length > 0
+  const valid =
+    isHex(current.accent_light) && isHex(current.accent_dark) && current.site_name.trim().length > 0 && (current.favicon_source !== 'custom' || current.favicon !== null)
   const dirty = draft !== null
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -245,13 +247,55 @@ export function Settings() {
                   }}
                 />
                 {current.logo && (
-                  <Button type="button" variant="ghost" onClick={() => set('logo', null)}>
+                  <Button type="button" variant="ghost" onClick={() => setDraft({ ...current, logo: null, favicon_source: current.favicon_source === 'logo' ? 'default' : current.favicon_source })}>
                     Remove logo
                   </Button>
                 )}
               </div>
               <span className="text-xs text-muted">PNG, JPEG or WebP, up to 60 KB. Shown instead of the site name in the header.</span>
               {logoError && <span role="alert" className="text-sm text-danger">{logoError}</span>}
+            </Field>
+            <Field label="Browser tab icon">
+              <Segmented
+                label="Browser tab icon"
+                value={current.favicon_source}
+                options={[
+                  { value: 'default' as const, label: 'Kymo icon' },
+                  ...(current.logo ? [{ value: 'logo' as const, label: 'Same as logo' }] : []),
+                  { value: 'custom' as const, label: 'Upload image' },
+                ]}
+                onChange={(v) => set('favicon_source', v)}
+              />
+              {current.favicon_source === 'custom' && (
+                <div className="flex flex-wrap items-center gap-3">
+                  {current.favicon && <img src={current.favicon} alt="Current tab icon" className="size-9 rounded-control border border-line bg-surface p-1 object-contain" />}
+                  <input
+                    type="file"
+                    accept={LOGO_TYPES.join(',')}
+                    aria-label="Upload tab icon"
+                    className="text-sm file:mr-3 file:h-10 file:rounded-control file:border file:border-line file:bg-surface file:px-4 file:font-medium"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      if (!file) return
+                      const result = await readLogo(file)
+                      if ('error' in result) setIconError(result.error)
+                      else {
+                        setIconError(null)
+                        setDraft({ ...current, favicon: result.uri })
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              <span className="text-xs text-muted">
+                {current.favicon_source === 'logo'
+                  ? 'The logo is used in the browser tab too. A square image looks best.'
+                  : current.favicon_source === 'custom'
+                    ? 'A square PNG, JPEG or WebP, up to 60 KB (64 by 64 pixels or more).'
+                    : 'The icon that ships with Kymo.'}
+              </span>
+              {iconError && <span role="alert" className="text-sm text-danger">{iconError}</span>}
             </Field>
             <Field label="Tagline on the home page">
               <Input value={current.tagline} onChange={(e) => set('tagline', e.target.value)} maxLength={120} />

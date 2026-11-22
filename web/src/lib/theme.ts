@@ -14,6 +14,8 @@ export const DEFAULT_APPEARANCE: Appearance = {
   tint: 'neutral',
   avatars: true,
   logo: null,
+  favicon_source: 'default',
+  favicon: null,
   lines: 'square',
 }
 
@@ -120,6 +122,40 @@ export function applyAppearance(a: Appearance) {
   }
   el.textContent = themeCss(a)
   document.documentElement.dataset.scheme = resolveScheme(a.scheme)
+  applyIcon(iconUri(a))
+}
+
+/** The image the browser tab should show, or null for the icon that ships with Kymo. */
+export function iconUri(a: Pick<Appearance, 'favicon_source' | 'logo' | 'favicon'>): string | null {
+  if (a.favicon_source === 'logo') return a.logo
+  if (a.favicon_source === 'custom') return a.favicon
+  return null
+}
+
+const BUILT_IN_ICONS: Array<[string, Record<string, string>]> = [
+  ['icon', { type: 'image/png', sizes: '32x32', href: '/favicon-32.png' }],
+  ['icon', { type: 'image/png', sizes: '192x192', href: '/favicon-192.png' }],
+  ['apple-touch-icon', { href: '/apple-touch-icon.png' }],
+]
+
+/** Swaps the tab icon live (the server already puts the saved one in the first paint). */
+function applyIcon(uri: string | null) {
+  const head = document.head
+  if (head.dataset.icon === (uri ?? '')) return
+  head.dataset.icon = uri ?? ''
+  document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((l) => l.remove())
+  const links: Array<[string, Record<string, string>]> = uri
+    ? [
+        ['icon', { href: uri }],
+        ['apple-touch-icon', { href: uri }],
+      ]
+    : BUILT_IN_ICONS
+  for (const [rel, attrs] of links) {
+    const link = document.createElement('link')
+    link.rel = rel
+    for (const [k, v] of Object.entries(attrs)) link.setAttribute(k, v)
+    head.appendChild(link)
+  }
 }
 
 function luminance(hex: string): number {

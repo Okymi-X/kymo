@@ -13,6 +13,19 @@ const LOGO_PREFIXES: [&str; 3] = [
     "data:image/jpeg;base64,",
     "data:image/webp;base64,",
 ];
+/// Where the browser tab icon comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FaviconChoice {
+    /// The icon that ships with Kymo.
+    #[default]
+    Default,
+    /// The logo above, used as the tab icon too.
+    Logo,
+    /// The separate image in `favicon`.
+    Custom,
+}
+
 const DEFAULT_TAGLINE: &str = "Knockout brackets for CTF events, updated as results come in.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +91,12 @@ pub struct Appearance {
     /// Header logo as a small raster data URI. SVG is refused so no script can ride along.
     #[serde(default)]
     pub logo: Option<String>,
+    /// Which image the browser tab shows.
+    #[serde(default)]
+    pub favicon_source: FaviconChoice,
+    /// A separate tab icon, a small raster data URI like the logo. Used when `favicon_source` is `custom`.
+    #[serde(default)]
+    pub favicon: Option<String>,
     /// How bracket connections are drawn. Applied by the web app, no CSS involved.
     #[serde(default = "default_lines")]
     pub lines: LineStyle,
@@ -117,9 +136,22 @@ impl Default for Appearance {
             tint: Tint::Neutral,
             avatars: true,
             logo: None,
+            favicon_source: FaviconChoice::Default,
+            favicon: None,
             lines: LineStyle::Square,
         }
     }
+}
+
+/// A small PNG, JPEG or WebP as a base64 data URI. SVG is refused so no script can ride along.
+fn is_raster_data_uri(value: &str) -> bool {
+    let body = LOGO_PREFIXES.iter().find_map(|p| value.strip_prefix(p));
+    value.len() <= MAX_LOGO
+        && body.is_some_and(|b| {
+            !b.is_empty()
+                && b.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
+        })
 }
 
 fn is_hex_color(value: &str) -> bool {
@@ -156,21 +188,38 @@ impl Appearance {
                 "radius must be at most {MAX_RADIUS}"
             )));
         }
-        if let Some(logo) = self.logo.as_deref() {
-            let body = LOGO_PREFIXES.iter().find_map(|p| logo.strip_prefix(p));
-            let valid = logo.len() <= MAX_LOGO
-                && body.is_some_and(|b| {
-                    !b.is_empty()
-                        && b.bytes()
-                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
-                });
-            if !valid {
-                return Err(ApiError::BadRequest(
-                    "logo must be a PNG, JPEG or WebP image under 60 KB".into(),
-                ));
+        for (name, image) in [("logo", &self.logo), ("favicon", &self.favicon)] {
+            if let Some(image) = image.as_deref()
+                && !is_raster_data_uri(image)
+            {
+                return Err(ApiError::BadRequest(format!(
+                    "{name} must be a PNG, JPEG or WebP image under 60 KB"
+                )));
             }
         }
+        match self.favicon_source {
+            FaviconChoice::Logo if self.logo.is_none() => {
+                return Err(ApiError::BadRequest(
+                    "upload a logo first, or pick another tab icon".into(),
+                ));
+            }
+            FaviconChoice::Custom if self.favicon.is_none() => {
+                return Err(ApiError::BadRequest(
+                    "upload a tab icon first, or pick another source".into(),
+                ));
+            }
+            _ => {}
+        }
         Ok(())
+    }
+
+    /// The image the browser tab shows, when the organizer chose one (otherwise the built-in icon).
+    pub fn tab_icon(&self) -> Option<&str> {
+        match self.favicon_source {
+            FaviconChoice::Default => None,
+            FaviconChoice::Logo => self.logo.as_deref(),
+            FaviconChoice::Custom => self.favicon.as_deref(),
+        }
     }
 }
 

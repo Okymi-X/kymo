@@ -142,6 +142,7 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] Challenge editor: a Delete (trash) button next to Publish or Retire. Disabled with the reason for a published challenge or one with solves, a two step confirmation otherwise; the server rule (no solves) is unchanged (`web/src/pages/admin/ChallengeEditor.tsx`)
 - [x] Optional challenge author (migration 0042, `author` on the admin and player challenge, in event bundles): an input in the challenge editor and a "Created by" line in the challenge dialog; empty means nobody is credited. The machine hint ("Every port is open: scan it, nmap ...") is removed from the instance panel
 - [x] Challenge descriptions accept Markdown (headings, bold, italic, code, fenced blocks, lists, quotes, rules, http/https/mailto links). A small dependency free reader builds React elements, so no raw HTML, scripts or remote images (`web/src/lib/markdown.ts`, `components/Markdown.tsx`); a plain description looks as before
+- [x] Browser tab icon on the Appearance page: the Kymo icon, the same image as the logo, or a separate upload (PNG, JPEG or WebP up to 60 KB, like the logo). Saved in the appearance row (`favicon_source`, `favicon`, no migration); the server puts it in the first paint and replaces the built-in links, and the page swaps it live
 
 ## Todo
 - [x] Merge `origin/update` into `main` as 0.4.0, preserve challenge-level lab placement, reconcile migrations 0028 through 0034, and reinstall the platform, lab host and Verifier from the local release build

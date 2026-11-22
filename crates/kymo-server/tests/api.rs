@@ -1485,6 +1485,75 @@ async fn logo_accepts_small_raster_data_uris_only() {
 }
 
 #[tokio::test]
+async fn the_tab_icon_is_the_default_the_logo_or_its_own_image() {
+    let app = app().await;
+    let token = login(&app).await;
+    let png = "data:image/png;base64,iVBORw0KGgo=";
+    let put = |source: &str, logo: serde_json::Value, favicon: serde_json::Value| {
+        json!({
+            "site_name": "Kymo", "accent_light": "#0a6fe0", "accent_dark": "#4da3ff",
+            "radius": 8, "font": "sans", "logo": logo, "favicon_source": source, "favicon": favicon
+        })
+    };
+    for (body, expected) in [
+        (put("default", json!(null), json!(null)), StatusCode::OK),
+        (put("logo", json!(png), json!(null)), StatusCode::OK),
+        (put("custom", json!(null), json!(png)), StatusCode::OK),
+        // The source needs its image.
+        (
+            put("logo", json!(null), json!(null)),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            put("custom", json!(null), json!(null)),
+            StatusCode::BAD_REQUEST,
+        ),
+        // Raster images only, like the logo.
+        (
+            put(
+                "custom",
+                json!(null),
+                json!("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="),
+            ),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let (status, reply) = call(
+            &app,
+            "PUT",
+            "/api/v1/admin/settings",
+            Some(&token),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, expected, "{reply}");
+    }
+
+    // A saved tab icon replaces the built-in links in the first paint.
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/api/v1/admin/settings",
+        Some(&token),
+        Some(put("custom", json!(null), json!(png))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, html) = raw(&app, "GET", "/t/anything", None, "").await;
+    if status == StatusCode::NOT_FOUND {
+        return; // the web app is not built in this checkout
+    }
+    assert!(
+        html.contains(&format!("<link rel=\"icon\" href=\"{png}\">")),
+        "{html}"
+    );
+    assert!(
+        !html.contains("/favicon-32.png"),
+        "the built-in icon is replaced"
+    );
+}
+
+#[tokio::test]
 async fn api_tokens_can_expire_and_cannot_mint_tokens() {
     let app = app().await;
     let session = login(&app).await;

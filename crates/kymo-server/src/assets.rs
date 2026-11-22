@@ -98,6 +98,13 @@ async fn link_preview(state: &AppState, path: &str) -> Option<Preview> {
     })
 }
 
+/// The icon links of web/index.html, removed when the organizer chose their own tab icon.
+const BUILT_IN_ICONS: [&str; 3] = [
+    "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/favicon-32.png\" />",
+    "<link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/favicon-192.png\" />",
+    "<link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\" />",
+];
+
 fn personalize(html: &str, a: &Appearance, preview: Option<&Preview>) -> String {
     // A JSON data block is never executed, so it works under a strict script policy.
     let json = serde_json::to_string(a)
@@ -111,8 +118,20 @@ fn personalize(html: &str, a: &Appearance, preview: Option<&Preview>) -> String 
             escape_html(&a.site_name)
         )
     });
+    // A tab icon the organizer chose replaces the built-in links, so the very first paint has it.
+    let icon = a.tab_icon().map_or_else(String::new, |uri| {
+        let uri = escape_html(uri);
+        format!("<link rel=\"icon\" href=\"{uri}\"><link rel=\"apple-touch-icon\" href=\"{uri}\">")
+    });
+    let html = if icon.is_empty() {
+        html.to_owned()
+    } else {
+        BUILT_IN_ICONS
+            .iter()
+            .fold(html.to_owned(), |h, link| h.replace(link, ""))
+    };
     let head = format!(
-        "{meta}<style id=\"kymo-theme\">{}</style><script type=\"application/json\" id=\"kymo-appearance\">{json}</script></head>",
+        "{icon}{meta}<style id=\"kymo-theme\">{}</style><script type=\"application/json\" id=\"kymo-appearance\">{json}</script></head>",
         a.css()
     );
     html.replace("</head>", &head)

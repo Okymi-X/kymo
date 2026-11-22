@@ -154,6 +154,8 @@ export type Scheme = 'system' | 'light' | 'dark'
 export type Density = 'comfortable' | 'compact'
 export type LineStyle = 'square' | 'curved'
 export type Tint = 'neutral' | 'warm' | 'cool'
+/** Where the browser tab icon comes from: the built-in one, the logo, or its own image. */
+export type FaviconSource = 'default' | 'logo' | 'custom'
 
 export interface Appearance {
   site_name: string
@@ -167,6 +169,8 @@ export interface Appearance {
   tint: Tint
   avatars: boolean
   logo: string | null
+  favicon_source: FaviconSource
+  favicon: string | null
   lines: LineStyle
 }
 
