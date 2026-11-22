@@ -292,3 +292,7 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [ ] No admin action yet resets or grants a specific participant extra starts on a challenge they have exhausted; raising the event or challenge limit helps everyone, not just them
 - [ ] A tournament challenge needs a scheduled match assigned to it before any player can start its instance (`duel::player_gate`, pre-existing, unrelated to this change) — not exercised end-to-end here, only the settings endpoint itself
 
+
+## VPN panel collapsible (2026-11-22)
+
+- [x] `VpnPanel` (player event page) shows only the shield icon, "Your private network" and a chevron; the steps, profile download and status open/close on click (`aria-expanded`, collapsed by default). Content stays mounted (`hidden`), so a download in progress and its messages survive a collapse. Not type-checked or run here (web deps live in the dev container): run `tsc -b` there.
