@@ -44,6 +44,9 @@ pub struct EventRow {
     pub network_mode: String,
     /// The lab host that runs this event's instances; none means this machine's own runtime.
     pub lab_host_id: Option<i64>,
+    /// Starts plus restarts a participant gets on a challenge here, until its own override
+    /// applies. The same default for a Jeopardy event or a tournament.
+    pub max_starts: i64,
     pub created_at: i64,
 }
 
@@ -128,6 +131,7 @@ pub struct EventOut {
     pub started_early: bool,
     pub network_mode: String,
     pub lab_host_id: Option<i64>,
+    pub max_starts: i64,
     pub created_at: i64,
 }
 
@@ -170,6 +174,7 @@ impl EventOut {
             roster_locked: row.roster_locked,
             network_mode: row.network_mode,
             lab_host_id: row.lab_host_id,
+            max_starts: row.max_starts,
             created_at: row.created_at,
         })
     }
@@ -553,6 +558,20 @@ pub async fn set_network_mode(pool: &SqlitePool, id: i64, mode: &str) -> Result<
     }
     sqlx::query("UPDATE event SET network_mode = ? WHERE id = ?")
         .bind(mode)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// The default start budget (starts plus restarts) for this event's challenges; a challenge's
+/// own `max_starts` overrides it. The same setting for a Jeopardy event or a tournament.
+pub async fn set_max_starts(pool: &SqlitePool, id: i64, value: i64) -> Result<(), ApiError> {
+    if !(1..=1000).contains(&value) {
+        return Err(ApiError::BadRequest("max_starts is 1 to 1000".into()));
+    }
+    sqlx::query("UPDATE event SET max_starts = ? WHERE id = ?")
+        .bind(value)
         .bind(id)
         .execute(pool)
         .await?;

@@ -40,6 +40,8 @@ export interface Draft {
   suffix: string
   caseSensitive: boolean
   maxAttempts: string
+  /** Starts plus restarts a player gets on this challenge's instance; empty follows the event's default. */
+  maxStarts: string
   release: string
   retire: string
   position: string
@@ -83,6 +85,7 @@ export const blank = (category: number): Draft => ({
   suffix: '',
   caseSensitive: true,
   maxAttempts: '',
+  maxStarts: '',
   release: '',
   retire: '',
   position: '0',
@@ -126,6 +129,7 @@ export function fromChallenge(c: AdminChallenge): Draft {
     suffix: c.flag_suffix,
     caseSensitive: c.case_sensitive,
     maxAttempts: c.max_attempts === null ? '' : String(c.max_attempts),
+    maxStarts: c.max_starts === null ? '' : String(c.max_starts),
     release: toLocalInput(c.release_at),
     retire: toLocalInput(c.retire_at),
     position: String(c.position),
@@ -190,6 +194,7 @@ export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
     flag_suffix: d.suffix,
     case_sensitive: d.caseSensitive,
     max_attempts: d.maxAttempts.trim() === '' ? null : int(d.maxAttempts),
+    max_starts: d.maxStarts.trim() === '' ? null : int(d.maxStarts),
     release_at: fromLocalInput(d.release),
     retire_at: fromLocalInput(d.retire),
     position: int(d.position) || 0,
@@ -268,6 +273,7 @@ export function validate(d: Draft, fixedPoints = false): Problems {
     if (!inRange(d.memory, 1, 2048)) p.memory = '1 to 2048.'
     if (!inRange(d.pids, 1, 512)) p.pids = '1 to 512.'
     if (!inRange(d.ttl, 1, 14400)) p.ttl = '1 to 14400 (4 hours).'
+    if (d.maxStarts.trim() !== '' && !inRange(d.maxStarts, 1, 1000)) p.maxStarts = 'A whole number from 1, or empty to use the event default.'
   }
   return p
 }

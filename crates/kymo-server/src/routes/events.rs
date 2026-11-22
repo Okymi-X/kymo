@@ -324,6 +324,34 @@ pub async fn set_registration_closed(
     Ok(Json(out(&state, row)?))
 }
 
+#[derive(Deserialize)]
+pub struct MaxStartsBody {
+    max_starts: i64,
+}
+
+/// The default start budget (starts plus restarts) for this event's challenges; a challenge's
+/// own `max_starts` overrides it. Works the same for a Jeopardy event or a tournament.
+pub async fn set_max_starts(
+    who: Require<needs::ManageEvents>,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<MaxStartsBody>,
+) -> Result<Json<EventOut>, ApiError> {
+    event_store::set_max_starts(&state.pool, id, body.max_starts).await?;
+    crate::monitor_store::audit(
+        &state.pool,
+        state.now(),
+        Some(&who.0),
+        "event_max_starts",
+        "event",
+        id,
+        &body.max_starts.to_string(),
+    )
+    .await?;
+    let row = event_store::by_id(&state.pool, id).await?;
+    Ok(Json(out(&state, row)?))
+}
+
 pub async fn remove(
     _: Require<needs::ManageEvents>,
     State(state): State<AppState>,

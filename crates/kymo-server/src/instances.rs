@@ -5,20 +5,29 @@
 
 use kymo_core::EventState;
 use kymo_instances::{
-    Action, Denied, InstanceSpec, InstanceState, Placement, RuntimeStatus, StartExtras,
+    Action, Denied, InstanceSpec, InstanceState, Placement, Policy, RuntimeStatus, StartExtras,
     StartRequest, Usage, authorize, effective_state, expires_at,
 };
 use serde_json::{Value, json};
 
 use crate::challenge_store::{self, ChallengeRow};
 use crate::error::ApiError;
-use crate::event_store;
+use crate::event_store::{self, EventRow};
 use crate::instance_store::{self as store, InstanceRow, NewRun};
 use crate::labs;
 use crate::run_flags;
 use crate::state::{AppState, InstanceSetup};
 use crate::submit::{Play, open_for_play};
 use crate::vpn;
+
+/// This challenge's start budget: its own override if an organizer set one, else the event's
+/// own default. The same either way for a Jeopardy event or a tournament. Restart cooldown and
+/// concurrency stay the same for every challenge.
+fn max_starts(challenge: &ChallengeRow, event: &EventRow) -> u32 {
+    challenge
+        .max_starts_override()
+        .unwrap_or_else(|| u32::try_from(event.max_starts).unwrap_or(5))
+}
 
 fn setup(state: &AppState) -> Result<&InstanceSetup, ApiError> {
     state
@@ -64,7 +73,13 @@ fn services(extra: Option<&str>) -> Value {
 }
 
 /// What a player sees. The container handle and environment are never included.
-pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64) -> Value {
+pub fn view(
+    setup: &InstanceSetup,
+    row: &InstanceRow,
+    starts_used: u32,
+    starts_max: u32,
+    now: i64,
+) -> Value {
     let state = row
         .record()
         .map(|r| effective_state(&r, now))
@@ -94,7 +109,7 @@ pub fn view(setup: &InstanceSetup, row: &InstanceRow, starts_used: u32, now: i64
         "expires_at": row.expires_at,
         "remaining_secs": if state.is_live() { (row.expires_at - now).max(0) } else { 0 },
         "starts_used": starts_used,
-        "starts_max": setup.policy.max_starts,
+        "starts_max": starts_max,
     })
 }
 
@@ -105,17 +120,18 @@ pub async fn current(
 ) -> Result<Value, ApiError> {
     let setup = setup(state)?;
     spec_of(challenge, setup)?;
+    let max_starts = max_starts(challenge, &play.event);
     match store::latest(&state.pool, challenge.id, play.scorer).await? {
         Some(row) => {
             // Settle the run first, so the start budget below already reflects a failure.
             let row = refresh(state, setup, row).await?;
             let used = store::starts_used(&state.pool, challenge.id, play.scorer).await?;
-            Ok(view(setup, &row, used, state.now()))
+            Ok(view(setup, &row, used, max_starts, state.now()))
         }
         None => Ok(json!({
             "state": "none",
             "starts_used": store::starts_used(&state.pool, challenge.id, play.scorer).await?,
-            "starts_max": setup.policy.max_starts,
+            "starts_max": max_starts,
         })),
     }
 }
@@ -265,6 +281,11 @@ async fn begin(
     let now = state.now();
     open_for_play(play, challenge, now)?;
     let scorer = play.scorer;
+    let max_starts = max_starts(challenge, &play.event);
+    let policy = Policy {
+        max_starts,
+        ..setup.policy
+    };
 
     // Where this run will live: the challenge's own lab host, else the event's, else this machine's runtime.
     let lab_host_id = challenge.host(play.event.lab_host_id);
@@ -331,7 +352,7 @@ async fn begin(
             )
             .await?,
         };
-        authorize(&setup.policy, record.as_ref(), usage, action, now).map_err(denied)?;
+        authorize(&policy, record.as_ref(), usage, action, now).map_err(denied)?;
         let (lab_ip, verifier_ip) = match &vpn_lab {
             // A Responder takes two addresses: the machine and its Verifier.
             Some(lab) if challenge.responder => {
@@ -429,7 +450,7 @@ async fn begin(
     }
     let row = store::by_id(&state.pool, run_id).await?;
     let used = store::starts_used(&state.pool, challenge.id, scorer).await?;
-    Ok(view(setup, &row, used, state.now()))
+    Ok(view(setup, &row, used, max_starts, state.now()))
 }
 
 pub async fn stop(
@@ -440,6 +461,9 @@ pub async fn stop(
     let setup = setup(state)?;
     spec_of(challenge, setup)?;
     let now = state.now();
+    // Stopping spends no start budget, so the policy's own max_starts is never checked here;
+    // the resolved value is only needed to report starts_max back to the player below.
+    let max_starts = max_starts(challenge, &play.event);
     let _guard = state.write_lock.lock().await;
     let latest = store::latest(&state.pool, challenge.id, play.scorer).await?;
     let record = latest.as_ref().map(InstanceRow::record).transpose()?;
@@ -455,7 +479,7 @@ pub async fn stop(
     end_run(state, setup, &row, InstanceState::Stopped).await?;
     let ended = store::by_id(&state.pool, row.id).await?;
     let used = store::starts_used(&state.pool, challenge.id, play.scorer).await?;
-    Ok(view(setup, &ended, used, now))
+    Ok(view(setup, &ended, used, max_starts, now))
 }
 
 /// Why a live run must end now, if it must: its time is up, the challenge closed, or the

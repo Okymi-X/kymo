@@ -139,6 +139,9 @@ export function DeliverySection(p: Props) {
             </div>
           )}
           <p className="text-xs text-muted">The lab host runs the smaller of these numbers and what the manifest allows.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Num label="Start limit" value={d.maxStarts} onChange={(v) => p.set('maxStarts', v)} min={1} error={p.shown.maxStarts} hint="Starts plus restarts a player gets here. Empty uses the event's default." />
+          </div>
 
           {!p.tournament && (
             <div className="flex flex-col gap-1">

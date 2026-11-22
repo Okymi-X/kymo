@@ -260,3 +260,35 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] `deploy/lab/lab.env.example` and `deploy/kymo.env.example` list every variable (judge, name prefix, VPN directory and bind options, backups, VPN ranges); the lab host guide table matches
 - [x] Release archives include the guides; messages that said "see the README" point at the right guide
 
+## Sample manifests index (2026-11-22)
+- [x] `deploy/lab/manifests/README.md`: a table of every sample manifest, what each is for and its runtime, and a note that a Windows virtual machine example is not available yet
+- [ ] A Windows `.ova` sample manifest (RDP or WinRM delivery, a Windows-shaped `inject` block)
+
+## Configurable start budget (2026-11-22)
+- [x] `max_starts` (starts plus restarts a participant gets on a challenge) is now an event-wide
+  default (`event.max_starts`, default 5) with a nullable per-challenge override
+  (`challenge.max_starts`); previously it was the single hardcoded `Policy::default()` value (5)
+  for every challenge on every event, with no way to change it short of editing code and
+  redeploying
+- [x] First built on `event_jeopardy.max_starts` (migration `0043_max_starts.sql`), matching the
+  precedent of `rate_max_attempts`. Moved to `event.max_starts` once it became clear that gated it
+  to Jeopardy events: `/admin/events/{id}/jeopardy` (`get_settings`/`put_settings`) refuses a
+  tournament event server-side (409 "this is not a Jeopardy event"), so an `event_jeopardy` row,
+  and the default it would carry, could never exist for one. Since 0043 was already applied to
+  the dev database with that content, it was left as it was committed; `0044_max_starts_on_event.sql`
+  adds `event.max_starts`, backfills it from any existing `event_jeopardy.max_starts`, and drops
+  the column from `event_jeopardy`. A new `PUT /admin/events/{id}/max-starts` (`events.rs`,
+  mirroring `set_network_mode`) sets it for either event kind
+- [x] `instances::max_starts()` resolves the challenge's own override, else `play.event.max_starts`
+  (no DB round trip: `Play` already carries the `EventRow`); `begin()` builds a per-call `Policy`
+  with that value, `view()`/`current()`/`stop()` report it as `starts_max`. Stopping an instance
+  still spends no budget either way
+- [x] Admin UI: "Instance start limit" in the event's Infrastructure tab (shown for every event,
+  not only Jeopardy); "Start limit" on a challenge's Delivery section (empty follows the event
+  default)
+- [x] Carried through the event bundle export/import format (`ChallengePart.max_starts`,
+  `#[serde(default)]` so older bundles without it still import)
+- [x] `cargo test -p kymo-server`, `cargo clippy -p kymo-server -p kymo-instances --all-targets -- -D warnings`, `tsc -b` and `npx vitest run` all pass. `the_start_budget_default_is_not_gated_to_jeopardy_events` proves a tournament event can set it while `/jeopardy` still refuses it; `the_start_budget_follows_the_events_default_unless_the_challenge_overrides_it` covers the override resolution; `the_start_budget_is_enforced_and_failed_starts_are_free` now sets its budget through a per-challenge override instead of the old fixture-level `Policy.max_starts`, which no longer drives this
+- [ ] No admin action yet resets or grants a specific participant extra starts on a challenge they have exhausted; raising the event or challenge limit helps everyone, not just them
+- [ ] A tournament challenge needs a scheduled match assigned to it before any player can start its instance (`duel::player_gate`, pre-existing, unrelated to this change) — not exercised end-to-end here, only the settings endpoint itself
+

@@ -112,6 +112,9 @@ pub struct ChallengePart {
     pub flag_suffix: String,
     pub case_sensitive: bool,
     pub max_attempts: Option<i64>,
+    /// Starts plus restarts a player gets on this challenge's instance; none follows the event's default.
+    #[serde(default)]
+    pub max_starts: Option<i64>,
     pub state: String,
     pub release_at: Option<i64>,
     pub retire_at: Option<i64>,
@@ -193,6 +196,7 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
             flag_suffix: fields.flag_suffix,
             case_sensitive: fields.case_sensitive,
             max_attempts: fields.max_attempts,
+            max_starts: fields.max_starts,
             state: row.state.clone(),
             release_at: fields.release_at,
             retire_at: fields.retire_at,
@@ -332,6 +336,7 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             flag_suffix: part.flag_suffix.clone(),
             case_sensitive: part.case_sensitive,
             max_attempts: part.max_attempts,
+            max_starts: part.max_starts,
             release_at: part.release_at,
             retire_at: part.retire_at,
             position: part.position,

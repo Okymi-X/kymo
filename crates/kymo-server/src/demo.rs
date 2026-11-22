@@ -603,6 +603,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
                 flag_suffix: "}".into(),
                 case_sensitive: true,
                 max_attempts: None,
+                max_starts: None,
                 release_at: None,
                 retire_at: None,
                 position: position as i64,

@@ -52,8 +52,7 @@ struct Lab {
 fn policy() -> Policy {
     Policy {
         restart_cooldown_secs: 0,
-        max_starts: 20,
-        max_concurrent: 1,
+        ..Policy::default()
     }
 }
 

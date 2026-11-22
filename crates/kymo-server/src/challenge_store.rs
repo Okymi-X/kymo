@@ -50,6 +50,8 @@ pub struct ChallengeRow {
     pub flag_suffix: String,
     pub case_sensitive: bool,
     pub max_attempts: Option<i64>,
+    /// Starts plus restarts a player gets on this challenge's instance; none follows the event's default.
+    pub max_starts: Option<i64>,
     pub state: String,
     pub release_at: Option<i64>,
     pub retire_at: Option<i64>,
@@ -100,6 +102,11 @@ impl ChallengeRow {
             max: self.max_attempts.and_then(|m| u32::try_from(m).ok()),
         }
     }
+
+    /// This challenge's own start budget override, if an organizer set one.
+    pub fn max_starts_override(&self) -> Option<u32> {
+        self.max_starts.and_then(|m| u32::try_from(m).ok())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -136,6 +143,7 @@ pub struct ChallengeFields {
     pub flag_suffix: String,
     pub case_sensitive: bool,
     pub max_attempts: Option<i64>,
+    pub max_starts: Option<i64>,
     pub release_at: Option<i64>,
     pub retire_at: Option<i64>,
     pub position: i64,
@@ -157,6 +165,7 @@ impl From<&ChallengeRow> for ChallengeFields {
             flag_suffix: row.flag_suffix.clone(),
             case_sensitive: row.case_sensitive,
             max_attempts: row.max_attempts,
+            max_starts: row.max_starts,
             release_at: row.release_at,
             retire_at: row.retire_at,
             position: row.position,
@@ -241,6 +250,9 @@ impl ChallengeFields {
             .is_some_and(|m| !(1..=10_000).contains(&m))
         {
             return Err(bad("max_attempts is 1 to 10000, or null for unlimited"));
+        }
+        if self.max_starts.is_some_and(|m| !(1..=1000).contains(&m)) {
+            return Err(bad("max_starts is 1 to 1000, or null to use the event's default"));
         }
         check_schedule(self.release_at, self.retire_at)?;
         if self
@@ -412,7 +424,7 @@ pub async fn challenge_insert(
 ) -> Result<i64, ApiError> {
     check_category(pool, event_id, fields.category_id).await?;
     let done = sqlx::query(
-        "INSERT INTO challenge (event_id, category_id, title, description, author, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO challenge (event_id, category_id, title, description, author, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, max_starts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(event_id)
     .bind(fields.category_id)
@@ -425,6 +437,7 @@ pub async fn challenge_insert(
     .bind(&fields.flag_suffix)
     .bind(fields.case_sensitive)
     .bind(fields.max_attempts)
+    .bind(fields.max_starts)
     .bind(fields.release_at)
     .bind(fields.retire_at)
     .bind(fields.position)
@@ -445,7 +458,7 @@ pub async fn challenge_update(
 ) -> Result<(), ApiError> {
     check_category(pool, row.event_id, fields.category_id).await?;
     sqlx::query(
-        "UPDATE challenge SET category_id = ?, title = ?, description = ?, author = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ? WHERE id = ?",
+        "UPDATE challenge SET category_id = ?, title = ?, description = ?, author = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, max_starts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ? WHERE id = ?",
     )
     .bind(fields.category_id)
     .bind(&fields.title)
@@ -457,6 +470,7 @@ pub async fn challenge_update(
     .bind(&fields.flag_suffix)
     .bind(fields.case_sensitive)
     .bind(fields.max_attempts)
+    .bind(fields.max_starts)
     .bind(fields.release_at)
     .bind(fields.retire_at)
     .bind(fields.position)

@@ -87,7 +87,7 @@ describe('fromChallenge', () => {
   it('reads the flag settings back into the form', () => {
     const c = {
       id: 1, event_id: 1, category_id: 2, lab_host_id: null, title: 'Box', description: '', author: '', scoring: { kind: 'static', points: 100 },
-      flag: { kind: 'static', value: 'x' }, flag_prefix: 'KYMO{', flag_suffix: '}', case_sensitive: true, max_attempts: null,
+      flag: { kind: 'static', value: 'x' }, flag_prefix: 'KYMO{', flag_suffix: '}', case_sensitive: true, max_attempts: null, max_starts: null,
       state: 'draft', release_at: null, retire_at: null, position: 0, requires_instance: true, instance_config: null, kind: 'flag',
       created_at: 0, flag_mode: 'dynamic', multi_flag: true, responder: false, solves: 0, hints: [], attachments: [],
       flags: [
@@ -101,7 +101,7 @@ describe('fromChallenge', () => {
     expect(d.rows[1]).toEqual({ name: 'root', label: 'Root', value: 'KYMO{r_', randomLen: '12', closing: '}', weight: '3' })
   })
   it('gives an older challenge one blank row and the static mode', () => {
-    const d = fromChallenge({ ...({ kind: 'flag', scoring: { kind: 'static', points: 1 }, flag: { kind: 'static', value: 'a' }, flag_prefix: '', flag_suffix: '}', case_sensitive: true, max_attempts: null, release_at: null, retire_at: null, position: 0, requires_instance: false, instance_config: null, category_id: 1, title: 't', description: '' } as unknown as AdminChallenge) })
+    const d = fromChallenge({ ...({ kind: 'flag', scoring: { kind: 'static', points: 1 }, flag: { kind: 'static', value: 'a' }, flag_prefix: '', flag_suffix: '}', case_sensitive: true, max_attempts: null, max_starts: null, release_at: null, retire_at: null, position: 0, requires_instance: false, instance_config: null, category_id: 1, title: 't', description: '' } as unknown as AdminChallenge) })
     expect(d.flagMode).toBe('static')
     expect(d.flagCount).toBe('1')
     expect(d.rows).toHaveLength(1)
@@ -132,7 +132,7 @@ describe('a coding challenge', () => {
   })
   it('is read back from a saved challenge', () => {
     const saved = { code: { languages: code.code.languages, cases: code.code.cases, time_limit_ms: 3000, memory_mb: 64, compare: 'tokens' as const } }
-    const fixture = { scoring: { kind: 'static', points: 1 }, flag: { kind: 'static', value: 'code' }, flag_prefix: '', flag_suffix: '', case_sensitive: true, max_attempts: null, release_at: null, retire_at: null, position: 0, requires_instance: false, instance_config: null, category_id: 1, title: 't', description: '' }
+    const fixture = { scoring: { kind: 'static', points: 1 }, flag: { kind: 'static', value: 'code' }, flag_prefix: '', flag_suffix: '', case_sensitive: true, max_attempts: null, max_starts: null, release_at: null, retire_at: null, position: 0, requires_instance: false, instance_config: null, category_id: 1, title: 't', description: '' }
     const d = fromChallenge({ ...fixture, kind: 'code', ...saved } as unknown as AdminChallenge)
     expect(d.kind).toBe('code')
     expect(d.code.time).toBe('3000')

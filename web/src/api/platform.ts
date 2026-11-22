@@ -208,6 +208,8 @@ export const platform = {
   revokeVpnClient: (userId: number) => request<void>('DELETE', `/admin/vpn/clients/${userId}`),
   setNetworkMode: (event: number, mode: 'published' | 'vpn') =>
     request<{ event_id: number; network_mode: string }>('PUT', `/admin/events/${event}/network`, { mode }),
+  setMaxStarts: (event: number, maxStarts: number) =>
+    request<EventInfo>('PUT', `/admin/events/${event}/max-starts`, { max_starts: maxStarts }),
 
   // teams
   myTeam: () => request<Team>('GET', '/teams/mine'),

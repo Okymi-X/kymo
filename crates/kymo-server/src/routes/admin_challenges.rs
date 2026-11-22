@@ -140,6 +140,7 @@ pub struct AdminChallenge {
     flag_suffix: String,
     case_sensitive: bool,
     max_attempts: Option<i64>,
+    max_starts: Option<i64>,
     state: String,
     release_at: Option<i64>,
     retire_at: Option<i64>,
@@ -186,6 +187,7 @@ fn admin_out(
         flag_suffix: row.flag_suffix,
         case_sensitive: row.case_sensitive,
         max_attempts: row.max_attempts,
+        max_starts: row.max_starts,
         state: row.state,
         release_at: row.release_at,
         retire_at: row.retire_at,
@@ -277,6 +279,8 @@ pub struct ChallengeBody {
     flag_suffix: String,
     case_sensitive: Option<bool>,
     max_attempts: Option<i64>,
+    /// Starts plus restarts a player gets on this challenge's instance; none follows the event's default.
+    max_starts: Option<i64>,
     release_at: Option<i64>,
     retire_at: Option<i64>,
     #[serde(default)]
@@ -370,6 +374,7 @@ pub async fn create_challenge(
         flag_suffix: body.flag_suffix,
         case_sensitive: body.case_sensitive.unwrap_or(true),
         max_attempts: body.max_attempts,
+        max_starts: body.max_starts,
         release_at: body.release_at,
         retire_at: body.retire_at,
         position: body.position,
@@ -411,6 +416,8 @@ pub struct ChallengePatch {
     #[serde(default, deserialize_with = "set_or_clear")]
     max_attempts: Option<Option<i64>>,
     #[serde(default, deserialize_with = "set_or_clear")]
+    max_starts: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "set_or_clear")]
     release_at: Option<Option<i64>>,
     #[serde(default, deserialize_with = "set_or_clear")]
     retire_at: Option<Option<i64>>,
@@ -449,6 +456,7 @@ pub async fn update_challenge(
     f.flag_suffix = body.flag_suffix.unwrap_or(f.flag_suffix);
     f.case_sensitive = body.case_sensitive.unwrap_or(f.case_sensitive);
     f.max_attempts = body.max_attempts.unwrap_or(f.max_attempts);
+    f.max_starts = body.max_starts.unwrap_or(f.max_starts);
     f.release_at = body.release_at.unwrap_or(f.release_at);
     f.retire_at = body.retire_at.unwrap_or(f.retire_at);
     f.position = body.position.unwrap_or(f.position);

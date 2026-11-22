@@ -213,6 +213,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/vpn/sync", post(vpn::admin_sync))
         .route("/admin/vpn/clients/{user_id}", delete(vpn::admin_revoke))
         .route("/admin/events/{id}/network", put(vpn::set_network))
+        .route("/admin/events/{id}/max-starts", put(events::set_max_starts))
         .route("/health", get(ops::live))
         .route("/admin/ops/health", get(ops::health))
         .route("/admin/ops/cleanup", post(ops::cleanup))

@@ -108,6 +108,8 @@ export interface EventInfo {
   network_mode: 'published' | 'vpn'
   /** The lab host running this event's instances; null is this server's own runtime. */
   lab_host_id: number | null
+  /** Starts plus restarts a participant gets on a challenge here, until its own override applies. */
+  max_starts: number
   created_at: number
   /** Only on the single event response. */
   registered?: boolean
@@ -427,6 +429,8 @@ export interface AdminChallenge {
   flag_suffix: string
   case_sensitive: boolean
   max_attempts: number | null
+  /** Starts plus restarts a player gets on this challenge's instance; null follows the event's default. */
+  max_starts: number | null
   state: 'draft' | 'published' | 'retired'
   release_at: number | null
   retire_at: number | null

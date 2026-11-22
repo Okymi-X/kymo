@@ -338,8 +338,46 @@ function Infrastructure({ event }: { event: EventInfo }) {
 
       <NetworkMode event={event} />
 
+      <MaxStarts event={event} />
+
       {event.kind === 'jeopardy' && <JeopardySettingsForm eventId={event.id} />}
     </div>
+  )
+}
+
+/** The default start budget for this event's challenges; works the same for a tournament or a Jeopardy event. */
+function MaxStarts({ event }: { event: EventInfo }) {
+  const client = useQueryClient()
+  const [local, setLocal] = useState('')
+  const set = useMutation({
+    mutationFn: (value: number) => platform.setMaxStarts(event.id, value),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['admin-event', event.id] })
+      setLocal('')
+    },
+  })
+  return (
+    <Panel className="flex flex-col gap-3">
+      <h2 className="text-lg font-semibold tracking-tight">Instance start limit</h2>
+      <Field label="Starts plus restarts allowed, by default" hint="A challenge can set its own value instead, under its Delivery settings. Applies the same way for a tournament or a Jeopardy event.">
+        <span className="flex gap-2">
+          <Input
+            type="number"
+            min={1}
+            max={1000}
+            value={local === '' ? event.max_starts : local}
+            onChange={(e) => setLocal(e.target.value)}
+            className="max-w-xs font-mono"
+          />
+          {local !== '' && Number(local) !== event.max_starts && (
+            <Button type="button" variant="primary" disabled={set.isPending} onClick={() => set.mutate(Math.trunc(Number(local)))}>
+              Save
+            </Button>
+          )}
+        </span>
+      </Field>
+      <ErrorText error={set.error} />
+    </Panel>
   )
 }
 

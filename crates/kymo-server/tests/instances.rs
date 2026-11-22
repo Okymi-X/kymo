@@ -395,11 +395,12 @@ async fn one_instance_at_a_time_and_restart_waits_for_the_cooldown() {
 async fn the_start_budget_is_enforced_and_failed_starts_are_free() {
     let policy = Policy {
         restart_cooldown_secs: 0,
-        max_starts: 2,
+        max_starts: 5,
         max_concurrent: 1,
     };
     let c = Ctx::new(policy).await;
-    let id = c.challenge(json!({})).await;
+    // This challenge's own override (2) applies instead of the event's default budget.
+    let id = c.challenge(json!({ "max_starts": 2 })).await;
     let alice = c.live_player("alice").await;
     c.set_state("live").await;
 
@@ -416,6 +417,89 @@ async fn the_start_budget_is_enforced_and_failed_starts_are_free() {
     let (status, body) = c.act(&alice, "POST", id, "/restart").await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     assert!(body["error"].as_str().unwrap().contains("limit of 2"));
+}
+
+#[tokio::test]
+async fn the_start_budget_follows_the_events_default_unless_the_challenge_overrides_it() {
+    let c = Ctx::new(roomy()).await;
+    let plain = c.challenge(json!({ "title": "Plain" })).await;
+    let overridden = c.challenge(json!({ "title": "Harder", "max_starts": 2 })).await;
+    let alice = c.live_player("alice").await;
+    c.set_state("live").await;
+
+    // No event settings saved yet: the platform default of 5 applies to a challenge with no
+    // override of its own.
+    let (_, none) = c.act(&alice, "GET", plain, "").await;
+    assert_eq!(none["starts_max"], 5);
+
+    // The event lowers its own default; the plain challenge follows it.
+    let (status, body) = c
+        .admin(
+            "PUT",
+            &format!("/admin/events/{}/max-starts", c.event_id),
+            Some(json!({ "max_starts": 3 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, lowered) = c.act(&alice, "GET", plain, "").await;
+    assert_eq!(lowered["starts_max"], 3, "follows the lowered event default");
+
+    // The harder challenge keeps its own override regardless of the event's default.
+    let (_, over) = c.act(&alice, "GET", overridden, "").await;
+    assert_eq!(over["starts_max"], 2, "its own override wins");
+}
+
+#[tokio::test]
+async fn the_start_budget_default_is_not_gated_to_jeopardy_events() {
+    let fake = Arc::new(FakeRuntime::new());
+    let (w, _state) = world(Some((Arc::clone(&fake), roomy()))).await;
+    let admin = admin_token(&w.app).await;
+    let (status, event) = call(
+        &w.app,
+        "POST",
+        "/api/v1/admin/events",
+        Some(&admin),
+        Some(json!({ "name": "Open Cup", "kind": "tournament", "mode": "solo" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{event}");
+    let event_id = event["id"].as_i64().unwrap();
+
+    // The Jeopardy-only settings endpoint still refuses a tournament event: this is not that.
+    let (status, _) = call(
+        &w.app,
+        "PUT",
+        &format!("/api/v1/admin/events/{event_id}/jeopardy"),
+        Some(&admin),
+        Some(json!({ "tie_breaks": [], "rate_max_attempts": 10, "rate_window_secs": 60, "rate_lockout_secs": 60 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "a tournament is not a Jeopardy event");
+
+    // The start budget default is its own, separate setting, and it does apply: unlike
+    // `/jeopardy` above, this one is never kind-gated.
+    let (status, body) = call(
+        &w.app,
+        "PUT",
+        &format!("/api/v1/admin/events/{event_id}/max-starts"),
+        Some(&admin),
+        Some(json!({ "max_starts": 2 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["max_starts"], 2);
+    assert_eq!(body["kind"], "tournament");
+
+    // Out of range is refused the same way it would be for a Jeopardy event.
+    let (status, body) = call(
+        &w.app,
+        "PUT",
+        &format!("/api/v1/admin/events/{event_id}/max-starts"),
+        Some(&admin),
+        Some(json!({ "max_starts": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
 
 #[tokio::test]
