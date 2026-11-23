@@ -563,6 +563,9 @@ export interface SubmissionLine {
 export interface VerifyLogEntry {
   at: number
   millis: number
+  /** How many checks were green in this run, and how many ran. */
+  passed: number
+  total: number
   checks: { id: string; state: 'fixed' | 'failed' | 'broken'; detail: string }[]
 }
 
@@ -578,6 +581,17 @@ export interface AdminInstance {
   started_at: number
   expires_at: number
   stopped_at: number | null
+  /** What the Verifier recorded for this run, kept by the platform; null when it never ran. */
+  verify: VerifySummary | null
+}
+
+/** How far a Responder run got: Verify presses, the latest result, and when every check first went green. */
+export interface VerifySummary {
+  runs: number
+  last_at: number
+  passed: number
+  total: number
+  green_at: number | null
 }
 
 // ---------- monitoring and operations ----------

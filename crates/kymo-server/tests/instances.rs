@@ -9,7 +9,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use kymo_instances::{FakeRuntime, Policy, ResourceCaps};
 use kymo_server::state::InstanceSetup;
-use kymo_server::{AppState, db, instances, router};
+use kymo_server::{AppState, db, instances, router, verify_store};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -423,7 +423,9 @@ async fn the_start_budget_is_enforced_and_failed_starts_are_free() {
 async fn the_start_budget_follows_the_events_default_unless_the_challenge_overrides_it() {
     let c = Ctx::new(roomy()).await;
     let plain = c.challenge(json!({ "title": "Plain" })).await;
-    let overridden = c.challenge(json!({ "title": "Harder", "max_starts": 2 })).await;
+    let overridden = c
+        .challenge(json!({ "title": "Harder", "max_starts": 2 }))
+        .await;
     let alice = c.live_player("alice").await;
     c.set_state("live").await;
 
@@ -442,7 +444,10 @@ async fn the_start_budget_follows_the_events_default_unless_the_challenge_overri
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, lowered) = c.act(&alice, "GET", plain, "").await;
-    assert_eq!(lowered["starts_max"], 3, "follows the lowered event default");
+    assert_eq!(
+        lowered["starts_max"], 3,
+        "follows the lowered event default"
+    );
 
     // The harder challenge keeps its own override regardless of the event's default.
     let (_, over) = c.act(&alice, "GET", overridden, "").await;
@@ -474,7 +479,11 @@ async fn the_start_budget_default_is_not_gated_to_jeopardy_events() {
         Some(json!({ "tie_breaks": [], "rate_max_attempts": 10, "rate_window_secs": 60, "rate_lockout_secs": 60 })),
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT, "a tournament is not a Jeopardy event");
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "a tournament is not a Jeopardy event"
+    );
 
     // The start budget default is its own, separate setting, and it does apply: unlike
     // `/jeopardy` above, this one is never kind-gated.
@@ -719,6 +728,95 @@ async fn admins_list_and_stop_any_run_and_players_cannot() {
     assert_eq!(status, StatusCode::OK, "{stopped}");
     assert_eq!(stopped["state"], "stopped");
     assert_eq!(c.fake.running_count(), 0);
+}
+
+#[tokio::test]
+async fn verifier_runs_are_kept_by_the_platform_and_read_after_the_instance_has_ended() {
+    let c = Ctx::new(roomy()).await;
+    let id = c.challenge(json!({})).await;
+    let alice = c.live_player("alice").await;
+    c.set_state("live").await;
+    let (_, started) = c.act(&alice, "POST", id, "").await;
+    let run = started["id"].as_i64().unwrap();
+    let path = format!("/admin/instances/{run}/verify-log");
+    let list_path = format!("/admin/events/{}/instances", c.event_id);
+
+    // A run with no Verifier and nothing stored has no log, and no summary in the list.
+    let (status, _) = c.admin("GET", &path, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, list) = c.admin("GET", &list_path, None).await;
+    assert!(list["instances"][0]["verify"].is_null());
+
+    let first = json!({ "at": 100, "millis": 9000, "checks": [
+        { "id": "webhook", "state": "fixed", "detail": "" },
+        { "id": "profile", "state": "failed", "detail": "a customer made themselves admin" },
+        { "id": "secret", "state": "failed", "detail": "the leaked partner key is still accepted" },
+    ]});
+    let second = json!({ "at": 200, "millis": 8000, "checks": [
+        { "id": "webhook", "state": "fixed", "detail": "" },
+        { "id": "profile", "state": "fixed", "detail": "" },
+        { "id": "secret", "state": "fixed", "detail": "" },
+    ]});
+    let pool = &c.state.pool;
+    assert_eq!(
+        verify_store::archive(pool, run, &json!([first]))
+            .await
+            .unwrap(),
+        1
+    );
+    // Copying again, with a newer log that repeats the old run, adds only what is new.
+    assert_eq!(
+        verify_store::archive(pool, run, &json!([first, second]))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        verify_store::archive(pool, run, &json!([first, second]))
+            .await
+            .unwrap(),
+        0,
+        "copying is idempotent"
+    );
+
+    let (status, body) = c.admin("GET", &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["log"].as_array().map(Vec::len), Some(2));
+    assert_eq!(body["log"][0]["checks"][2]["state"], "failed");
+    assert_eq!(body["log"][1]["passed"], 3);
+
+    // Players never see check output.
+    let (status, _) = call(
+        &c.w.app,
+        "GET",
+        &format!("/api/v1{path}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The organizer's list says how far the run got and when every check first went green.
+    let (_, list) = c.admin("GET", &list_path, None).await;
+    let summary = &list["instances"][0]["verify"];
+    assert_eq!(summary["runs"], 2);
+    assert_eq!(
+        (summary["passed"].as_i64(), summary["total"].as_i64()),
+        (Some(3), Some(3))
+    );
+    assert_eq!(summary["green_at"], 200);
+
+    // Once the instance has ended, the log is still there.
+    let (status, _) = c
+        .admin("DELETE", &format!("/admin/instances/{run}"), None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = c.admin("GET", &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["log"].as_array().map(Vec::len), Some(2));
+    let (_, list) = c.admin("GET", &list_path, None).await;
+    assert_eq!(list["instances"][0]["state"], "stopped");
+    assert_eq!(list["instances"][0]["verify"]["runs"], 2);
 }
 
 #[tokio::test]

@@ -18,6 +18,7 @@ use crate::labs;
 use crate::run_flags;
 use crate::state::{AppState, InstanceSetup};
 use crate::submit::{Play, open_for_play};
+use crate::verify_store;
 use crate::vpn;
 
 /// This challenge's start budget: its own override if an organizer set one, else the event's
@@ -167,6 +168,48 @@ async fn probe(state: &AppState, setup: &InstanceSetup, row: &InstanceRow) -> bo
     }
 }
 
+/// Copies a Responder run's Verifier log into the platform's database, so organizers can still
+/// read it after the instance and its Verifier are gone. Only a run that has a Verifier is asked;
+/// the copy is best effort and never blocks or fails what called it, and calling it again only
+/// adds the runs not copied yet.
+async fn archive_verify_log(state: &AppState, row: &InstanceRow) {
+    let (Some(_), Some(host), Some(handle)) = (
+        row.verifier_ip.as_ref(),
+        row.lab_host_id,
+        row.handle.as_deref(),
+    ) else {
+        return;
+    };
+    let copied = async {
+        let lab = crate::lab_store::get(&state.pool, host).await?;
+        let client = state.labs().client(&lab)?;
+        let log = client
+            .verify_log(handle)
+            .await
+            .map_err(|_| ApiError::Unavailable("the Verifier does not answer".into()))?;
+        verify_store::archive(&state.pool, row.id, &log).await
+    }
+    .await;
+    if let Err(e) = copied {
+        tracing::warn!("copying the Verifier log of instance {}: {e:?}", row.id);
+    }
+}
+
+/// The Verifier runs of one instance, for an organizer. A live instance is copied first so the
+/// list is current; an ended one is read from the platform's own copy, which is why it still
+/// works after the instance expired. A run with no Verifier has no log.
+pub async fn verify_log(state: &AppState, id: i64) -> Result<Value, ApiError> {
+    let row = store::by_id(&state.pool, id).await?;
+    if row.state == "starting" || row.state == "running" {
+        archive_verify_log(state, &row).await;
+    }
+    let runs = verify_store::list(&state.pool, id).await?;
+    if runs.is_empty() && row.verifier_ip.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    Ok(Value::Array(runs))
+}
+
 /// Brings a live run's stored state in line with reality: a `starting` run becomes `running`
 /// when its service answers and fails when it never does; a run whose container exited or
 /// vanished fails. Safe to call from anywhere, any number of times.
@@ -201,6 +244,7 @@ async fn refresh(
     };
     if let Ok(RuntimeStatus::Exited | RuntimeStatus::Missing) = target.runtime.status(&handle).await
     {
+        archive_verify_log(state, &row).await;
         let _ = target.runtime.stop(&handle).await;
         store::mark_failed(&state.pool, row.id, now, "exited").await?;
         return store::by_id(&state.pool, row.id).await;
@@ -241,6 +285,8 @@ async fn end_run(
     row: &InstanceRow,
     outcome: InstanceState,
 ) -> Result<(), ApiError> {
+    // The Verifier goes with the instance: keep its log first.
+    archive_verify_log(state, row).await;
     if let Some(handle) = &row.handle {
         let target = labs::target(state, setup, row.lab_host_id).await?;
         target.runtime.stop(handle).await.map_err(|e| {
@@ -532,6 +578,9 @@ async fn reap_inner(state: &AppState) -> Result<usize, ApiError> {
         if row.state != "starting" && row.state != "running" {
             continue;
         }
+        // A lab host that dies or is removed takes its Verifier with it, so running Responder
+        // runs are copied on every pass, not only when they end.
+        archive_verify_log(state, &row).await;
         let Some(outcome) = due(state, setup, &row, now).await? else {
             continue;
         };

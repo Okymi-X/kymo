@@ -41,6 +41,7 @@ pub mod team_store;
 pub mod text;
 pub mod tokens;
 pub mod users;
+pub mod verify_store;
 pub mod vpn;
 pub mod vpn_store;
 pub mod webhooks;

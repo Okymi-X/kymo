@@ -7,7 +7,7 @@ import { timeAgo } from '../../lib/time'
 
 const stateTone = { fixed: 'text-win', failed: 'text-danger', broken: 'text-muted' } as const
 
-/** What an organizer can check about one run: the flags generated for it and what its Verifier recorded. */
+/** What an organizer can check about one run: the flags generated for it and what its Verifier recorded. The Verifier log is kept by the platform, so it is still here after the instance has ended. */
 export function InstanceDetails({ run, onClose }: { run: number; onClose: () => void }) {
   const flags = useQuery({ queryKey: ['admin-instance-flags', run], queryFn: () => platform.adminInstanceFlags(run), retry: false })
   const log = useQuery({ queryKey: ['admin-verify-log', run], queryFn: () => platform.adminVerifyLog(run), retry: false })
@@ -31,15 +31,15 @@ export function InstanceDetails({ run, onClose }: { run: number; onClose: () => 
         <section className="flex flex-col gap-2" aria-label="Verifier log">
           <h3 className="text-sm font-semibold">Verifier runs</h3>
           {log.isPending && <p className="text-sm text-muted">Loading...</p>}
-          {log.error && <p className="text-sm text-muted">This run has no Verifier, or it does not answer.</p>}
+          {log.error && <p className="text-sm text-muted">This run has no Verifier.</p>}
           {log.data && log.data.log.length === 0 && <p className="text-sm text-muted">The player has not pressed Verify yet.</p>}
           {log.data?.log
             .slice()
             .reverse()
             .map((entry, i) => (
               <div key={i} className="rounded-control border border-line p-2.5 text-sm">
-                <p className="text-xs text-muted">
-                  {timeAgo(entry.at)} · {entry.millis} ms
+                <p className="text-xs text-muted" title={new Date(entry.at * 1000).toLocaleString()}>
+                  {timeAgo(entry.at)} · {entry.passed}/{entry.total} fixed · {entry.millis} ms
                 </p>
                 <ul className="mt-1 flex flex-col gap-0.5">
                   {entry.checks.map((c) => (

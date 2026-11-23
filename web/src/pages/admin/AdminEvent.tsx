@@ -938,7 +938,7 @@ function Instances({ event }: { event: EventInfo }) {
       </div>
       {rows.length === 0 && <Empty>No instances match these filters.</Empty>}
       {rows.length > 0 && (
-      <DataTable caption="Instances" head={['Run', 'Challenge', 'Owner', 'State', 'Port', 'Started', 'Expires', '']}>
+      <DataTable caption="Instances" head={['Run', 'Challenge', 'Owner', 'State', 'Verify', 'Port', 'Started', 'Expires', '']}>
         {rows.map((r) => (
           <tr key={r.id}>
             <td className={`${TD} font-mono`}>#{r.id}</td>
@@ -948,6 +948,16 @@ function Instances({ event }: { event: EventInfo }) {
               {r.participant.team && r.username && <span className="block text-xs text-muted">started by {r.username}</span>}
             </td>
             <td className={TD}>{r.state}</td>
+            <td className={TD}>
+              {r.verify && (
+                <span title={r.verify.green_at ? `All checks green at ${new Date(r.verify.green_at * 1000).toLocaleString()}` : 'Not all checks were green yet'}>
+                  <span className={`font-medium ${r.verify.passed === r.verify.total ? 'text-win' : ''}`}>
+                    {r.verify.passed}/{r.verify.total}
+                  </span>
+                  <span className="block text-xs text-muted">{r.verify.runs} {r.verify.runs === 1 ? 'press' : 'presses'}</span>
+                </span>
+              )}
+            </td>
             <td className={`${TD} font-mono`}>{r.host_port ?? ''}</td>
             <td className={`${TD} text-muted`}>{timeAgo(r.started_at)}</td>
             <td className={`${TD} text-muted`}>{new Date(r.expires_at * 1000).toLocaleTimeString()}</td>

@@ -463,7 +463,7 @@ A small web service, written in Rust and shipped as the container's main program
 
 - There is **no login**. The network is the authentication: the address is on the player's own lab network, and the VPN gateway lets a tunnel reach only its own lab. In a team event the whole team shares the lab, so teammates share the Verifier, as they share the instance.
 - State is kept in memory for the life of the container. The flag is held in memory and released only when the **most recent** run had every check fixed.
-- Each run is appended to a log with time, per-check state and detail. The lab host serves it to admins at `GET /v1/instances/{id}/verify-log` (lab token), and the Kymo admin Instances page shows it, so organizers can see which check a player is stuck on.
+- Each run is appended to a log with time, per-check state and detail. The lab host serves it to admins at `GET /v1/instances/{id}/verify-log` (lab token), and the Kymo admin Instances page shows it, so organizers can see which check a player is stuck on. The log lives only as long as the Verifier container, so the platform keeps its own copy (table `verify_run`): it copies a running run's log on every reaper pass and when an organizer opens it, and once more just before the run ends (stop, expiry, event end, restart or an exited container). A run is identified by its start time, so copying again only adds new runs. What is stored per run is the time, duration, and each check's id, state and detail (cut to 500 characters, since a player controls what the machine prints). It is the same for Jeopardy events and tournaments, and organizers read it after the instance has expired.
 - The page is neutral and readable in light and dark, and never shows detail beyond the title and the state.
 
 ## B9. Admin UI
@@ -476,7 +476,7 @@ In the **New challenge** modal (see section 13 for the order):
 
 **Player instance panel** (existing component): shows the two rows from B2 when `endpoints` is present, and the current single address otherwise.
 
-**Admin Instances page**: shows the Verifier endpoint, and a **Verify log** button that opens the run history.
+**Admin Instances page**: shows the Verifier endpoint, a **Verify** column (checks fixed out of total in the latest run, and how many times the player pressed Verify; hovering shows when every check first went green), and a **Details** button that opens the run history from the platform's own copy, so it still works after the instance has ended.
 
 ## B10. Security and failure notes
 
@@ -485,7 +485,7 @@ In the **New challenge** modal (see section 13 for the order):
 - **Secrets** (held flag, SSH key and password) live in the container's tmpfs and the lab host's state file (mode `0600`). They are never in logs, error messages or player responses.
 - **Sharing**: the Verifier shows the flag only inside the player's own lab. A flag that is dynamic and tied to the player's run (Part A) cannot be reused by another player, and the submission check raises the sharing alert if someone tries.
 - **Reach**: the target (and the player root inside it) can reach the Verifier address on its own lab network. That is harmless. Neither can reach the host, because of the firewall rule in B5, nor another player's lab.
-- **Failure**: if the Verifier container exits mid-run, the lab host restarts it once. The state is lost, and the player runs Verify again.
+- **Failure**: if the Verifier container exits mid-run, the lab host restarts it once. The Verifier's state is lost and the player runs Verify again; runs already copied by the platform are kept.
 - **Load**: Verify runs are capped by the per-instance interval and one run at a time. Each Verifier uses about 128 MB, which is part of capacity planning.
 
 ## B11. Compatibility

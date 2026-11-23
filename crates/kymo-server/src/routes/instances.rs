@@ -174,6 +174,7 @@ pub async fn admin_list(
     event_store::by_id(&state.pool, event_id).await?;
     let rows = instance_store::list_for_event(&state.pool, event_id).await?;
     let now = state.now();
+    let verify = crate::verify_store::summaries(&state.pool, event_id).await?;
     let mut list: Vec<Value> = Vec::with_capacity(rows.len());
     for r in &rows {
         let state_name = r
@@ -208,6 +209,7 @@ pub async fn admin_list(
             "started_at": r.started_at,
             "expires_at": r.expires_at,
             "stopped_at": r.stopped_at,
+            "verify": verify.get(&r.id).map(crate::verify_store::Summary::to_json),
         }));
     }
     Ok(Json(json!({ "instances": list })))
@@ -288,24 +290,14 @@ pub async fn admin_flags(
 }
 
 /// What the Verifier of a run recorded: which check ran, when, and what it said. For organizers
-/// only: players never see check output.
+/// only: players never see check output. Read from the platform's own copy, so it is still there
+/// after the instance has ended.
 pub async fn admin_verify_log(
     _: Require<needs::ManageEvents>,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = instance_store::by_id(&state.pool, id).await?;
-    let (Some(host), Some(handle)) = (row.lab_host_id, row.handle.clone()) else {
-        return Err(ApiError::NotFound);
-    };
-    let lab = crate::lab_store::get(&state.pool, host).await?;
-    let client = state
-        .labs()
-        .client(&lab)
-        .map_err(|_| ApiError::Unavailable("the lab host cannot be reached".into()))?;
-    let log = client
-        .verify_log(&handle)
-        .await
-        .map_err(|_| ApiError::Unavailable("the Verifier does not answer".into()))?;
-    Ok(Json(json!({ "log": log })))
+    Ok(Json(
+        json!({ "log": instances::verify_log(&state, id).await? }),
+    ))
 }

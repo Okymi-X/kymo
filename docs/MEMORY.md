@@ -120,3 +120,4 @@
 
 - 2026-11-22: running `npx prettier --write` on a web file without the project config reformatted the whole file (double quotes, semicolons); the repo style is single quotes, no semicolons. Do not run prettier ad hoc on web files.
 - 2026-11-22: the lab installer now installs Docker and QEMU by default (distro packages, not Docker's own repo); Arch uses `pacman -S` without `-y` so a stale database can fail the install: the fix is `pacman -Syu` then rerun.
+- 2026-11-23: Verifier runs are archived in the platform (`verify_run`) because the player presses Verify against the Verifier container directly, so the platform never sees a press; it can only pull the lab host log. Pull points are `end_run` (before the stop), the reaper and the admin read. If a new code path ends a run without `end_run`, it loses the log: call `archive_verify_log` there.
