@@ -65,11 +65,13 @@ player ── OpenVPN (UDP 1194 by default) ──► lab host gateway ──►
 
 ### Install a lab host
 
-On the new machine (Linux with Docker and systemd) download `kymo-lab-vX.Y.Z-linux-x86_64.tar.gz` from the releases page, unpack it and run the installer:
+On the new machine (Linux with systemd) download `kymo-lab-vX.Y.Z-linux-x86_64.tar.gz` from the releases page, unpack it and run the installer:
 
 ```sh
 sudo ./install-lab.sh --public-host 203.0.113.7 --allow-from 198.51.100.10
 ```
+
+The installer detects the system (Debian, Ubuntu, Fedora, Arch and their derivatives) and installs what is missing: Docker Engine from Docker's own repository on Debian, Ubuntu and Fedora (with the buildx and compose plugins; the distribution's `docker.io` or `moby-engine` is the fallback if the repository cannot be reached) or the `docker` package on Arch, which has no Docker repository, then enabled and started (`--no-docker-install` skips it). It assumes nothing is present on a fresh machine: it checks every program it and the service use (`curl`, `openssl`, `tar`, `ip`, `ss`, `modprobe`, `useradd`, `runuser`, `kill`, `iptables` and others) and installs the missing ones with the right package names for the system, creates an empty Arch package database if needed, restores SELinux labels when it is enforcing, and opens the API and VPN ports in firewalld or ufw when one is active (`--uninstall` closes them again). The rule that keeps players off the host needs `iptables`, so it is always installed with the VPN and QEMU with the UEFI firmware for virtual machines (`--no-vm` skips it). It also loads the `tun` module. Another system gets a clear message to install Docker and QEMU yourself. A rootless Docker is detected and virtual machines are left off, because they need a rootful one.
 
 `--public-host` is the lab host's address as players reach it, `--allow-from` is the platform's address (the API then answers only that address; omit it to allow any address that has the token). The installer creates a service user, a self-signed certificate and a token, installs and starts the `kymo-lab` service, and prints what to enter in the platform:
 
@@ -165,7 +167,7 @@ A lab host can also run whole machines, such as the OVA exports of VulnHub boxes
 
 Set it up on the lab host:
 
-1. Install QEMU: `sudo ./install-lab.sh --with-vm` does it on Debian, Ubuntu, Fedora and Arch (it also adds the service user to the `kvm` group). On a cloud server KVM needs nested virtualization; without `/dev/kvm` machines still run, in plain emulation that is many times slower, and the Lab hosts page says so.
+1. Install QEMU: `sudo ./install-lab.sh` does it by default on Debian, Ubuntu, Fedora and Arch (`--no-vm` skips it; it also adds the service user to the `kvm` group). On a cloud server KVM needs nested virtualization; without `/dev/kvm` machines still run, in plain emulation that is many times slower, and the Lab hosts page says so.
 2. Copy the image (`.ova`, `.vmdk`, `.vdi`, `.qcow2`, `.img` or `.raw`) to `/var/lib/kymo-lab/images/`.
 3. Describe it in a manifest, `runtime` `vm`:
 

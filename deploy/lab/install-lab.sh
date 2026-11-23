@@ -3,11 +3,18 @@
 # platform. Run it as root from the unpacked release. Safe to run again to upgrade.
 #
 #   sudo ./install-lab.sh [--public-host ADDRESS] [--port 7400] [--allow-from CIDR] [--mode manifest|open]
-#                         [--with-vm] [--runtimes docker,vm] [--vpn-host ADDRESS] [--vpn-port PORT] [--no-vpn]
+#                         [--no-docker-install] [--no-vm] [--runtimes docker,vm]
+#                         [--vpn-host ADDRESS] [--vpn-port PORT] [--no-vpn]
 #   sudo ./install-lab.sh --uninstall [--purge]
 #
-# Containers need Docker. Virtual machines need QEMU: --with-vm installs it (Debian, Ubuntu, Fedora,
-# Arch) when it is missing. With neither installed there is nothing to run.
+# It assumes nothing is installed. It detects the system (Debian, Ubuntu, Fedora, Arch and their
+# derivatives), checks every program it and the lab service call (curl, openssl, tar, ip, ss, modprobe,
+# useradd, runuser, kill, iptables and more) and installs the missing ones with that system's package
+# names. Containers need Docker (Docker's own repository on Debian, Ubuntu and Fedora, the Arch package
+# on Arch) and virtual machines (.ova, .vmdk, .vdi, .qcow2, .img, .raw) need QEMU: both are installed
+# when missing, Docker is enabled, the tun module is loaded, SELinux labels are restored and the
+# ports are opened in firewalld or ufw when one is active. --no-docker-install and --no-vm skip the
+# matching install (a runtime already present is still used); --with-vm changes nothing.
 #
 # By default players reach instances through a VPN gateway that runs on this machine (needs Docker
 # for the gateway container): no instance is published on any port, only the gateway's UDP port
@@ -21,7 +28,8 @@ PUBLIC_HOST=""
 ALLOW_FROM=""
 UNINSTALL=0
 PURGE=0
-WITH_VM=0
+WITH_VM=1
+INSTALL_DOCKER=1
 RUNTIMES=""
 VPN=1
 VPN_HOST=""
@@ -29,6 +37,7 @@ VPN_PORT=1194
 VPN_PORT_EXPLICIT=0
 VPN_POOL=10.77.0.0/16
 HERE=$(cd "$(dirname "$0")" && pwd)
+PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
 
 die() { echo "install-lab: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
@@ -89,13 +98,15 @@ while [ $# -gt 0 ]; do
         --allow-from) ALLOW_FROM=${2:?--allow-from needs a value}; shift 2 ;;
         --mode) MODE=${2:?--mode needs a value}; shift 2 ;;
         --with-vm) WITH_VM=1; shift ;;
+        --no-vm) WITH_VM=0; shift ;;
+        --no-docker-install) INSTALL_DOCKER=0; shift ;;
         --runtimes) RUNTIMES=${2:?--runtimes needs a value}; shift 2 ;;
         --vpn-host) VPN_HOST=${2:?--vpn-host needs a value}; shift 2 ;;
         --vpn-port) VPN_PORT=${2:?--vpn-port needs a value}; VPN_PORT_EXPLICIT=1; shift 2 ;;
         --no-vpn) VPN=0; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         --purge) PURGE=1; shift ;;
-        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option $1 (try --help)" ;;
     esac
 done
@@ -116,6 +127,27 @@ if [ "$UNINSTALL" -eq 1 ]; then
     fi
     systemctl daemon-reload
     command -v docker >/dev/null 2>&1 && docker rm -f kymo-lab-vpn-gateway >/dev/null 2>&1 || true
+    # Close the ports the installer opened, as recorded in the settings it wrote.
+    if [ -f /etc/kymo-lab/lab.env ]; then
+        U_PORT=$(sed -n 's/^KYMO_LAB_ADDR=.*://p' /etc/kymo-lab/lab.env | head -n 1)
+        U_VPN=$(sed -n 's/^KYMO_LAB_VPN_PORT=//p' /etc/kymo-lab/lab.env | head -n 1)
+        U_FROM=$(sed -n 's/^KYMO_LAB_ALLOW_FROM=//p' /etc/kymo-lab/lab.env | head -n 1)
+        if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+            if [ -n "$U_PORT" ]; then
+                firewall-cmd -q --permanent --remove-port="$U_PORT/tcp" 2>/dev/null || true
+                [ -z "$U_FROM" ] || firewall-cmd -q --permanent --remove-rich-rule="rule family=ipv4 source address=$U_FROM port port=$U_PORT protocol=tcp accept" 2>/dev/null || true
+            fi
+            [ -z "$U_VPN" ] || firewall-cmd -q --permanent --remove-port="$U_VPN/udp" 2>/dev/null || true
+            firewall-cmd -q --reload 2>/dev/null || true
+        fi
+        if command -v ufw >/dev/null 2>&1; then
+            if [ -n "$U_PORT" ]; then
+                ufw delete allow "$U_PORT/tcp" >/dev/null 2>&1 || true
+                [ -z "$U_FROM" ] || ufw delete allow from "$U_FROM" to any port "$U_PORT" proto tcp >/dev/null 2>&1 || true
+            fi
+            [ -z "$U_VPN" ] || ufw delete allow "$U_VPN/udp" >/dev/null 2>&1 || true
+        fi
+    fi
     if command -v ufw >/dev/null 2>&1; then
         # An earlier version added this rule.
         ufw delete allow proto tcp from 10.77.0.0/16 to 10.77.0.0/16 port 40000:40999 >/dev/null 2>&1 || true
@@ -138,24 +170,197 @@ for candidate in "$HERE/kymo-lab" "$HERE/../../kymo-lab" "./kymo-lab"; do
 done
 [ -n "$BIN" ] || die "kymo-lab binary not found next to this script"
 
-# What this machine can run.
-if [ "$WITH_VM" -eq 1 ] && ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
-    say "Installing QEMU"
-    if command -v apt-get >/dev/null 2>&1; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-system-x86 qemu-utils ovmf tar
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y qemu-kvm qemu-img edk2-ovmf tar
-    elif command -v pacman >/dev/null 2>&1; then
-        pacman -S --needed --noconfirm qemu-base edk2-ovmf tar
+# Which system is this? /etc/os-release names it; ID_LIKE catches derivatives (Mint, Pop!_OS and
+# Zorin report ubuntu, Raspberry Pi OS reports debian, Manjaro reports arch).
+FAMILY=""
+if [ -r /etc/os-release ]; then
+    OS_IDS=$(. /etc/os-release; echo "${ID:-} ${ID_LIKE:-}")
+    for id in $OS_IDS; do
+        case "$id" in
+            ubuntu) FAMILY=ubuntu; break ;;
+            debian) FAMILY=debian; break ;;
+            rhel|centos) break ;;
+            fedora) FAMILY=fedora; break ;;
+            arch|archarm|manjaro|endeavouros) FAMILY=arch; break ;;
+        esac
+    done
+fi
+[ -n "$FAMILY" ] && say "System: $FAMILY ($(. /etc/os-release; echo "${PRETTY_NAME:-unknown}"))"
+
+# Installs packages with the package manager of the detected family. The package index is refreshed
+# once (apt) or created when the machine has none yet (a fresh Arch install can have an empty
+# database, and `pacman -S` then fails with "target not found").
+INDEX_READY=0
+pkg_install() {
+    case "$FAMILY" in
+        debian|ubuntu)
+            if [ "$INDEX_READY" -eq 0 ]; then
+                DEBIAN_FRONTEND=noninteractive apt-get update -y || return 1
+                INDEX_READY=1
+            fi
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
+        fedora) dnf install -y "$@" ;;
+        arch)
+            if [ "$INDEX_READY" -eq 0 ]; then
+                if ! ls /var/lib/pacman/sync/*.db >/dev/null 2>&1; then
+                    say "The package database is empty: synchronising it (pacman -Sy)"
+                    pacman -Sy --noconfirm || return 1
+                fi
+                INDEX_READY=1
+            fi
+            pacman -S --needed --noconfirm "$@" ;;
+    esac
+}
+
+need_family() {
+    [ -n "$FAMILY" ] || die "could not tell the system apart (supported: Debian, Ubuntu, Fedora, Arch). $1"
+}
+
+docker_ready() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+
+# Nothing is assumed to be present: every program this installer and the lab service call is checked
+# and, when missing, installed with the package name of this system. need COMMAND DEBIAN FEDORA ARCH
+# (the same package name three times when they agree). A "-" means the family has no such package.
+have() {
+    case "$1" in
+        kill) [ -x /usr/bin/kill ] || [ -x /bin/kill ] ;;   # a shell builtin of the same name would hide a missing binary
+        *) command -v "$1" >/dev/null 2>&1 ;;
+    esac
+}
+need() {
+    cmd=$1
+    have "$cmd" && return 0
+    need_family "Install '$cmd' yourself, then run this again."
+    case "$FAMILY" in
+        debian|ubuntu) pkg=$2 ;;
+        fedora) pkg=$3 ;;
+        arch) pkg=$4 ;;
+    esac
+    [ "$pkg" != "-" ] || die "'$cmd' is missing and this system has no package for it"
+    say "'$cmd' is missing: installing $pkg"
+    pkg_install "$pkg" || die "could not install $pkg (for '$cmd')"
+    have "$cmd" || die "installed $pkg but '$cmd' is still not found"
+}
+
+command -v systemctl >/dev/null 2>&1 || die "this installer needs systemd (systemctl was not found); the lab service is a systemd unit"
+PM=""
+case "$FAMILY" in debian|ubuntu) PM=apt-get ;; fedora) PM=dnf ;; arch) PM=pacman ;; esac
+[ -z "$PM" ] || command -v "$PM" >/dev/null 2>&1 || die "the package manager '$PM' was not found on this $FAMILY system"
+
+say "Checking the tools this installer needs"
+# TLS certificates come first: every download below needs them.
+if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ ! -s /etc/pki/tls/certs/ca-bundle.crt ]; then
+    need_family "Install the CA certificates yourself, then run this again."
+    say "CA certificates are missing: installing ca-certificates"
+    pkg_install ca-certificates || die "could not install ca-certificates"
+fi
+need curl curl curl curl
+need openssl openssl openssl openssl
+need tar tar tar tar
+need ip iproute2 iproute iproute2
+need ss iproute2 iproute iproute2
+need modprobe kmod kmod kmod
+need getent libc-bin glibc-common glibc
+need useradd passwd shadow-utils shadow
+need usermod passwd shadow-utils shadow
+need groupadd passwd shadow-utils shadow
+need runuser util-linux util-linux util-linux
+need kill procps procps-ng procps-ng
+need awk gawk gawk gawk
+need sed sed sed sed
+need grep grep grep grep
+need xargs findutils findutils findutils
+need install coreutils coreutils coreutils
+need mktemp coreutils coreutils coreutils
+need journalctl systemd systemd systemd
+if [ "$VPN" -eq 1 ]; then
+    need iptables iptables iptables-nft iptables
+fi
+
+# Docker Engine from Docker's own repository on Debian, Ubuntu and Fedora (the distribution's
+# docker.io / moby-engine are older and lack the buildx and compose plugins); Arch has no Docker
+# repository, its own `docker` package is the supported one. If the repository cannot be reached the
+# distribution's package is used instead, and the message says so.
+install_docker_debian_like() {
+    codename=$(. /etc/os-release; if [ "$FAMILY" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)
+    [ -n "$codename" ] || return 1
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL "https://download.docker.com/linux/$FAMILY/gpg" -o /etc/apt/keyrings/docker.asc || return 1
+    chmod a+r /etc/apt/keyrings/docker.asc
+    cat > /etc/apt/sources.list.d/docker.sources <<REPO
+Types: deb
+URIs: https://download.docker.com/linux/$FAMILY
+Suites: $codename
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+REPO
+    pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
+        rm -f /etc/apt/sources.list.d/docker.sources
+        return 1
+    }
+}
+
+install_docker_fedora() {
+    pkg_install dnf-plugins-core || return 1
+    # dnf5 (Fedora 41 and newer) and dnf4 spell the same step differently.
+    dnf config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo 2>/dev/null \
+        || dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo || return 1
+    pkg_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+if ! command -v docker >/dev/null 2>&1; then
+    if [ "$INSTALL_DOCKER" -eq 1 ]; then
+        need_family "Install Docker yourself (https://docs.docker.com/engine/install/), then run this again."
+        say "Installing Docker Engine"
+        case "$FAMILY" in
+            debian|ubuntu)
+                install_docker_debian_like || { say "Docker's repository was not usable: installing the distribution's docker.io instead"; pkg_install docker.io || die "could not install Docker"; } ;;
+            fedora)
+                install_docker_fedora || { say "Docker's repository was not usable: installing the distribution's moby-engine instead"; pkg_install moby-engine || die "could not install Docker"; } ;;
+            arch)
+                pkg_install docker docker-buildx docker-compose || die "could not install Docker (on Arch a stale package database can cause this: run pacman -Syu, then run this again)" ;;
+        esac
     else
-        die "install QEMU yourself (qemu-system-x86_64 and qemu-img), then run this again"
+        say "Docker is not installed and --no-docker-install was given"
     fi
 fi
+if command -v docker >/dev/null 2>&1; then
+    getent group docker >/dev/null 2>&1 || groupadd docker
+    systemctl enable --now containerd >/dev/null 2>&1 || true
+    systemctl enable --now docker >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do docker info >/dev/null 2>&1 && break; sleep 1; done
+fi
+
+# QEMU: the virtual machine runtime. Needs qemu-system-x86_64, qemu-img, the UEFI firmware and tar
+# (an .ova is a tar archive that holds the disk).
+if [ "$WITH_VM" -eq 1 ] && ! { command -v qemu-system-x86_64 >/dev/null 2>&1 && command -v qemu-img >/dev/null 2>&1; }; then
+    if [ "$(uname -m)" != x86_64 ]; then
+        say "Virtual machines need an x86_64 machine ($(uname -m) here): skipping QEMU"
+    else
+        need_family "Install QEMU yourself (qemu-system-x86_64 and qemu-img), then run this again."
+        say "Installing QEMU"
+        case "$FAMILY" in
+            debian|ubuntu) pkg_install qemu-system-x86 qemu-utils ovmf ;;
+            fedora) pkg_install qemu-kvm qemu-img edk2-ovmf ;;
+            arch) pkg_install qemu-base edk2-ovmf ;;
+        esac || die "could not install QEMU with the system's package manager"
+    fi
+fi
+
+# The network device virtual machines and the VPN gateway attach to.
+if [ ! -e /dev/net/tun ]; then
+    modprobe tun 2>/dev/null || true
+fi
+if [ -d /etc/modules-load.d ] && [ ! -f /etc/modules-load.d/kymo-lab.conf ]; then
+    echo tun > /etc/modules-load.d/kymo-lab.conf
+fi
+
 HAS_DOCKER=0; HAS_QEMU=0
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then HAS_DOCKER=1; fi
 if command -v qemu-system-x86_64 >/dev/null 2>&1 && command -v qemu-img >/dev/null 2>&1; then HAS_QEMU=1; fi
 if [ "$HAS_DOCKER" -eq 0 ] && [ "$HAS_QEMU" -eq 0 ]; then
-    die "this machine has nothing to run challenges with. Install Docker (https://docs.docker.com/engine/install/) for containers, or run this with --with-vm for virtual machines."
+    die "this machine has nothing to run challenges with: Docker is not running and QEMU is not installed (see the messages above)."
 fi
 if [ -z "$RUNTIMES" ]; then
     RUNTIMES=""
@@ -163,7 +368,11 @@ if [ -z "$RUNTIMES" ]; then
     [ "$HAS_QEMU" -eq 1 ] && RUNTIMES="${RUNTIMES:+$RUNTIMES,}vm"
 fi
 case ",$RUNTIMES," in *,docker,*) [ "$HAS_DOCKER" -eq 1 ] || die "--runtimes asks for docker, which is not installed or not running" ;; esac
-case ",$RUNTIMES," in *,vm,*) [ "$HAS_QEMU" -eq 1 ] || die "--runtimes asks for vm, but QEMU is not installed (run with --with-vm)" ;; esac
+case ",$RUNTIMES," in *,vm,*) [ "$HAS_QEMU" -eq 1 ] || die "--runtimes asks for vm, but QEMU is not installed (run without --no-vm, on an x86_64 machine)" ;; esac
+if [ "$HAS_DOCKER" -eq 1 ] && [ "$HAS_QEMU" -eq 1 ] && docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+    say "This Docker is rootless: virtual machines cannot attach to the lab network with it, so only containers will run (install a rootful Docker for VMs)"
+    case ",$RUNTIMES," in *,vm,*) RUNTIMES=$(echo "$RUNTIMES" | sed 's/,\{0,1\}vm//; s/^,//') ;; esac
+fi
 say "Running: $RUNTIMES"
 if [ "$VPN" -eq 1 ]; then
     case ",$RUNTIMES," in
@@ -171,12 +380,10 @@ if [ "$VPN" -eq 1 ]; then
         *) say "The VPN gateway needs Docker, which this lab host is not set to use: continuing without the VPN (instances will be published on ports)"; VPN=0 ;;
     esac
 fi
-command -v openssl >/dev/null 2>&1 || die "openssl is needed to make the token"
-command -v systemctl >/dev/null 2>&1 || die "this installer needs systemd"
 
 if [ -z "$PUBLIC_HOST" ]; then
     PUBLIC_HOST=$(curl -fsS -m 5 https://api.ipify.org 2>/dev/null || true)
-    [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }')
     [ -n "$PUBLIC_HOST" ] || die "could not work out this machine's address: pass --public-host"
     say "Using $PUBLIC_HOST as this machine's address (change it with --public-host)"
 fi
@@ -205,7 +412,7 @@ if [ -n "$VER_DIR" ] && [ "$HAS_DOCKER" -eq 1 ]; then
 fi
 
 say "Creating the service user"
-id kymo-lab >/dev/null 2>&1 || useradd --system --home /var/lib/kymo-lab --shell /usr/sbin/nologin kymo-lab
+id kymo-lab >/dev/null 2>&1 || useradd --system --home /var/lib/kymo-lab --shell "$(command -v nologin || echo /usr/sbin/nologin)" kymo-lab
 GROUPS_LINE=""
 case ",$RUNTIMES," in *,docker,*)
     getent group docker >/dev/null 2>&1 || die "there is no docker group"
@@ -272,7 +479,7 @@ else
     {
         echo "KYMO_LAB_TOKEN=$TOKEN"
         echo "KYMO_LAB_ADDR=0.0.0.0:$PORT"
-        echo "KYMO_LAB_NAME=$(hostname)"
+        echo "KYMO_LAB_NAME=$(uname -n)"
         echo "KYMO_LAB_MODE=$MODE"
         echo "KYMO_LAB_RUNTIMES=$RUNTIMES"
         echo "KYMO_LAB_IMAGES=/var/lib/kymo-lab/images"
@@ -313,6 +520,51 @@ if [ "$VPN" -eq 1 ] && [ -f "$HERE/kymo-lab-firewall" ] && command -v iptables >
     systemctl daemon-reload
     systemctl enable kymo-lab-firewall >/dev/null 2>&1
     systemctl restart kymo-lab-firewall || say "could not apply the firewall rule: run /usr/local/sbin/kymo-lab-firewall $VPN_POOL by hand"
+fi
+
+# SELinux (Fedora): make sure the installed files carry the labels the policy expects.
+if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+    if ! command -v restorecon >/dev/null 2>&1; then
+        say "SELinux is enforcing and restorecon is missing: installing policycoreutils"
+        pkg_install policycoreutils || say "could not install policycoreutils: label /usr/local/bin/kymo-lab, /etc/kymo-lab and /var/lib/kymo-lab by hand (restorecon -R)"
+    fi
+    # The gateway container mounts the VPN directory; without the "z" mount option SELinux denies it
+    # and the gateway restarts forever reporting that server.conf is missing.
+    if [ "$VPN" -eq 1 ] && ! grep -q '^KYMO_LAB_VPN_BIND_OPTIONS=' /etc/kymo-lab/lab.env; then
+        say "SELinux is enforcing: adding KYMO_LAB_VPN_BIND_OPTIONS=z so the gateway can read its config"
+        echo 'KYMO_LAB_VPN_BIND_OPTIONS=z' >> /etc/kymo-lab/lab.env
+        systemctl restart kymo-lab
+        docker rm -f kymo-lab-vpn-gateway >/dev/null 2>&1 || true
+    fi
+    if command -v restorecon >/dev/null 2>&1; then
+        say "SELinux is enforcing: restoring file labels"
+        restorecon -R /usr/local/bin/kymo-lab /usr/local/sbin/kymo-lab-firewall /etc/kymo-lab /var/lib/kymo-lab /etc/systemd/system/kymo-lab.service 2>/dev/null || true
+        systemctl restart kymo-lab
+    fi
+fi
+
+PORTS_NOTE="TCP $PORT${ALLOW_FROM:+ (from $ALLOW_FROM only)}"
+[ "$VPN" -eq 0 ] || PORTS_NOTE="$PORTS_NOTE and UDP $VPN_PORT"
+# Open the lab API (TCP, to the platform only when --allow-from is given) and the VPN gateway (UDP)
+# in the host firewall that is running: firewalld (Fedora) or ufw (Ubuntu, Debian). Nothing else
+# is opened. With no active firewall there is nothing to do.
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    say "firewalld is running: opening $PORTS_NOTE"
+    if [ -n "$ALLOW_FROM" ]; then
+        firewall-cmd -q --permanent --add-rich-rule="rule family=ipv4 source address=$ALLOW_FROM port port=$PORT protocol=tcp accept" || true
+    else
+        firewall-cmd -q --permanent --add-port="$PORT/tcp" || true
+    fi
+    [ "$VPN" -eq 0 ] || firewall-cmd -q --permanent --add-port="$VPN_PORT/udp" || true
+    firewall-cmd -q --reload || true
+elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    say "ufw is active: opening $PORTS_NOTE"
+    if [ -n "$ALLOW_FROM" ]; then
+        ufw allow from "$ALLOW_FROM" to any port "$PORT" proto tcp >/dev/null || true
+    else
+        ufw allow "$PORT/tcp" >/dev/null || true
+    fi
+    [ "$VPN" -eq 0 ] || ufw allow "$VPN_PORT/udp" >/dev/null || true
 fi
 
 say "Waiting for it to answer"
