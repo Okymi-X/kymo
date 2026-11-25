@@ -304,7 +304,11 @@ pub async fn maintain(state: &AppState) -> Result<(), ApiError> {
 // ---------- health ----------
 
 async fn scalar(pool: &SqlitePool, sql: &str, bind: i64) -> Result<i64, ApiError> {
-    Ok(sqlx::query_scalar(sql).bind(bind).fetch_one(pool).await?)
+    // The callers pass literal statements from this module; `sql` never carries user input.
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(bind)
+        .fetch_one(pool)
+        .await?)
 }
 
 /// Whether the database answers.

@@ -229,14 +229,14 @@ pub async fn alerts(
     } else {
         "1 = 1"
     };
-    let total: i64 = sqlx::query_scalar(&format!(
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM alert a WHERE {status} AND {who}"
-    ))
+    )))
     .fetch_one(pool)
     .await?;
-    let rows: Vec<AlertDb> = sqlx::query_as(&format!(
+    let rows: Vec<AlertDb> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{ALERT_SELECT} WHERE {status} AND {who} ORDER BY (a.status = 'open') DESC, a.last_at DESC, a.id DESC LIMIT ? OFFSET ?"
-    ))
+    )))
     .bind(per_page)
     .bind((page - 1) * per_page)
     .fetch_all(pool)
@@ -261,10 +261,12 @@ pub async fn alerts(
 }
 
 pub async fn alert_by_id(pool: &SqlitePool, id: i64) -> Result<AlertOut, ApiError> {
-    let row: AlertDb = sqlx::query_as(&format!("{ALERT_SELECT} WHERE a.id = ?"))
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let row: AlertDb = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "{ALERT_SELECT} WHERE a.id = ?"
+    )))
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
     let current = configs(pool).await?;
     Ok(out(row, &current))
 }
@@ -663,7 +665,7 @@ async fn trend(
     let sql = format!(
         "SELECT (at / 60) * 60 AS t, COUNT(*) AS n FROM request_log WHERE at >= ? AND {filter} GROUP BY t"
     );
-    let mut query = sqlx::query_as::<_, (i64, i64)>(&sql).bind(from);
+    let mut query = sqlx::query_as::<_, (i64, i64)>(sqlx::AssertSqlSafe(sql.as_str())).bind(from);
     if let Some(text) = bind_text {
         query = query.bind(text.to_owned());
     }

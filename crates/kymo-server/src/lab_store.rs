@@ -297,10 +297,12 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
     // Left behind, they would point at a host that no longer exists.
     let mut tx = pool.begin().await?;
     for table in ["vpn_lab", "vpn_client", "vpn_revoked"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE lab_host_id = ?"))
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE lab_host_id = ?"
+        )))
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
     sqlx::query("DELETE FROM lab_host WHERE id = ?")
         .bind(id)

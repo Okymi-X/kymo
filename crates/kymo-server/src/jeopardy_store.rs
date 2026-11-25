@@ -597,9 +597,9 @@ pub async fn history(
     page: i64,
     per_page: i64,
 ) -> Result<SubmissionPage, ApiError> {
-    let total: i64 = sqlx::query_scalar(&format!(
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM submission s WHERE {HISTORY_WHERE}"
-    ))
+    )))
     .bind(event_id)
     .bind(filter.user_id)
     .bind(filter.challenge_id)
@@ -607,11 +607,11 @@ pub async fn history(
     .bind(filter.ip.as_deref())
     .fetch_one(pool)
     .await?;
-    let mut items: Vec<SubmissionOut> = sqlx::query_as(&format!(
+    let mut items: Vec<SubmissionOut> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT s.id, s.challenge_id, c.title AS challenge_title, s.participant_kind, s.participant_id, s.user_id, u.username, s.ip, s.value, s.verdict, s.at \
          FROM submission s JOIN challenge c ON c.id = s.challenge_id LEFT JOIN user u ON u.id = s.user_id \
          WHERE {HISTORY_WHERE} ORDER BY s.id DESC LIMIT ?6 OFFSET ?7"
-    ))
+    )))
     .bind(event_id)
     .bind(filter.user_id)
     .bind(filter.challenge_id)

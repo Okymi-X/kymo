@@ -591,9 +591,9 @@ pub async fn challenge_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError
         ("duel_assignment", "is part of a tournament match"),
     ];
     for (table, what) in PLAYED {
-        let used: i64 = sqlx::query_scalar(&format!(
+        let used: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM {table} WHERE challenge_id = ?"
-        ))
+        )))
         .bind(id)
         .fetch_one(pool)
         .await?;

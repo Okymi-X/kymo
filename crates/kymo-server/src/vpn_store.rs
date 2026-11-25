@@ -308,9 +308,9 @@ pub async fn lab_ips_in_use(pool: &SqlitePool, lab_id: i64) -> Result<BTreeSet<S
     let mut used = BTreeSet::new();
     // A run holds its own address and, for a Responder, its Verifier's.
     for column in ["lab_ip", "verifier_ip"] {
-        let rows: Vec<String> = sqlx::query_scalar(&format!(
+        let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT i.{column} FROM instance i JOIN vpn_lab l ON l.event_id = i.event_id AND l.scorer_kind = i.scorer_kind AND l.scorer_id = i.scorer_id WHERE l.id = ? AND i.{column} IS NOT NULL AND i.state IN ('starting', 'running')"
-        ))
+        )))
         .bind(lab_id)
         .fetch_all(pool)
         .await?;

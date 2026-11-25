@@ -5,7 +5,7 @@ Project rules from the default workflow apply: secure code, single responsibilit
 ## Rust
 - `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test` must pass.
 - No `unwrap` or `expect` outside tests and startup. Library errors use `thiserror`.
-- SQL is parameterized only. Handlers validate input with typed structs.
+- SQL is parameterized only. Handlers validate input with typed structs. A statement built with `format!` may only splice in constants from the code (a table or column name from a fixed list, a fixed WHERE fragment), never a value, and is passed through `sqlx::AssertSqlSafe` to say it was reviewed; sqlx 0.9 refuses a dynamic string without it.
 - Passwords hashed with argon2. Secrets from environment only.
 - Engine crate has no IO, no clock, no randomness except through a passed seed.
 

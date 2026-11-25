@@ -1,0 +1,10 @@
+# Advisories cargo audit (the Dependency advisories workflow) may pass over, each with the reason.
+# Remove an entry as soon as the upgrade it waits for exists.
+[advisories]
+ignore = [
+    # CVE in the SQLite C library that libsqlite3-sys 0.30 bundles. The fix is libsqlite3-sys 0.39,
+    # which no released sqlx (0.9.1 still pins 0.30) can use yet. Kymo only ever runs its own
+    # parameterized statements against that library, never SQL supplied by a user, so the input
+    # a vulnerable code path would need cannot reach it. Revisit at every sqlx release.
+    "RUSTSEC-2026-0459",
+]

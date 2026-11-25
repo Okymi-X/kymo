@@ -347,3 +347,9 @@ Spec: `docs/DYNAMIC_FLAGS_AND_RESPONDER.md` (Part A flags, Part B Responder). De
 - [x] Checked and left as is: `compose.yaml` refuses to start without the admin password and keeps data in a named volume; `kymo.service` runs as its own user with `ProtectSystem=strict`, `NoNewPrivileges` and a private tmp; `.dockerignore` keeps `node_modules`, `dist`, `target` and databases out of the build context; reqwest uses rustls with bundled roots, so the slim image needs no CA package
 - [ ] The container image itself was not built here (Docker is root only on this host); the two Dockerfile changes are syntax Docker accepts and the health command was tested outside the image
 
+## First advisory run (2026-11-25)
+- [x] The new Dependency advisories workflow failed on its first run with five advisories. Fixed by `cargo update`: ammonia 4.2.5 (mutation XSS in embedded SVG/MathML, RUSTSEC-2026-0533), url 2.5.9 (RUSTSEC-2026-0592), russh 0.65.4 which brings rsa 0.10.0 final (Marvin, RUSTSEC-2023-0071). sqlx moved from 0.8.6 to 0.9.1, which also dropped the sqlx-mysql chain (rsa 0.9.10 and friends) from the lockfile
+- [x] sqlx 0.9 refuses a dynamic SQL string unless it is wrapped in `sqlx::AssertSqlSafe`: the 16 sites that build a statement from constants (table names from fixed lists, fixed WHERE fragments, `ops::scalar`) were reviewed and wrapped; the rule is in `docs/RULES.md`. `cargo clippy --workspace --locked -D warnings` and `cargo test --workspace --locked` (618 tests) pass on 0.9
+- [x] `.cargo/audit.toml` ignores RUSTSEC-2026-0459 (CVE in the bundled SQLite C library) with its reason: the fix is libsqlite3-sys 0.39 and no released sqlx uses it; Kymo runs only its own parameterized statements against that library. The `chrono is unmaintained` entry is a warning and does not fail the run
+- [ ] Drop the ignore when a sqlx release depends on libsqlite3-sys 0.39 or later
+

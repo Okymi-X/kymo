@@ -329,9 +329,9 @@ pub async fn clear_match(
 ) -> Result<(), ApiError> {
     let mut tx = crate::db::begin_write(pool).await?;
     for table in ["duel_answer", "duel_match"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "DELETE FROM {table} WHERE tournament_id = ? AND match_id = ?"
-        ))
+        )))
         .bind(tournament_id)
         .bind(match_id)
         .execute(&mut *tx)
@@ -345,10 +345,12 @@ pub async fn clear_match(
 pub async fn clear_tournament(pool: &SqlitePool, tournament_id: i64) -> Result<(), ApiError> {
     let mut tx = crate::db::begin_write(pool).await?;
     for table in ["duel_answer", "duel_match", "duel_assignment"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE tournament_id = ?"))
-            .bind(tournament_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE tournament_id = ?"
+        )))
+        .bind(tournament_id)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(())

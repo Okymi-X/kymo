@@ -1,7 +1,7 @@
 # Architecture
 
 ## Stack
-- Backend: Rust, Axum, SQLx (SQLite default), tokio, tower-http, argon2, serde.
+- Backend: Rust, Axum, SQLx 0.9 (SQLite default), tokio, tower-http, argon2, serde.
 - Frontend: React 19, TypeScript, Vite, Tailwind v4, TanStack Query, dnd-kit, Motion.
 - Frontend is built to static files and embedded into the server binary (rust-embed).
 

@@ -108,9 +108,9 @@ pub async fn requests(
     page: i64,
     per_page: i64,
 ) -> Result<LogPage, ApiError> {
-    let total: i64 = sqlx::query_scalar(&format!(
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM request_log r WHERE {LOG_WHERE}"
-    ))
+    )))
     .bind(&f.ip)
     .bind(f.user_id)
     .bind(&f.route)
@@ -120,9 +120,9 @@ pub async fn requests(
     .bind(f.min_status)
     .fetch_one(pool)
     .await?;
-    let requests = sqlx::query_as(&format!(
+    let requests = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT r.id, r.at, r.method, r.route, r.path, r.status, r.ip, r.user_id, u.username AS username, r.ms, r.query, r.ua FROM request_log r LEFT JOIN user u ON u.id = r.user_id WHERE {LOG_WHERE} ORDER BY r.id DESC LIMIT ?8 OFFSET ?9"
-    ))
+    )))
     .bind(&f.ip)
     .bind(f.user_id)
     .bind(&f.route)
@@ -469,9 +469,9 @@ pub async fn audit_page(
                 .replace('_', "\\_")
         )
     });
-    let total: i64 = sqlx::query_scalar(&format!(
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM audit a LEFT JOIN user u ON u.id = a.actor_user_id WHERE {FILTER}"
-    ))
+    )))
     .bind(action)
     .bind(actor)
     .bind(0_i64)
@@ -483,9 +483,9 @@ pub async fn audit_page(
         sqlx::query_as("SELECT action, COUNT(*) FROM audit GROUP BY action ORDER BY action")
             .fetch_all(pool)
             .await?;
-    let entries = sqlx::query_as(&format!(
+    let entries = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT a.id, a.at, a.actor_user_id, u.username AS actor_name, a.actor_role, a.action, a.target_kind, a.target_id, a.detail, a.ip FROM audit a LEFT JOIN user u ON u.id = a.actor_user_id WHERE {FILTER} ORDER BY a.id DESC LIMIT ?3 OFFSET ?4"
-    ))
+    )))
     .bind(action)
     .bind(actor)
     .bind(per_page)
