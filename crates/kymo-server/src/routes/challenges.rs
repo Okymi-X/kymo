@@ -11,7 +11,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_core::Stream;
-use kymo_core::{EventState, can_view_challenges};
+use kymo_core::{EventState, can_submit, can_view_challenges};
 use kymo_jeopardy::{Verdict, current_value, score_for_solve};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -210,9 +210,11 @@ pub async fn list(
             id: parent.id,
             title: submit::visible(&parent, now).then(|| parent.title.clone()),
         });
+        // The parent was just checked, so only the time and state rules are left to ask.
         let status = if locked {
             "locked"
-        } else if open_for_play(&state, &play, &row, now).await.is_ok() {
+        } else if !play.disqualified && can_submit(play.effective, Some(row.window()), now).is_ok()
+        {
             "open"
         } else {
             "closed"

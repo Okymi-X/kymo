@@ -1,0 +1,44 @@
+name: Dependency advisories
+
+# Known vulnerabilities in what Kymo depends on: checked once a week, when a lockfile changes, and
+# on request. Kept out of the main CI so an advisory in a transitive dependency does not block an
+# unrelated change; it fails here, where it is the whole point.
+on:
+  schedule:
+    - cron: '20 6 * * 1'
+  push:
+    branches: [main]
+    paths: ['Cargo.lock', 'web/pnpm-lock.yaml', '.github/workflows/audit.yml']
+  pull_request:
+    paths: ['Cargo.lock', 'web/pnpm-lock.yaml', '.github/workflows/audit.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: taiki-e/install-action@cargo-audit
+      - run: cargo audit
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # Only what ships in the built app; development tools are reported but do not fail the run.
+      - run: pnpm audit --prod --audit-level moderate

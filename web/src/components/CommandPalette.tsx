@@ -121,7 +121,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         }}
         onKeyDown={onKeyDown}
         placeholder="Search events, tournaments and pages"
-        className="h-12 w-full bg-transparent text-base placeholder:text-muted focus:outline-none focus-visible:outline-none"
+        className="h-12 w-full bg-transparent text-base placeholder:text-muted focus:outline-none focus-visible:outline-none focus-visible:shadow-[inset_0_-2px_0_var(--color-accent)]"
       />
       </div>
       <ul id="palette-list" role="listbox" className="palette-scroll max-h-[22rem] overflow-y-auto p-1.5">

@@ -90,7 +90,7 @@ function alertMarks(series: MonitorSeries, onAlert: (id: number) => void) {
           role="button"
           tabIndex={0}
           aria-label={`Open alert ${m.id}`}
-          className="cursor-pointer outline-none"
+          className="cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
           onClick={() => onAlert(m.id)}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onAlert(m.id)}
         >

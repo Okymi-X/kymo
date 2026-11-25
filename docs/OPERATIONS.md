@@ -62,7 +62,7 @@ A complete setup is one binary, one SQLite file and, optionally, a container pla
 KYMO_ADMIN_PASSWORD='at least 12 characters' docker compose up --build
 ```
 
-The app serves the interface and the API on port 8080. Data lives in the `kymo-data` volume. This image is for tournaments and plain events; challenge instances and the VPN need the container platform's socket and host paths, so run the binary on the host for those (see above).
+The app serves the interface and the API on port 8080. Data lives in the `kymo-data` volume. The image checks its own health every 30 seconds (`GET /health`), so `docker compose ps` shows `healthy` or `unhealthy` and the `unless-stopped` restart policy can be paired with a watcher if you want automatic restarts. This image is for tournaments and plain events; challenge instances and the VPN need the container platform's socket and host paths, so run the binary on the host for those (see above).
 
 ## Backup and restore
 

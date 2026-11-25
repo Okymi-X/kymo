@@ -585,24 +585,12 @@ pub async fn set_schedule(
 /// (they cascade), so scores and match history would change; retire the challenge instead.
 pub async fn challenge_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
     const PLAYED: [(&str, &str); 4] = [
-        (
-            "solve",
-            "this challenge has solves, retire it instead of deleting it",
-        ),
-        (
-            "item_solve",
-            "questions of this challenge have been answered, retire it instead of deleting it",
-        ),
-        (
-            "duel_answer",
-            "this challenge was answered in a tournament match, retire it instead of deleting it",
-        ),
-        (
-            "duel_assignment",
-            "this challenge is part of a tournament match, retire it instead of deleting it",
-        ),
+        ("solve", "has solves"),
+        ("item_solve", "has answered questions"),
+        ("duel_answer", "was answered in a tournament match"),
+        ("duel_assignment", "is part of a tournament match"),
     ];
-    for (table, message) in PLAYED {
+    for (table, what) in PLAYED {
         let used: i64 = sqlx::query_scalar(&format!(
             "SELECT COUNT(*) FROM {table} WHERE challenge_id = ?"
         ))
@@ -610,7 +598,9 @@ pub async fn challenge_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError
         .fetch_one(pool)
         .await?;
         if used > 0 {
-            return Err(ApiError::Conflict(message.into()));
+            return Err(ApiError::Conflict(format!(
+                "this challenge {what}, retire it instead of deleting it"
+            )));
         }
     }
     sqlx::query("DELETE FROM challenge WHERE id = ?")

@@ -689,3 +689,81 @@ test('the header fits a phone that also shows a scrollbar, signed out and as an 
   }
   await context.close()
 })
+
+test('a challenge that requires another one stays locked until the parent is solved', async ({ page, browser }) => {
+  test.setTimeout(120_000)
+  await organizer(page)
+  await page.goto('/organizer/events')
+  await page.getByLabel('New event').fill('E2E Chain')
+  await page.getByLabel('Players').selectOption({ label: 'Solo' })
+  await page.getByRole('button', { name: 'Create event' }).click()
+  await expect(page.getByRole('heading', { name: 'E2E Chain' })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'Challenges' }).click()
+  await page.getByLabel('New category').fill('Chain')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByText('Chain', { exact: true }).first()).toBeVisible()
+  const create = async (title: string, flag: string, parent: string | null) => {
+    await page.getByRole('button', { name: 'New challenge' }).click()
+    const editor = page.getByRole('dialog')
+    await editor.getByLabel('Title').fill(title)
+    await editor.getByLabel('Flag', { exact: true }).fill(flag)
+    if (parent) await editor.getByLabel('Unlocks after').selectOption({ label: parent })
+    await editor.getByRole('button', { name: 'Create challenge' }).click()
+    await expect(editor).toBeHidden()
+    await page.getByRole('button', { name: title, exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Publish' }).click()
+    await expect(page.getByRole('dialog').getByText('published', { exact: true })).toBeVisible()
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+  }
+  await create('Step one', 'KYMO{one}', null)
+  await create('Step two', 'KYMO{two}', 'Step one')
+  // The list says what the second one waits for; the first cannot be made to wait for the second.
+  await expect(page.getByText('after Step one')).toBeVisible()
+  await page.getByRole('button', { name: 'Step one', exact: true }).click()
+  await expect(page.getByRole('dialog').getByLabel('Unlocks after').getByRole('option', { name: 'Step two' })).toHaveCount(0)
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+
+  await page.getByRole('tab', { name: 'Overview' }).click()
+  await page.getByRole('button', { name: 'Open registration' }).click()
+  await expect(page.getByText('Registration open', { exact: true }).first()).toBeVisible()
+
+  const context = await browser.newContext()
+  const player = await context.newPage()
+  await player.goto('/signin?mode=register')
+  await player.getByLabel('Username').fill('chainer')
+  await player.getByLabel(/^Password/).fill('a long player password')
+  await player.getByRole('button', { name: 'Create account' }).click()
+  await expect(player.getByRole('heading', { name: 'Events' })).toBeVisible()
+  await player.getByRole('link', { name: /E2E Chain/ }).click()
+  await player.getByRole('button', { name: 'Register', exact: true }).click()
+  await expect(player.getByText('You are registered')).toBeVisible()
+  await page.getByRole('button', { name: 'Go live' }).click()
+  await expect(page.getByText('Live', { exact: true }).first()).toBeVisible()
+  await player.reload()
+
+  // Locked: the card says what to solve first, the dialog has no flag box.
+  await expect(player.getByText('Solve Step one first')).toBeVisible()
+  await player.getByRole('button', { name: /Step two/ }).click()
+  const locked = player.getByRole('dialog')
+  await expect(locked.getByRole('status')).toContainText('Solve Step one first')
+  await expect(locked.getByLabel('Flag', { exact: true })).toHaveCount(0)
+  await locked.getByRole('button', { name: 'Close' }).click()
+
+  // The locked card names Step one too, so the match is anchored to the card's own title.
+  await player.getByRole('button', { name: /^Step one/ }).click()
+  const first = player.getByRole('dialog')
+  await first.getByLabel('Flag', { exact: true }).fill('KYMO{one}')
+  await first.getByRole('button', { name: 'Submit' }).click()
+  await expect(first.getByText('Correct, 100 points.')).toBeVisible()
+  await first.getByRole('button', { name: 'Close' }).click()
+
+  // Open now: the lock is gone and the flag is taken.
+  await expect(player.getByText('Solve Step one first')).toHaveCount(0)
+  await player.getByRole('button', { name: /Step two/ }).click()
+  const second = player.getByRole('dialog')
+  await second.getByLabel('Flag', { exact: true }).fill('KYMO{two}')
+  await second.getByRole('button', { name: 'Submit' }).click()
+  await expect(second.getByText('Correct, 100 points.')).toBeVisible()
+  await context.close()
+})
