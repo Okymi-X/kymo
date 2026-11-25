@@ -265,7 +265,7 @@ need useradd passwd shadow-utils shadow
 need usermod passwd shadow-utils shadow
 need groupadd passwd shadow-utils shadow
 need runuser util-linux util-linux util-linux
-need kill procps procps-ng procps-ng
+need kill procps procps-ng util-linux
 need awk gawk gawk gawk
 need sed sed sed sed
 need grep grep grep grep

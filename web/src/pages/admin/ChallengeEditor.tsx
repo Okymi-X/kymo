@@ -15,13 +15,15 @@ import { Extras } from './challenge/Extras'
 import { FlagRows } from './challenge/FlagRows'
 import { DeliverySection } from './challenge/DeliverySection'
 import { Num, Section, When } from './challenge/parts'
-import { applyResponder, blank, dynamicSummary, flagPointsTotal, fromChallenge, int, isMulti, toBody, toCodeConfig, usesRows, validate, type Draft, type Problems } from './challenge/draft'
+import { applyResponder, blank, dynamicSummary, flagPointsTotal, fromChallenge, int, isMulti, parentChoices, toBody, toCodeConfig, usesRows, validate, type Draft, type Problems } from './challenge/draft'
 
 interface Props {
   eventId: number
   /** A tournament's challenges are worth fixed points and have no hints. */
   eventKind: 'jeopardy' | 'tournament'
   categories: Category[]
+  /** Every challenge of the event, to pick the one this challenge requires. */
+  challenges: AdminChallenge[]
   /** The lab host the event runs on; null is this server's own runtime. */
   eventLabHostId: number | null
   challenge: AdminChallenge | null
@@ -31,7 +33,7 @@ interface Props {
 /** Fields that are only empty because nothing was typed yet: they complain after Save was tried, not before. */
 const QUIET = ['title', 'category_id', 'image', 'flagValue', 'rows']
 
-export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId, challenge, onClose }: Props) {
+export function ChallengeEditor({ eventId, eventKind, categories, challenges, eventLabHostId, challenge, onClose }: Props) {
   const tournament = eventKind === 'tournament'
   const client = useQueryClient()
   const [start] = useState<Draft>(() => (challenge ? fromChallenge(challenge) : { ...blank(categories[0]?.id ?? 0), ...(tournament ? { points: '1' } : {}) }))
@@ -78,6 +80,8 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
   const place = deliveryProblems({ delivery, image: d.image, labId: effectiveLabId, catalog })
   const problems: Problems = { ...validate(d, tournament), ...place }
   const first = Object.values(problems)[0]
+  const parents = parentChoices(challenges, challenge?.id ?? null)
+  const parent = challenges.find((c) => String(c.id) === d.requires)
   // Show a field's problem only after it has been touched, so a new form does not open in red.
   const [touched, setTouched] = useState(false)
   // Empty required fields only complain once Save was tried, so picking a delivery does not open the form in red.
@@ -344,6 +348,23 @@ export function ChallengeEditor({ eventId, eventKind, categories, eventLabHostId
               {!dfir && <Num label="Attempt limit" value={d.maxAttempts} onChange={(v) => set('maxAttempts', v)} min={1} error={shown.maxAttempts} hint="Empty means unlimited. Wrong-format answers never count." />}
               <Num label="Order" value={d.position} onChange={(v) => set('position', v)} min={-1000} hint="Lower numbers come first in the category." />
             </div>
+            <Field
+              label="Unlocks after"
+              hint={
+                parent
+                  ? `Players see "${parent.title}" named on the locked card${parent.state !== 'published' ? ', once it is published' : ''}. ${tournament ? 'In a match it only applies when both are drawn for that match.' : ''}`
+                  : `Optional. Players ${tournament ? 'in a match ' : ''}see the title and points, but nothing else, until they have solved the challenge you pick.`
+              }
+            >
+              <Select value={d.requires} onChange={(e) => set('requires', e.target.value)} aria-label="Unlocks after">
+                <option value="">No other challenge (default)</option>
+                {parents.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.title}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </Section>
 
           {challenge ? (

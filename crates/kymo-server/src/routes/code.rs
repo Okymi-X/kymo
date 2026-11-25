@@ -52,7 +52,7 @@ pub async fn run(
         ));
     }
     let now = state.now();
-    open_for_play(&play, &challenge, now)?;
+    open_for_play(&state, &play, &challenge, now).await?;
     let config = code::config_of(&state.pool, challenge.id)
         .await?
         .ok_or(ApiError::NotFound)?;

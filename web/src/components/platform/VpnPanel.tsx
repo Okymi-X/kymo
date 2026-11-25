@@ -10,7 +10,8 @@ const when = (t: number) => new Date(t * 1000).toLocaleDateString([], { dateStyl
 /** How a player gets their own VPN profile for an event whose instances live on private networks. */
 export function VpnPanel({ labHost = null }: { labHost?: number | null }) {
   const client = useQueryClient()
-  const [open, setOpen] = useState(false)
+  // Folded once the player has a profile; open until then, so a first visit shows the steps.
+  const [toggled, setToggled] = useState<boolean | null>(null)
   const q = useQuery({ queryKey: ['vpn', labHost], queryFn: () => platform.vpnStatus(labHost) })
   const download = useMutation({
     mutationFn: () => platform.vpnProfile(labHost),
@@ -18,6 +19,8 @@ export function VpnPanel({ labHost = null }: { labHost?: number | null }) {
   })
   const v = q.data
   if (!v) return null
+  const open = toggled ?? !v.has_profile
+  const setOpen = (next: (prev: boolean) => boolean) => setToggled(next(open))
   if (!v.enabled) {
     return (
       <Panel>

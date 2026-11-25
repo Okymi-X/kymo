@@ -82,6 +82,11 @@ export function fileSize(bytes: number): string {
 }
 
 /** The shape a flag should have, for example `KYMO{...}`. */
+/** What a locked challenge card says it is waiting for. */
+export function unlockText(requires: { title: string | null } | null): string {
+  return requires?.title ? `Solve ${requires.title} first` : 'Locked'
+}
+
 export function flagHint(prefix: string, suffix: string): string {
   return prefix || suffix ? `${prefix}...${suffix}` : ''
 }

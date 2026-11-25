@@ -64,8 +64,13 @@ struct ChallengeOut {
     solved: bool,
     solved_at: Option<i64>,
     solved_by: u32,
-    /// "open" accepts submissions, "closed" is shown but does not (retired, paused, ended).
+    /// "open" accepts submissions, "closed" is shown but does not (retired, paused, ended), and
+    /// "locked" waits for another challenge to be solved: only its title and points are shown.
     status: &'static str,
+    locked: bool,
+    /// What unlocks a locked challenge. The title is given only when players can see that
+    /// challenge themselves.
+    requires: Option<RequiresOut>,
     release_at: Option<i64>,
     retire_at: Option<i64>,
     flag_format: FlagFormatOut,
@@ -88,6 +93,12 @@ struct ChallengeOut {
     items: Vec<ItemOut>,
     hints: Vec<HintOut>,
     attachments: Vec<AttachmentOut>,
+}
+
+#[derive(Serialize)]
+struct RequiresOut {
+    id: i64,
+    title: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -188,13 +199,29 @@ pub async fn list(
             None => None,
         };
         let host = row.host(play.event.lab_host_id);
+        let solved = if dfir {
+            all_answered
+        } else {
+            solved_at.contains_key(&row.id)
+        };
+        let blocker = submit::blocking_parent(&state, &play, &row).await?;
+        let locked = blocker.is_some();
+        let requires = blocker.map(|parent| RequiresOut {
+            id: parent.id,
+            title: submit::visible(&parent, now).then(|| parent.title.clone()),
+        });
+        let status = if locked {
+            "locked"
+        } else if open_for_play(&state, &play, &row, now).await.is_ok() {
+            "open"
+        } else {
+            "closed"
+        };
         challenges.push(ChallengeOut {
             points: current_value(&row.scoring, solved_by),
-            solved: if dfir {
-                all_answered
-            } else {
-                solved_at.contains_key(&row.id)
-            },
+            solved,
+            locked,
+            requires,
             solved_at: if dfir {
                 all_answered
                     .then(|| answered.values().copied().max())
@@ -203,14 +230,15 @@ pub async fn list(
                 solved_at.get(&row.id).copied()
             },
             kind: row.kind.clone(),
-            code: codes.get(&row.id).map(crate::code::CodeConfig::for_player),
-            items,
-            solved_by,
-            status: if open_for_play(&play, &row, now).is_ok() {
-                "open"
+            // What a locked challenge asks stays hidden until it opens.
+            code: if locked {
+                None
             } else {
-                "closed"
+                codes.get(&row.id).map(crate::code::CodeConfig::for_player)
             },
+            items: if locked { Vec::new() } else { items },
+            solved_by,
+            status,
             flag_format: FlagFormatOut {
                 prefix: row.flag_prefix.clone(),
                 suffix: row.flag_suffix.clone(),
@@ -218,7 +246,7 @@ pub async fn list(
             attempts_remaining,
             hints: hints
                 .iter()
-                .filter(|h| h.challenge_id == row.id)
+                .filter(|h| h.challenge_id == row.id && !locked)
                 .map(|h| {
                     let open = unlocked.contains(&h.id);
                     HintOut {
@@ -231,7 +259,7 @@ pub async fn list(
                 .collect(),
             attachments: files
                 .iter()
-                .filter(|a| a.challenge_id == row.id)
+                .filter(|a| a.challenge_id == row.id && !locked)
                 .map(|a| AttachmentOut {
                     id: a.id,
                     name: a.name.clone(),
@@ -247,7 +275,11 @@ pub async fn list(
             id: row.id,
             category_id: row.category_id,
             title: row.title,
-            description: row.description,
+            description: if locked {
+                String::new()
+            } else {
+                row.description
+            },
             author: row.author,
             release_at: row.release_at,
             retire_at: row.retire_at,
@@ -290,7 +322,7 @@ pub async fn unlock_hint(
     let _guard = state.write_lock.lock().await;
     let challenge = challenge_of(&state, &play, challenge_id).await?;
     released(&challenge, now)?;
-    open_for_play(&play, &challenge, now)?;
+    open_for_play(&state, &play, &challenge, now).await?;
     let hint = store::hint_by_id(&state.pool, hint_id).await?;
     if hint.challenge_id != challenge.id {
         return Err(ApiError::NotFound);
@@ -317,6 +349,14 @@ pub async fn download(
     let challenge = challenge_of(&state, &play, challenge_id).await?;
     released(&challenge, state.now())?;
     crate::duel::player_gate(&state, &play.event, challenge.id, player.id, false).await?;
+    if submit::blocking_parent(&state, &play, &challenge)
+        .await?
+        .is_some()
+    {
+        return Err(ApiError::Conflict(
+            "this challenge is locked until another one is solved".into(),
+        ));
+    }
     let meta = store::attachment_meta(&state.pool, attachment_id).await?;
     if meta.challenge_id != challenge.id {
         return Err(ApiError::NotFound);

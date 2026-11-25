@@ -69,6 +69,8 @@ pub struct ChallengeRow {
     pub responder: bool,
     /// Where this challenge's instances run when it is not the event's lab host; none follows the event.
     pub lab_host_id: Option<i64>,
+    /// The challenge a participant must solve before this one opens for them.
+    pub requires_challenge_id: Option<i64>,
 }
 
 impl ChallengeRow {
@@ -150,6 +152,8 @@ pub struct ChallengeFields {
     pub requires_instance: bool,
     pub instance_config: Option<Value>,
     pub kind: String,
+    /// The parent challenge, solved before this one opens. None: open from its release.
+    pub requires_challenge_id: Option<i64>,
 }
 
 impl From<&ChallengeRow> for ChallengeFields {
@@ -175,6 +179,7 @@ impl From<&ChallengeRow> for ChallengeFields {
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok()),
             kind: row.kind.clone(),
+            requires_challenge_id: row.requires_challenge_id,
         }
     }
 }
@@ -252,7 +257,9 @@ impl ChallengeFields {
             return Err(bad("max_attempts is 1 to 10000, or null for unlimited"));
         }
         if self.max_starts.is_some_and(|m| !(1..=1000).contains(&m)) {
-            return Err(bad("max_starts is 1 to 1000, or null to use the event's default"));
+            return Err(bad(
+                "max_starts is 1 to 1000, or null to use the event's default",
+            ));
         }
         check_schedule(self.release_at, self.retire_at)?;
         if self
@@ -416,6 +423,62 @@ async fn check_category(
         .ok_or_else(|| bad("that category does not belong to this event"))
 }
 
+/// The longest chain of dependencies a challenge can sit at the end of.
+const MAX_CHAIN: usize = 64;
+
+/// A parent must be another challenge of the same event, and following parents from it must
+/// never come back to `child`: a loop would lock every challenge in it for good.
+pub async fn check_parent(
+    pool: &SqlitePool,
+    event_id: i64,
+    child: Option<i64>,
+    parent: Option<i64>,
+) -> Result<(), ApiError> {
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    if child == Some(parent) {
+        return Err(bad("a challenge cannot require itself"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut next = Some(parent);
+    while let Some(id) = next {
+        let found: Option<(i64, Option<i64>)> =
+            sqlx::query_as("SELECT event_id, requires_challenge_id FROM challenge WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+        let Some((owner, grand)) = found else {
+            return Err(bad("the required challenge does not exist"));
+        };
+        if owner != event_id {
+            return Err(bad("the required challenge belongs to another event"));
+        }
+        if child == Some(id) {
+            return Err(bad(
+                "a challenge cannot require one of its own children: that would lock both for good",
+            ));
+        }
+        if !seen.insert(id) || seen.len() > MAX_CHAIN {
+            return Err(bad("the required challenges form a loop"));
+        }
+        next = grand;
+    }
+    Ok(())
+}
+
+/// Sets or clears the parent of a challenge, with the same checks as a full update.
+pub async fn set_parent(pool: &SqlitePool, id: i64, parent: Option<i64>) -> Result<(), ApiError> {
+    let row = challenge_by_id(pool, id).await?;
+    check_parent(pool, row.event_id, Some(id), parent).await?;
+    sqlx::query("UPDATE challenge SET requires_challenge_id = ? WHERE id = ?")
+        .bind(parent)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn challenge_insert(
     pool: &SqlitePool,
     event_id: i64,
@@ -423,8 +486,9 @@ pub async fn challenge_insert(
     now: i64,
 ) -> Result<i64, ApiError> {
     check_category(pool, event_id, fields.category_id).await?;
+    check_parent(pool, event_id, None, fields.requires_challenge_id).await?;
     let done = sqlx::query(
-        "INSERT INTO challenge (event_id, category_id, title, description, author, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, max_starts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO challenge (event_id, category_id, title, description, author, scoring, flag, flag_prefix, flag_suffix, case_sensitive, max_attempts, max_starts, release_at, retire_at, position, requires_instance, instance_config, kind, created_at, requires_challenge_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(event_id)
     .bind(fields.category_id)
@@ -446,6 +510,7 @@ pub async fn challenge_insert(
     // The kind column only allows flag and dfir; a coding challenge is marked by its code row.
     .bind(if fields.kind == "code" { "flag" } else { fields.kind.as_str() })
     .bind(now)
+    .bind(fields.requires_challenge_id)
     .execute(pool)
     .await?;
     Ok(done.last_insert_rowid())
@@ -457,8 +522,15 @@ pub async fn challenge_update(
     fields: &ChallengeFields,
 ) -> Result<(), ApiError> {
     check_category(pool, row.event_id, fields.category_id).await?;
+    check_parent(
+        pool,
+        row.event_id,
+        Some(row.id),
+        fields.requires_challenge_id,
+    )
+    .await?;
     sqlx::query(
-        "UPDATE challenge SET category_id = ?, title = ?, description = ?, author = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, max_starts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ? WHERE id = ?",
+        "UPDATE challenge SET category_id = ?, title = ?, description = ?, author = ?, scoring = ?, flag = ?, flag_prefix = ?, flag_suffix = ?, case_sensitive = ?, max_attempts = ?, max_starts = ?, release_at = ?, retire_at = ?, position = ?, requires_instance = ?, instance_config = ?, requires_challenge_id = ? WHERE id = ?",
     )
     .bind(fields.category_id)
     .bind(&fields.title)
@@ -476,6 +548,7 @@ pub async fn challenge_update(
     .bind(fields.position)
     .bind(fields.requires_instance)
     .bind(fields.instance_config.as_ref().map(Value::to_string))
+    .bind(fields.requires_challenge_id)
     .bind(row.id)
     .execute(pool)
     .await?;
@@ -507,16 +580,38 @@ pub async fn set_schedule(
     Ok(())
 }
 
-/// Refused once someone solved it: retire the challenge instead of erasing scores.
+/// Refused once it was played: a Jeopardy solve, an answered DFIR question, or a tournament
+/// match it was assigned to or answered in. Every one of those rows would go with the challenge
+/// (they cascade), so scores and match history would change; retire the challenge instead.
 pub async fn challenge_delete(pool: &SqlitePool, id: i64) -> Result<(), ApiError> {
-    let solves: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM solve WHERE challenge_id = ?")
+    const PLAYED: [(&str, &str); 4] = [
+        (
+            "solve",
+            "this challenge has solves, retire it instead of deleting it",
+        ),
+        (
+            "item_solve",
+            "questions of this challenge have been answered, retire it instead of deleting it",
+        ),
+        (
+            "duel_answer",
+            "this challenge was answered in a tournament match, retire it instead of deleting it",
+        ),
+        (
+            "duel_assignment",
+            "this challenge is part of a tournament match, retire it instead of deleting it",
+        ),
+    ];
+    for (table, message) in PLAYED {
+        let used: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM {table} WHERE challenge_id = ?"
+        ))
         .bind(id)
         .fetch_one(pool)
         .await?;
-    if solves > 0 {
-        return Err(ApiError::Conflict(
-            "this challenge has solves, retire it instead of deleting it".into(),
-        ));
+        if used > 0 {
+            return Err(ApiError::Conflict(message.into()));
+        }
     }
     sqlx::query("DELETE FROM challenge WHERE id = ?")
         .bind(id)

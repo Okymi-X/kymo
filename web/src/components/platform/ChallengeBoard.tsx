@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { platform } from '../../api/platform'
 import { useEventStream } from '../../api/platformHooks'
-import { groupByCategory } from '../../lib/platform'
+import { groupByCategory, unlockText } from '../../lib/platform'
 import { ErrorText } from '../ui'
 import { Empty, Loading } from './bits'
 import { ChallengeDialog } from './ChallengeDialog'
@@ -51,12 +51,14 @@ export function ChallengeBoard({ slug, vpn = false, labHost = null }: { slug: st
                 <button
                   type="button"
                   onClick={() => setOpenId(c.id)}
-                  className={`flex h-full w-full flex-col gap-2 rounded-card border p-4 text-left transition-[transform,box-shadow] hover:shadow-[var(--shadow-lift)] active:scale-[0.99] ${c.solved ? 'border-win/50 bg-win/5' : 'border-line bg-surface'} ${c.status === 'closed' ? 'opacity-70' : ''}`}
+                  className={`flex h-full w-full flex-col gap-2 rounded-card border p-4 text-left transition-[transform,box-shadow] hover:shadow-[var(--shadow-lift)] active:scale-[0.99] ${c.solved ? 'border-win/50 bg-win/5' : c.locked ? 'border-dashed border-line bg-surface' : 'border-line bg-surface'} ${c.status !== 'open' && !c.solved ? 'opacity-70' : ''}`}
                 >
                   <span className="flex items-start justify-between gap-2">
                     <span className="font-medium">{c.title}</span>
                     {c.solved ? (
                       <Check size={18} aria-label="Solved" className="shrink-0 text-win" />
+                    ) : c.locked ? (
+                      <Lock size={16} aria-label="Locked" className="shrink-0 text-muted" />
                     ) : c.status === 'closed' ? (
                       <Lock size={16} aria-label="Closed" className="shrink-0 text-muted" />
                     ) : null}
@@ -64,9 +66,11 @@ export function ChallengeBoard({ slug, vpn = false, labHost = null }: { slug: st
                   <span className="mt-auto flex items-center justify-between text-sm text-muted">
                     <span className="font-mono tabular-nums text-ink">{c.points} pts</span>
                     <span>
-                      {c.kind === 'dfir'
-                        ? `${c.items.filter((i) => i.solved).length} of ${c.items.length} answered`
-                        : `${c.solved_by} ${c.solved_by === 1 ? 'solve' : 'solves'}`}
+                      {c.locked
+                        ? unlockText(c.requires)
+                        : c.kind === 'dfir'
+                          ? `${c.items.filter((i) => i.solved).length} of ${c.items.length} answered`
+                          : `${c.solved_by} ${c.solved_by === 1 ? 'solve' : 'solves'}`}
                     </span>
                   </span>
                 </button>

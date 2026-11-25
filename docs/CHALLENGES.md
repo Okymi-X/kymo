@@ -79,6 +79,21 @@ A **Responder** is an instance challenge where the player *patches* a machine in
 
 The lab host needs Docker, the VPN gateway and the Verifier image (the installer builds it). The installer also adds a firewall rule that keeps the lab networks away from the lab host itself, because a player may have root in a challenge machine on a bridge whose address is that host. The full design is in `docs/DYNAMIC_FLAGS_AND_RESPONDER.md`.
 
+## Writing a challenge
+
+The description takes Markdown: paragraphs, `#` headings, **bold**, *italic*, `code`, fenced code blocks, lists, quotes, rules and links to `http`, `https` or `mailto` addresses. It is turned into page elements, never into raw HTML, so a description cannot carry a script, an image from elsewhere or a `javascript:` link. An optional *Author* is shown to players as "Created by"; leave it empty to credit nobody.
+
+A challenge can be deleted from its edit form while it is a draft or retired and nobody has played it. Once it has a solve, an answered question, or a tournament match that drew or answered it, the server refuses: retire it instead, so scores and match history stay as they were.
+
+## Challenges that unlock other challenges
+
+Any challenge can require another one of the same event: *Unlocks after* in the *New challenge* and *Edit challenge* form, off by default. Until a participant (a player, or their team in a team event) has solved the required challenge, the dependent one shows on their board with its title, points and a lock, and nothing else: no description, files, hints, questions or flag box, and its flags, hints, files, instances and code runs are refused by the server too. The card names the challenge to solve first, unless that challenge is still a draft or unreleased, in which case it only says *Locked*. Solving the parent opens the child at once, and a challenge that is already solved stays open whatever it requires.
+
+- **Chains are fine, loops are not.** A challenge can require one that itself requires another. The form only offers challenges that do not already depend on the one being edited, and the server refuses a challenge requiring itself or one of its own descendants: that would lock the whole loop for good.
+- **Deleting or retiring.** Deleting a parent frees its children (the setting is cleared). Retiring a parent keeps its children locked for whoever has not solved it; clear the setting if they should open anyway.
+- **Tournaments.** The same setting works for match challenges, per side: a side opens the child by solving the parent in that match. It only applies when both challenges are drawn or picked for the same match; a child drawn without its parent plays as a normal challenge. A side that has run out of attempts on the parent can never reach the child, so the match no longer waits for it.
+- **Bundles** carry the dependency as the parent's title (`requires`), which must name exactly one challenge of the bundle.
+
 ## Integrity and disqualification
 
 Kymo reports suspicion and leaves the decision to an organizer.

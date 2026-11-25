@@ -10,3 +10,4 @@ compose.dev.yaml
 Dockerfile.dev
 .pnpm-store/
 dist-lab/
+.vecgrep/

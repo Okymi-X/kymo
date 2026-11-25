@@ -72,16 +72,25 @@ function AnswerBox({ slug, matchId, challenge, itemId, label, placeholder, locke
 function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slug: string; view: MatchView; challenge: DuelChallenge; vpn: boolean; labHost: number | null; onClose: () => void }) {
   const download = useMutation({ mutationFn: (a: { id: number; name: string }) => platform.download(slug, challenge.id, a.id, a.name) })
   const open = view.status === 'open'
+  const locked = challenge.locked
   const me = view.you ?? 0
   const placeholder = challenge.flag_format ? flagHint(challenge.flag_format.prefix, challenge.flag_format.suffix) : 'Enter the flag'
   return (
     <Modal label={challenge.title} onClose={onClose} width="40rem">
       <ModalHeader
         title={challenge.title}
-        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'Multi-question' : challenge.kind === 'instance' ? 'Instance' : challenge.flags ? `${challenge.flags[0]} flags` : 'Single flag'}${open ? '' : ' · closed'}`}
+        subtitle={`${challenge.category} · ${challenge.kind === 'dfir' ? 'Multi-question' : challenge.kind === 'instance' ? 'Instance' : challenge.flags ? `${challenge.flags[0]} flags` : 'Single flag'}${locked ? ' · locked' : open ? '' : ' · closed'}`}
         actions={<Pill tone="text-ink">{challenge.earned[me]} / {challenge.points} pts</Pill>}
       />
       <ModalBody>
+        {locked && (
+          <p className="flex items-start gap-2 rounded-card border border-dashed border-line p-4 text-sm text-muted" role="status">
+            <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>
+              {challenge.requires ? `Solve ${challenge.requires} first.` : 'Locked.'} This challenge opens for your side as soon as you have solved it.
+            </span>
+          </p>
+        )}
         {challenge.description && <Markdown text={challenge.description} />}
         {challenge.attachments.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -100,7 +109,7 @@ function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slu
             <ErrorText error={download.error} />
           </div>
         )}
-        {challenge.kind === 'instance' && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={labHost} />}
+        {challenge.kind === 'instance' && !locked && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={labHost} />}
         {challenge.kind === 'dfir' && (
           <ol className="flex flex-col gap-4">
             {challenge.items.map((item, i) => (
@@ -123,7 +132,7 @@ function ChallengeDialog({ slug, view, challenge, vpn, labHost, onClose }: { slu
           </ol>
         )}
       </ModalBody>
-      {challenge.kind !== 'dfir' && (
+      {challenge.kind !== 'dfir' && !locked && (
         <div className="flex flex-col gap-2 border-t border-line bg-surface px-6 py-4">
           {challenge.solved ? (
             <p className="flex items-center gap-2 text-win" aria-live="polite">
@@ -208,13 +217,13 @@ export function MatchBoard({ slug, matchId: id, embedded = false }: { slug: stri
                     >
                       <span className="flex items-start justify-between gap-2">
                         <span className="font-medium">{c.title}</span>
-                        {done ? <Check size={18} aria-label="Solved" className="shrink-0 text-win" /> : view.status !== 'open' ? <Lock size={16} aria-label="Closed" className="shrink-0 text-muted" /> : null}
+                        {done ? <Check size={18} aria-label="Solved" className="shrink-0 text-win" /> : c.locked ? <Lock size={16} aria-label="Locked" className="shrink-0 text-muted" /> : view.status !== 'open' ? <Lock size={16} aria-label="Closed" className="shrink-0 text-muted" /> : null}
                       </span>
                       <span className="mt-auto flex items-center justify-between text-sm text-muted">
                         <span className="font-mono tabular-nums text-ink">
                           {c.earned[me]} / {c.points} pts
                         </span>
-                        <span>{c.kind === 'dfir' ? `${answered} of ${c.items.length} answered` : c.flags ? `${c.flags[1]} of ${c.flags[0]} flags` : done ? 'Solved' : 'Open'}</span>
+                        <span>{c.locked ? (c.requires ? `Solve ${c.requires} first` : 'Locked') : c.kind === 'dfir' ? `${answered} of ${c.items.length} answered` : c.flags ? `${c.flags[1]} of ${c.flags[0]} flags` : done ? 'Solved' : 'Open'}</span>
                       </span>
                     </button>
                   </li>

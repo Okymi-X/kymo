@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, PlayerChallenge } from '../api/platformTypes'
-import { countdown, flagHint, isNoDeadline, registrationStatus, fileSize, fromLocalInput, groupByCategory, moveLabel, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
+import { countdown, flagHint, unlockText, isNoDeadline, registrationStatus, fileSize, fromLocalInput, groupByCategory, moveLabel, nextStates, scoringLabel, shortDuration, toLocalInput } from './platform'
 
 const challenge = (id: number, category_id: number, points: number, title = `c${id}`): PlayerChallenge => ({
   id,
@@ -10,6 +10,8 @@ const challenge = (id: number, category_id: number, points: number, title = `c${
   points,
   solved: false,
   solved_at: null,
+  locked: false,
+  requires: null,
   solved_by: 0,
   status: 'open',
   release_at: null,
@@ -128,5 +130,13 @@ describe('isNoDeadline', () => {
   it('treats the far future placeholder as no date', () => {
     expect(isNoDeadline(4_070_908_800)).toBe(true) // 2099-01-01
     expect(isNoDeadline(1_800_000_000)).toBe(false)
+  })
+})
+
+describe('unlockText', () => {
+  it('names the parent when players may see it, and says only locked otherwise', () => {
+    expect(unlockText({ title: 'Step one' })).toBe('Solve Step one first')
+    expect(unlockText({ title: null })).toBe('Locked')
+    expect(unlockText(null)).toBe('Locked')
   })
 })

@@ -116,11 +116,62 @@ pub struct Eval {
     pub rows: Vec<ChallengeRow>,
     pub units: Vec<Unit>,
     pub answers: Vec<AnswerRow>,
+    /// Challenge to the challenge it requires, for pairs that are both in this match. A parent
+    /// that is not part of the match does not lock anything: the side could never solve it here.
+    pub parents: HashMap<i64, i64>,
 }
 
 impl Eval {
     fn side_of_team(&self, team_id: i64) -> Option<usize> {
         self.teams.iter().position(|t| *t == team_id)
+    }
+
+    /// Every unit of a challenge answered correctly by this side.
+    fn solved_challenge(&self, side: usize, challenge_id: i64) -> bool {
+        let mut units = self.units.iter().filter(|u| u.challenge_id == challenge_id);
+        let mut any = false;
+        for u in &mut units {
+            any = true;
+            if !self.correct(side, u) {
+                return false;
+            }
+        }
+        any
+    }
+
+    /// The challenge this side must still solve before `challenge_id` opens for them. A
+    /// challenge the side has solved stays open whatever it requires.
+    pub fn blocker(&self, side: usize, challenge_id: i64) -> Option<i64> {
+        self.parents.get(&challenge_id).copied().filter(|parent| {
+            !self.solved_challenge(side, *parent) && !self.solved_challenge(side, challenge_id)
+        })
+    }
+
+    pub fn locked(&self, side: usize, challenge_id: i64) -> bool {
+        self.blocker(side, challenge_id).is_some()
+    }
+
+    /// Whether this side can still reach `challenge_id`: every unsolved ancestor in the match
+    /// still has a question with attempts left. Once a parent is out of attempts, its children
+    /// can never open, so they no longer keep the match waiting.
+    fn reachable(&self, side: usize, challenge_id: i64) -> bool {
+        let mut current = challenge_id;
+        // Parents are checked for loops when they are saved; the bound only guards the walk.
+        for _ in 0..=self.rows.len() {
+            let Some(parent) = self.blocker(side, current) else {
+                return true;
+            };
+            let alive = self
+                .units
+                .iter()
+                .filter(|u| u.challenge_id == parent)
+                .any(|u| !self.correct(side, u) && self.attempts_left(side, u) != Some(0));
+            if !alive {
+                return false;
+            }
+            current = parent;
+        }
+        false
     }
 
     fn correct(&self, side: usize, unit: &Unit) -> bool {
@@ -185,10 +236,31 @@ impl Eval {
             unsettled: self
                 .units
                 .iter()
-                .filter(|u| !self.correct(side, u) && self.attempts_left(side, u) != Some(0))
+                .filter(|u| {
+                    !self.correct(side, u)
+                        && self.attempts_left(side, u) != Some(0)
+                        && self.reachable(side, u.challenge_id)
+                })
                 .count(),
         };
         [count(0), count(1)]
+    }
+
+    /// The title of the challenge that keeps `challenge_id` locked for this side.
+    fn blocker_title(&self, side: usize, challenge_id: i64) -> Option<&str> {
+        let parent = self.blocker(side, challenge_id)?;
+        self.rows
+            .iter()
+            .find(|r| r.id == parent)
+            .map(|r| r.title.as_str())
+    }
+}
+
+/// Refuses a challenge that is locked for this side.
+fn require_open(ev: &Eval, side: usize, challenge_id: i64) -> Result<(), ApiError> {
+    match ev.blocker_title(side, challenge_id) {
+        Some(title) => Err(ApiError::Conflict(format!("solve \"{title}\" first"))),
+        None => Ok(()),
     }
 }
 
@@ -202,11 +274,21 @@ pub async fn eval(state: &AppState, t: &Tournament, match_id: usize) -> Result<E
     let rows = rows_in_order(state, &ids).await?;
     let units = units_of(state, &rows).await?;
     let answers = dstore::answers(&state.pool, t.id, match_id as i64).await?;
+    let parents = rows
+        .iter()
+        .filter_map(|r| {
+            let parent = r.requires_challenge_id?;
+            rows.iter()
+                .any(|p| p.id == parent)
+                .then_some((r.id, parent))
+        })
+        .collect();
     Ok(Eval {
         teams,
         rows,
         units,
         answers,
+        parents,
     })
 }
 
@@ -469,6 +551,10 @@ pub struct ChallengeView {
     pub solved: bool,
     pub attempts_left: Option<u32>,
     pub items: Vec<ItemView>,
+    /// The viewer's side has not solved the challenge this one requires: what it asks is hidden.
+    pub locked: bool,
+    /// The title of the challenge that unlocks it, for the viewer's side.
+    pub requires: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -588,6 +674,8 @@ pub async fn view(
         let flag_unit = units.iter().find(|u| u.item_id.is_none());
         let flag_units: Vec<&&Unit> = units.iter().filter(|u| u.flag_id.is_some()).collect();
         let found = |side: usize| flag_units.iter().filter(|u| ev.correct(side, u)).count();
+        // Staff see everything; a player sees a locked challenge's title and points only.
+        let locked = you.is_some() && ev.locked(me, row.id);
         challenges.push(ChallengeView {
             id: row.id,
             title: row.title.clone(),
@@ -595,10 +683,14 @@ pub async fn view(
                 .get(&row.category_id)
                 .cloned()
                 .unwrap_or_default(),
-            description: row.description.clone(),
+            description: if locked {
+                String::new()
+            } else {
+                row.description.clone()
+            },
             attachments: files
                 .iter()
-                .filter(|a| a.challenge_id == row.id)
+                .filter(|a| a.challenge_id == row.id && !locked)
                 .map(|a| AttachmentOut {
                     id: a.id,
                     name: a.name.clone(),
@@ -636,7 +728,9 @@ pub async fn view(
                     .or(flag_units.first().copied())
                     .and_then(|u| ev.attempts_left(me, u))
             }),
-            items,
+            items: if locked { Vec::new() } else { items },
+            locked,
+            requires: you.and_then(|_| ev.blocker_title(me, row.id).map(str::to_owned)),
         });
     }
     Ok(MatchView {
@@ -719,6 +813,7 @@ pub async fn submit(
         .iter()
         .find(|r| r.id == sub.challenge_id)
         .ok_or(ApiError::NotFound)?;
+    require_open(&ev, side, row.id)?;
     let multi = row.multi_flag && sub.item_id.is_none();
     // For a challenge with several flags the submitted value picks the flag it belongs to.
     let (unit, matched_flag, verdict): (&Unit, Option<i64>, Verdict) = if multi {
@@ -961,8 +1056,9 @@ pub async fn player_gate(
         let Some(side) = viewer_side(state, &t, event, m.id, Some(user_id)).await? else {
             continue;
         };
+        let ev = eval(state, &t, m.id).await?;
+        require_open(&ev, side, challenge_id)?;
         if unsolved {
-            let ev = eval(state, &t, m.id).await?;
             let done = ev
                 .units
                 .iter()

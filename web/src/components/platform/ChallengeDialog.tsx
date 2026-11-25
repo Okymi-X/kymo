@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { platform } from '../../api/platform'
 import type { PlayerChallenge, SubmitResult } from '../../api/platformTypes'
 import { flagProgress } from '../../lib/flags'
-import { fileSize, flagHint, verdictText } from '../../lib/platform'
+import { fileSize, flagHint, unlockText, verdictText } from '../../lib/platform'
 import { Modal, ModalBody, ModalHeader } from '../Modal'
 import { Button, ErrorText, Input } from '../ui'
 import { Markdown } from '../Markdown'
@@ -83,6 +83,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
   const download = useMutation({ mutationFn: (a: { id: number; name: string }) => platform.download(slug, challenge.id, a.id, a.name) })
 
   const open = challenge.status === 'open'
+  const locked = challenge.locked
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (flag.trim()) submit.mutate()
@@ -101,12 +102,21 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
           <>
             {category} · {challenge.solved_by} {challenge.solved_by === 1 ? 'solve' : 'solves'}
             {challenge.solved && ' · solved by you'}
-            {!open && ' · closed'}
+            {locked ? ' · locked' : !open && ' · closed'}
           </>
         }
         actions={<Pill tone="text-ink">{challenge.points} pts</Pill>}
       />
       <ModalBody>
+        {locked && (
+          <p className="flex items-start gap-2 rounded-card border border-dashed border-line p-4 text-sm text-muted" role="status">
+            <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>
+              {unlockText(challenge.requires)}.{' '}
+              {challenge.requires?.title ? 'This challenge opens as soon as you have solved it.' : 'This challenge opens once you have solved another one.'}
+            </span>
+          </p>
+        )}
         {challenge.description && <Markdown text={challenge.description} />}
         {challenge.author && <p className="text-xs text-muted">Created by <span className="font-medium text-ink">{challenge.author}</span></p>}
 
@@ -155,9 +165,9 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
           </ol>
         )}
 
-        {challenge.kind === 'code' && <CodePanel slug={slug} challenge={challenge} open={open} />}
+        {challenge.kind === 'code' && !locked && <CodePanel slug={slug} challenge={challenge} open={open} />}
 
-        {challenge.requires_instance && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={challenge.lab_host_id ?? labHost} />}
+        {challenge.requires_instance && !locked && <InstancePanel slug={slug} challengeId={challenge.id} open={open && !challenge.solved} vpn={vpn} labHost={challenge.lab_host_id ?? labHost} />}
         {challenge.requires_instance && challenge.solved && (
           <p className="text-sm text-muted">You solved this challenge, so a new instance cannot be started for it.</p>
         )}
@@ -198,7 +208,7 @@ export function ChallengeDialog({ slug, challenge, category, vpn = false, labHos
       </ModalBody>
 
       {/* The flag form stays in view while the rest scrolls: it is what the player came here to do. */}
-      {challenge.kind === 'flag' && (
+      {challenge.kind === 'flag' && !locked && (
       <form onSubmit={onSubmit} className="flex flex-col gap-2 border-t border-line bg-surface px-6 py-4">
         {challenge.solved ? (
           <p className="flex items-center gap-2 text-win" aria-live="polite">

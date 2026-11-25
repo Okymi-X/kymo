@@ -531,3 +531,223 @@ async fn several_flags_score_one_by_one_in_a_match() {
     .await;
     assert_eq!(t["bracket"]["matches"][0]["score"], json!([4, 1]));
 }
+
+/// In a match a challenge that requires another one is locked for a side until that side solves
+/// the parent. A side that can no longer solve the parent no longer keeps the match waiting for
+/// the child either.
+#[tokio::test]
+async fn a_locked_challenge_opens_in_a_match_once_its_parent_is_solved() {
+    let pool = db::connect("sqlite::memory:").await.unwrap();
+    let app = app_over(&pool);
+    let admin = admin_token(&app).await;
+    let (alice, _) = player(&app, "alice").await;
+    let (bob, _) = player(&app, "bob").await;
+    let (status, t) = call(
+        &app,
+        "POST",
+        "/tournaments",
+        Some(&admin),
+        Some(json!({ "name": "Chain Cup", "format": "single_elimination" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{t}");
+    let (tid, event_id, slug) = (
+        t["id"].as_i64().unwrap(),
+        t["event_id"].as_i64().unwrap(),
+        t["slug"].as_str().unwrap().to_owned(),
+    );
+    sqlx::query("UPDATE event SET mode = 'solo', state = 'registration_open' WHERE id = ?")
+        .bind(event_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for token in [&alice, &bob] {
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/events/{slug}/register"),
+            Some(token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+    let (_, cat) = call(
+        &app,
+        "POST",
+        &format!("/admin/events/{event_id}/categories"),
+        Some(&admin),
+        Some(json!({ "name": "Pwn" })),
+    )
+    .await;
+    let cat_id = cat["id"].as_i64().unwrap();
+    let create = |body: Value| {
+        let app = app.clone();
+        let admin = admin.clone();
+        async move {
+            let (status, made) = call(
+                &app,
+                "POST",
+                &format!("/admin/events/{event_id}/challenges"),
+                Some(&admin),
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED, "{made}");
+            made["id"].as_i64().unwrap()
+        }
+    };
+    let first = create(json!({
+        "category_id": cat_id, "title": "Foothold", "description": "get in",
+        "scoring": { "kind": "static", "points": 10 },
+        "flag": { "kind": "static", "value": "alpha" }, "max_attempts": 1,
+    }))
+    .await;
+    let second = create(json!({
+        "category_id": cat_id, "title": "Root", "description": "go further",
+        "scoring": { "kind": "static", "points": 20 },
+        "flag": { "kind": "static", "value": "beta" }, "requires_challenge_id": first,
+    }))
+    .await;
+    for id in [first, second] {
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/admin/challenges/{id}/publish"),
+            Some(&admin),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    for (method, uri, body) in [
+        (
+            "PUT",
+            format!("/admin/tournaments/{tid}/challenge-settings"),
+            Some(
+                json!({ "assignment": "per_match", "solo": 2, "team": 2, "seed": 1, "time_limit": null }),
+            ),
+        ),
+        (
+            "POST",
+            format!("/admin/tournaments/{tid}/roster/from-registrations"),
+            None,
+        ),
+        (
+            "POST",
+            format!("/admin/tournaments/{tid}/start"),
+            Some(json!({})),
+        ),
+    ] {
+        let (status, reply) = call(&app, method, &uri, Some(&admin), body).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {reply}");
+    }
+
+    let view = |token: &str| {
+        let app = app.clone();
+        let token = token.to_owned();
+        let slug = slug.clone();
+        async move {
+            let (status, v) = call(
+                &app,
+                "GET",
+                &format!("/tournaments/{slug}/matches/0/play"),
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{v}");
+            v
+        }
+    };
+    let challenge = |v: &Value, id: i64| {
+        v["challenges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    let v = view(&alice).await;
+    assert_eq!(v["status"], "open");
+    let root = challenge(&v, second);
+    assert_eq!(root["locked"], true);
+    assert_eq!(root["requires"], "Foothold");
+    assert_eq!(root["description"], "", "a locked challenge keeps its text");
+    assert_eq!(challenge(&v, first)["locked"], false);
+
+    let submit = |token: &str, id: i64, value: &str| {
+        let app = app.clone();
+        let token = token.to_owned();
+        let value = value.to_owned();
+        let uri = format!("/tournaments/{slug}/matches/0/challenges/{id}/submit");
+        async move {
+            call(
+                &app,
+                "POST",
+                &uri,
+                Some(&token),
+                Some(json!({ "value": value, "item_id": null })),
+            )
+            .await
+        }
+    };
+    let (status, r) = submit(&alice, second, "beta").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{r}");
+    assert!(r["error"].to_string().contains("Foothold"), "{r}");
+    let (status, r) = submit(&alice, first, "alpha").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["correct"], true);
+    let v = view(&alice).await;
+    assert_eq!(challenge(&v, second)["locked"], false);
+    assert_eq!(challenge(&v, second)["description"], "go further");
+    // Bob's side has not solved the parent: the child stays locked for him alone.
+    assert_eq!(challenge(&view(&bob).await, second)["locked"], true);
+    let (status, r) = submit(&alice, second, "beta").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["finished"], false, "bob can still answer");
+
+    // Bob burns his only attempt on the parent: he can never reach the child, so nothing is
+    // left to wait for and the match ends on what was earned.
+    let (status, r) = submit(&bob, first, "wrong").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["correct"], false);
+    assert_eq!(r["finished"], true, "{r}");
+    let (_, t) = call(
+        &app,
+        "GET",
+        &format!("/tournaments/{slug}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    assert_eq!(t["bracket"]["matches"][0]["score"], json!([30, 0]));
+
+    // What was played in a match stays on record: it cannot be deleted, only retired. A challenge
+    // no match ever drew can go.
+    let spare = create(json!({
+        "category_id": cat_id, "title": "Spare", "scoring": { "kind": "static", "points": 5 },
+        "flag": { "kind": "static", "value": "gamma" },
+    }))
+    .await;
+    let (status, body) = call(
+        &app,
+        "DELETE",
+        &format!("/admin/challenges/{first}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["error"].to_string().contains("match"), "{body}");
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        &format!("/admin/challenges/{spare}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}

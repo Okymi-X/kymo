@@ -362,6 +362,7 @@ async fn add_challenges(
                 position: position as i64,
                 requires_instance: false,
                 instance_config: None,
+                requires_challenge_id: None,
                 kind: kind.into(),
             },
             at,

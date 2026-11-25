@@ -173,6 +173,13 @@ async fn probe(state: &AppState, setup: &InstanceSetup, row: &InstanceRow) -> bo
 /// the copy is best effort and never blocks or fails what called it, and calling it again only
 /// adds the runs not copied yet.
 async fn archive_verify_log(state: &AppState, row: &InstanceRow) {
+    archive_verify_log_from(state, row, false).await;
+}
+
+/// `healthy_only` skips a lab host whose last health check failed: the periodic copy made by the
+/// reaper would otherwise wait for a connect timeout on every Responder run of a dead host, every
+/// pass. The copy made when a run ends still tries whatever the last check said.
+async fn archive_verify_log_from(state: &AppState, row: &InstanceRow, healthy_only: bool) {
     let (Some(_), Some(host), Some(handle)) = (
         row.verifier_ip.as_ref(),
         row.lab_host_id,
@@ -182,6 +189,9 @@ async fn archive_verify_log(state: &AppState, row: &InstanceRow) {
     };
     let copied = async {
         let lab = crate::lab_store::get(&state.pool, host).await?;
+        if healthy_only && lab.last_error.is_some() {
+            return Ok(0);
+        }
         let client = state.labs().client(&lab)?;
         let log = client
             .verify_log(handle)
@@ -325,7 +335,7 @@ async fn begin(
     let setup = setup(state)?;
     let spec = spec_of(challenge, setup)?;
     let now = state.now();
-    open_for_play(play, challenge, now)?;
+    open_for_play(state, play, challenge, now).await?;
     let scorer = play.scorer;
     let max_starts = max_starts(challenge, &play.event);
     let policy = Policy {
@@ -580,7 +590,7 @@ async fn reap_inner(state: &AppState) -> Result<usize, ApiError> {
         }
         // A lab host that dies or is removed takes its Verifier with it, so running Responder
         // runs are copied on every pass, not only when they end.
-        archive_verify_log(state, &row).await;
+        archive_verify_log_from(state, &row, true).await;
         let Some(outcome) = due(state, setup, &row, now).await? else {
             continue;
         };

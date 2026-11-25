@@ -155,6 +155,8 @@ pub struct AdminChallenge {
     /// The flags of a dynamic or multi flag challenge; empty for a plain static flag.
     flags: Vec<FlagRow>,
     lab_host_id: Option<i64>,
+    /// The challenge players must solve before this one opens for them; null means none.
+    requires_challenge_id: Option<i64>,
     solves: i64,
     hints: Vec<HintRow>,
     attachments: Vec<AttachmentMeta>,
@@ -200,6 +202,7 @@ fn admin_out(
         responder: row.responder,
         flags,
         lab_host_id: row.lab_host_id,
+        requires_challenge_id: row.requires_challenge_id,
         solves,
         hints,
         attachments,
@@ -296,6 +299,8 @@ pub struct ChallengeBody {
     /// The flags of a dynamic or multi flag challenge.
     #[serde(default)]
     flags: Vec<FlagInput>,
+    /// Another challenge of the event that players must solve before this one opens. Off by default.
+    requires_challenge_id: Option<i64>,
 }
 
 /// The value stored in the `flag` column of a challenge whose flags live in `challenge_flag`.
@@ -380,6 +385,7 @@ pub async fn create_challenge(
         position: body.position,
         requires_instance: body.requires_instance,
         instance_config: body.instance_config,
+        requires_challenge_id: body.requires_challenge_id,
     };
     fields.validate()?;
     set.validate(&fields, event.kind == "tournament")?;
@@ -428,6 +434,8 @@ pub struct ChallengePatch {
     flag_mode: Option<String>,
     responder: Option<bool>,
     flags: Option<Vec<FlagInput>>,
+    #[serde(default, deserialize_with = "set_or_clear")]
+    requires_challenge_id: Option<Option<i64>>,
 }
 
 pub async fn update_challenge(
@@ -462,6 +470,9 @@ pub async fn update_challenge(
     f.position = body.position.unwrap_or(f.position);
     f.requires_instance = body.requires_instance.unwrap_or(f.requires_instance);
     f.instance_config = body.instance_config.unwrap_or(f.instance_config);
+    f.requires_challenge_id = body
+        .requires_challenge_id
+        .unwrap_or(f.requires_challenge_id);
     let event = authoring_event(&state, row.event_id).await?;
     check_tournament_rules(&event, &row.kind, &f.scoring, f.requires_instance)?;
     if row.kind == "dfir" {

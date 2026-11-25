@@ -609,6 +609,7 @@ async fn create_jeopardy(pool: &SqlitePool, plan: &Jeopardy, hash: &str) -> Resu
                 position: position as i64,
                 requires_instance: false,
                 instance_config: None,
+                requires_challenge_id: None,
                 kind: "flag".into(),
             },
             at,

@@ -415,7 +415,7 @@ mod tests {
     async fn a_crash_or_a_missing_function_is_broken() {
         let (_d, loaded) = bash_definition(
             &[("crash", "crash", None, 5)],
-            "crash() { kill -SEGV $$; }\n",
+            "crash() { kill -KILL $$; }\n",
         );
         let out = run_all(&loaded, &ctx(&loaded)).await;
         assert_eq!(out[0].state, State::Broken);

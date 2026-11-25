@@ -645,6 +645,7 @@ function Challenges({ event }: { event: EventInfo }) {
                 <button type="button" onClick={() => setEditing(c.id)} className="text-left font-medium text-accent hover:underline">
                   {c.title}
                 </button>
+                {c.requires_challenge_id !== null && <p className="text-xs text-muted">after {challenges.find((p) => p.id === c.requires_challenge_id)?.title ?? 'another challenge'}</p>}
               </td>
               <td className={TD}>{categories.find((k) => k.id === c.category_id)?.name ?? ''}</td>
               <td className={`${TD} text-xs text-muted`}>{challengeType(c)}</td>
@@ -658,7 +659,7 @@ function Challenges({ event }: { event: EventInfo }) {
         </DataTable>
       )}
       {editing !== null && (editing === 'new' || current) && (
-        <ChallengeEditor key={String(editing)} eventId={event.id} eventKind={event.kind} categories={categories} eventLabHostId={event.lab_host_id} challenge={current} onClose={() => setEditing(null)} />
+        <ChallengeEditor key={String(editing)} eventId={event.id} eventKind={event.kind} categories={categories} challenges={challenges} eventLabHostId={event.lab_host_id} challenge={current} onClose={() => setEditing(null)} />
       )}
     </div>
   )

@@ -1580,3 +1580,129 @@ async fn the_author_is_optional_and_players_see_it() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// A challenge that requires another one stays locked, with what it asks hidden, until the
+/// participant solves the parent. Loops are refused when saved, and deleting a parent frees
+/// its children.
+#[tokio::test]
+async fn a_challenge_locked_behind_another_opens_once_the_parent_is_solved() {
+    let ctx = Ctx::new("solo", json!({})).await;
+    let parent = ctx.challenge(json!({ "title": "Step one" })).await;
+    let child = ctx
+        .challenge(json!({
+            "title": "Step two",
+            "flag": { "kind": "static", "value": "KYMO{two}" },
+            "requires_challenge_id": parent,
+        }))
+        .await;
+    let (status, shown) = ctx
+        .admin("GET", &format!("/admin/challenges/{child}"), None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{shown}");
+    assert_eq!(shown["requires_challenge_id"], parent);
+
+    // A parent cannot depend on its child, a challenge cannot require itself or a stranger.
+    for (id, wanted) in [(parent, child), (child, child), (child, 999_999)] {
+        let (status, body) = ctx
+            .admin(
+                "PUT",
+                &format!("/admin/challenges/{id}"),
+                Some(json!({ "requires_challenge_id": wanted })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{id} -> {wanted}: {body}");
+    }
+    let grandchild = ctx
+        .challenge(json!({
+            "title": "Step three",
+            "flag": { "kind": "static", "value": "KYMO{three}" },
+            "requires_challenge_id": child,
+        }))
+        .await;
+    let (status, body) = ctx
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{parent}"),
+            Some(json!({ "requires_challenge_id": grandchild })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a longer loop: {body}");
+    // A parent players cannot see yet locks its child without naming itself.
+    let hidden = ctx.draft(json!({ "title": "Secret" })).await;
+    let gated = ctx
+        .challenge(json!({
+            "title": "Gated",
+            "flag": { "kind": "static", "value": "KYMO{gated}" },
+            "requires_challenge_id": hidden,
+        }))
+        .await;
+
+    let (alice, _) = player(&ctx.w.app, "alice").await;
+    ctx.register(&alice).await;
+    ctx.set_state("live").await;
+    let (status, list) = ctx.list(&alice).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let locked = challenge_in(&list, child).unwrap();
+    assert_eq!(locked["status"], "locked");
+    assert_eq!(locked["locked"], true);
+    assert_eq!(
+        locked["description"], "",
+        "a locked challenge keeps its text"
+    );
+    assert_eq!(
+        locked["requires"],
+        json!({ "id": parent, "title": "Step one" })
+    );
+    assert_eq!(challenge_in(&list, parent).unwrap()["status"], "open");
+    let gated_view = challenge_in(&list, gated).unwrap();
+    assert_eq!(gated_view["status"], "locked");
+    assert_eq!(
+        gated_view["requires"],
+        json!({ "id": hidden, "title": null })
+    );
+
+    let (status, body) = ctx.submit(&alice, child, "KYMO{two}").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["error"].to_string().contains("Step one"), "{body}");
+    let (status, body) = ctx.submit(&alice, parent, FLAG).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["correct"], true);
+
+    let (_, list) = ctx.list(&alice).await;
+    let open = challenge_in(&list, child).unwrap();
+    assert_eq!(open["status"], "open");
+    assert_eq!(open["locked"], false);
+    assert!(open["requires"].is_null());
+    assert_eq!(open["description"], "find it");
+    assert_eq!(
+        challenge_in(&list, grandchild).unwrap()["status"],
+        "locked",
+        "the chain opens one step at a time"
+    );
+    let (status, body) = ctx.submit(&alice, child, "KYMO{two}").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["correct"], true);
+    assert_eq!(
+        challenge_in(&ctx.list(&alice).await.1, grandchild).unwrap()["status"],
+        "open"
+    );
+
+    // Deleting a parent frees its children; clearing the setting works too.
+    let (status, _) = ctx
+        .admin("DELETE", &format!("/admin/challenges/{hidden}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, freed) = ctx
+        .admin("GET", &format!("/admin/challenges/{gated}"), None)
+        .await;
+    assert!(freed["requires_challenge_id"].is_null(), "{freed}");
+    let (status, cleared) = ctx
+        .admin(
+            "PUT",
+            &format!("/admin/challenges/{grandchild}"),
+            Some(json!({ "requires_challenge_id": null })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(cleared["requires_challenge_id"].is_null());
+}

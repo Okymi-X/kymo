@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AdminChallenge } from '../../../api/platformTypes'
-import { applyResponder, blank, fromChallenge, isMulti, toBody, toCodeConfig, usesRows, validate, type Draft } from './draft'
+import { applyResponder, blank, fromChallenge, isMulti, parentChoices, toBody, toCodeConfig, usesRows, validate, type Draft } from './draft'
 
 const base = (extra: Partial<Draft> = {}): Draft => ({
   ...blank(1),
@@ -89,7 +89,7 @@ describe('fromChallenge', () => {
       id: 1, event_id: 1, category_id: 2, lab_host_id: null, title: 'Box', description: '', author: '', scoring: { kind: 'static', points: 100 },
       flag: { kind: 'static', value: 'x' }, flag_prefix: 'KYMO{', flag_suffix: '}', case_sensitive: true, max_attempts: null, max_starts: null,
       state: 'draft', release_at: null, retire_at: null, position: 0, requires_instance: true, instance_config: null, kind: 'flag',
-      created_at: 0, flag_mode: 'dynamic', multi_flag: true, responder: false, solves: 0, hints: [], attachments: [],
+      created_at: 0, flag_mode: 'dynamic', multi_flag: true, responder: false, requires_challenge_id: null, solves: 0, hints: [], attachments: [],
       flags: [
         { id: 1, challenge_id: 1, position: 0, name: 'user', label: 'User', value: 'KYMO{u_', random_len: 8, closing: '}', weight: 1 },
         { id: 2, challenge_id: 1, position: 1, name: 'root', label: 'Root', value: 'KYMO{r_', random_len: 12, closing: '}', weight: 3 },
@@ -158,5 +158,24 @@ describe('turning Responder on', () => {
   it('turns off without touching anything else', () => {
     const on = applyResponder(start, true)
     expect(applyResponder(on, false)).toEqual({ ...on, responder: false })
+  })
+})
+
+describe('a challenge that requires another one', () => {
+  it('is off unless chosen, and sends the parent id when it is', () => {
+    expect(toBody(base()).requires_challenge_id).toBeNull()
+    expect(toBody(base({ requires: '7' })).requires_challenge_id).toBe(7)
+  })
+  it('never offers itself or its own descendants as a parent', () => {
+    const all = [
+      { id: 1, title: 'Root', requires_challenge_id: null },
+      { id: 2, title: 'Child', requires_challenge_id: 1 },
+      { id: 3, title: 'Grandchild', requires_challenge_id: 2 },
+      { id: 4, title: 'Other', requires_challenge_id: null },
+    ]
+    expect(parentChoices(all, 1).map((c) => c.id)).toEqual([4])
+    expect(parentChoices(all, 2).map((c) => c.id)).toEqual([1, 4])
+    expect(parentChoices(all, 4).map((c) => c.id)).toEqual([1, 2, 3])
+    expect(parentChoices(all, null).map((c) => c.id)).toEqual([1, 2, 3, 4])
   })
 })

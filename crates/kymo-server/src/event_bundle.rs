@@ -141,6 +141,10 @@ pub struct ChallengePart {
     /// A coding challenge's languages, tests and limits. Written only for a coding challenge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<crate::code::CodeConfig>,
+    /// The title of the challenge in this bundle that must be solved before this one opens.
+    /// Written only when set; the title must name exactly one challenge of the bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<String>,
 }
 
 fn bad(message: impl Into<String>) -> ApiError {
@@ -163,8 +167,10 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
             position: h.position,
         });
     }
+    let rows = store::challenges(pool, event.id).await?;
+    let titles: HashMap<i64, String> = rows.iter().map(|r| (r.id, r.title.clone())).collect();
     let mut challenges = Vec::new();
-    for row in store::challenges(pool, event.id).await? {
+    for row in rows {
         let mut attachments = Vec::new();
         for meta in store::attachments_of_challenge(pool, row.id).await? {
             let data = store::attachment_data(pool, meta.id).await?;
@@ -218,6 +224,9 @@ pub async fn export(pool: &SqlitePool, event: &EventRow, now: i64) -> Result<Bun
                 .collect(),
             hints: hints.remove(&row.id).unwrap_or_default(),
             attachments,
+            requires: row
+                .requires_challenge_id
+                .and_then(|id| titles.get(&id).cloned()),
         });
     }
     Ok(Bundle {
@@ -272,6 +281,8 @@ struct Prepared {
     attachments: Vec<(String, String, Vec<u8>, bool)>,
     items: Vec<crate::duel_store::ItemFields>,
     code: Option<crate::code::CodeConfig>,
+    /// The title of the parent challenge, resolved to an id once every challenge is written.
+    requires: Option<String>,
 }
 
 fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
@@ -343,7 +354,21 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             requires_instance: part.requires_instance,
             instance_config: part.instance_config.clone(),
             kind: part.kind.clone(),
+            requires_challenge_id: None,
         };
+        if let Some(parent) = &part.requires {
+            let named = bundle
+                .challenges
+                .iter()
+                .filter(|c| c.title == *parent)
+                .count();
+            if named != 1 || *parent == part.title {
+                return Err(bad(format!(
+                    "challenge {:?} requires {parent:?}, which must name exactly one other challenge of the bundle",
+                    part.title
+                )));
+            }
+        }
         if !matches!(part.kind.as_str(), "flag" | "dfir" | "code") {
             return Err(bad("a challenge type is flag, dfir or code"));
         }
@@ -419,6 +444,7 @@ fn prepare(bundle: &Bundle) -> Result<(EventFields, Vec<Prepared>), ApiError> {
             hints,
             attachments,
             code: part.code.clone(),
+            requires: part.requires.clone(),
             items: part
                 .items
                 .iter()
@@ -488,9 +514,16 @@ async fn fill(
             store::category_insert(pool, event_id, &c.name, c.position).await?,
         );
     }
+    // Parents are linked after every challenge exists, by title; a loop is refused there.
+    let mut by_title: HashMap<String, i64> = HashMap::new();
+    let mut links: Vec<(i64, String)> = Vec::new();
     for mut item in prepared {
         item.fields.category_id = *ids.get(&item.category).ok_or(ApiError::Internal)?;
         let id = store::challenge_insert(pool, event_id, &item.fields, now).await?;
+        by_title.insert(item.fields.title.clone(), id);
+        if let Some(parent) = &item.requires {
+            links.push((id, parent.clone()));
+        }
         store::apply_flag_set(pool, id, &item.flag_set).await?;
         for (content, cost, position) in &item.hints {
             store::hint_insert(pool, id, content, *cost, *position).await?;
@@ -507,6 +540,10 @@ async fn fill(
         if options.keep_state && item.state != "draft" {
             store::set_challenge_state(pool, id, &item.state).await?;
         }
+    }
+    for (id, parent) in links {
+        let parent_id = *by_title.get(&parent).ok_or(ApiError::Internal)?;
+        store::set_parent(pool, id, Some(parent_id)).await?;
     }
     Ok(())
 }

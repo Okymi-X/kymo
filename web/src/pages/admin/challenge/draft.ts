@@ -58,6 +58,8 @@ export interface Draft {
   machine: boolean
   /** The lab host this challenge runs on; empty follows the event. */
   labHost: string
+  /** The id of the challenge to solve before this one opens; empty means none. */
+  requires: string
   image: string
   port: string
   cpu: string
@@ -96,6 +98,7 @@ export const blank = (category: number): Draft => ({
   requiresInstance: false,
   machine: false,
   labHost: '',
+  requires: '',
   image: '',
   port: '8000',
   cpu: '500',
@@ -142,6 +145,7 @@ export function fromChallenge(c: AdminChallenge): Draft {
     responder: c.responder ?? false,
     requiresInstance: c.requires_instance,
     labHost: c.lab_host_id === null ? '' : String(c.lab_host_id),
+    requires: c.requires_challenge_id === null ? '' : String(c.requires_challenge_id),
     image: cfg?.image ?? '',
     port: String(cfg?.port ?? 8000),
     cpu: String(cfg?.cpu_millis ?? 500),
@@ -202,7 +206,28 @@ export function toBody(d: Draft, fixedPoints = false): ChallengeBody {
     instance_config: !noFlag && d.requiresInstance
       ? { image: d.image.trim(), port: int(d.port), cpu_millis: int(d.cpu), memory_mb: int(d.memory), pids: int(d.pids), ttl_secs: int(d.ttl) }
       : null,
+    requires_challenge_id: d.requires.trim() === '' ? null : int(d.requires),
   }
+}
+
+/** The challenges `self` may require: any other one of the event except those that already
+ *  depend on it, directly or through a chain. Picking one of those would lock both for good;
+ *  the server refuses it too. */
+export function parentChoices(all: Pick<AdminChallenge, 'id' | 'title' | 'requires_challenge_id'>[], self: number | null): typeof all {
+  if (self === null) return all
+  const dependents = new Set<number>([self])
+  // Each pass adds the children of what is already known; the list is short.
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const c of all) {
+      if (!dependents.has(c.id) && c.requires_challenge_id !== null && dependents.has(c.requires_challenge_id)) {
+        dependents.add(c.id)
+        grew = true
+      }
+    }
+  }
+  return all.filter((c) => !dependents.has(c.id))
 }
 
 export type Problems = Partial<Record<keyof Draft, string>>

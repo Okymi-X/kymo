@@ -151,7 +151,11 @@ export interface PlayerChallenge {
   solved: boolean
   solved_at: number | null
   solved_by: number
-  status: 'open' | 'closed'
+  /** `locked` waits for another challenge to be solved: only the title and points are sent. */
+  status: 'open' | 'closed' | 'locked'
+  locked: boolean
+  /** What unlocks a locked challenge. The title is null when that challenge is not visible yet. */
+  requires: { id: number; title: string | null } | null
   release_at: number | null
   retire_at: number | null
   flag_format: { prefix: string; suffix: string }
@@ -449,6 +453,8 @@ export interface AdminChallenge {
   /** The flags of a dynamic or multi flag challenge; empty for a plain static flag. */
   flags: AdminFlag[]
   lab_host_id: number | null
+  /** The challenge players must solve before this one opens for them; null means none. */
+  requires_challenge_id: number | null
   solves: number
   hints: AdminHint[]
   attachments: AdminAttachment[]
@@ -1131,6 +1137,10 @@ export interface DuelChallenge {
   solved: boolean
   attempts_left: number | null
   items: DuelItem[]
+  /** Your side has not solved the challenge this one requires: what it asks is hidden. */
+  locked: boolean
+  /** The title of the challenge that unlocks it for your side. */
+  requires: string | null
 }
 
 export interface DuelAnswer {

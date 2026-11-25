@@ -88,13 +88,74 @@ pub fn released(row: &ChallengeRow, now: i64) -> Result<(), ApiError> {
     }
 }
 
-/// Whether the challenge accepts submissions or hint purchases right now.
-pub fn open_for_play(play: &Play, row: &ChallengeRow, now: i64) -> Result<(), ApiError> {
+/// Whether this participant has solved a challenge: its flag (the last one of several), or
+/// every question of a DFIR challenge.
+pub async fn solved_by(
+    state: &AppState,
+    play: &Play,
+    row: &ChallengeRow,
+) -> Result<bool, ApiError> {
+    if row.kind != "dfir" {
+        return jeopardy_store::is_solved(&state.pool, row.id, play.scorer.id()).await;
+    }
+    let items = crate::duel_store::items(&state.pool, row.id).await?;
+    if items.is_empty() {
+        return Ok(false);
+    }
+    let answered = jeopardy_store::items_solved(&state.pool, play.event.id, play.scorer).await?;
+    Ok(items.iter().all(|i| answered.contains_key(&i.id)))
+}
+
+/// The challenge this participant must still solve before `row` opens for them, if any. A
+/// tournament event decides this per match instead (see `duel::Eval::locked`).
+pub async fn blocking_parent(
+    state: &AppState,
+    play: &Play,
+    row: &ChallengeRow,
+) -> Result<Option<ChallengeRow>, ApiError> {
+    let Some(parent_id) = row.requires_challenge_id else {
+        return Ok(None);
+    };
+    if play.event.kind != "jeopardy" {
+        return Ok(None);
+    }
+    // A solved challenge stays open even if a parent was given to it afterwards.
+    if solved_by(state, play, row).await? {
+        return Ok(None);
+    }
+    let parent = challenge_store::challenge_by_id(&state.pool, parent_id).await?;
+    if parent.event_id != row.event_id || solved_by(state, play, &parent).await? {
+        return Ok(None);
+    }
+    Ok(Some(parent))
+}
+
+/// Whether players may know the parent exists: published and released.
+pub fn visible(row: &ChallengeRow, now: i64) -> bool {
+    row.state != "draft" && released(row, now).is_ok()
+}
+
+/// Whether the challenge accepts submissions, hint purchases, instance starts or code runs right
+/// now: the event and the challenge are open, and the parent, if any, is solved.
+pub async fn open_for_play(
+    state: &AppState,
+    play: &Play,
+    row: &ChallengeRow,
+    now: i64,
+) -> Result<(), ApiError> {
     if play.disqualified {
         return Err(ApiError::Disqualified);
     }
     can_submit(play.effective, Some(row.window()), now)
-        .map_err(|denied| ApiError::Conflict(denied.message().into()))
+        .map_err(|denied| ApiError::Conflict(denied.message().into()))?;
+    if let Some(parent) = blocking_parent(state, play, row).await? {
+        return Err(ApiError::Conflict(if visible(&parent, now) {
+            format!("solve \"{}\" first", parent.title)
+        } else {
+            "this challenge is locked until another one is solved".into()
+        }));
+    }
+    Ok(())
 }
 
 pub fn verdict_str(verdict: Verdict) -> &'static str {
@@ -144,7 +205,7 @@ pub async fn run(
         ));
     }
     let now = state.now();
-    open_for_play(play, challenge, now)?;
+    open_for_play(state, play, challenge, now).await?;
     let _guard = state.write_lock.lock().await;
     let scorer = play.scorer;
     if jeopardy_store::is_solved(&state.pool, challenge.id, scorer.id()).await? {
@@ -250,7 +311,7 @@ pub async fn run_item(
         ));
     }
     let now = state.now();
-    open_for_play(play, challenge, now)?;
+    open_for_play(state, play, challenge, now).await?;
     let item = crate::duel_store::items(&state.pool, challenge.id)
         .await?
         .into_iter()
