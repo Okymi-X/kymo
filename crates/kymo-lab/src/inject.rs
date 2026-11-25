@@ -511,6 +511,7 @@ mod tests {
             ip: "10.77.0.42".into(),
             bind: "10.77.0.33".into(),
             verifier_ip: verifier_ip.map(str::to_owned),
+            route: None,
         }
     }
 

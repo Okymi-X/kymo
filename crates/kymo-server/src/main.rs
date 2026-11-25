@@ -142,6 +142,13 @@ fn docker_setup() -> Result<InstanceSetup, String> {
     let host = env::var("KYMO_INSTANCE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let runtime =
         kymo_instances::docker::DockerRuntime::connect(bind).map_err(|e| format!("docker: {e}"))?;
+    // A machine in a VPN lab gets its route to its player from a helper container of the gateway's
+    // image, which has the `ip` command and is already on this machine.
+    runtime
+        .set_route_helper(Some(
+            env::var("KYMO_VPN_IMAGE").unwrap_or_else(|_| "localhost/kymo/vpn-gateway:1".into()),
+        ))
+        .map_err(|e| format!("KYMO_VPN_IMAGE: {e}"))?;
     Ok(InstanceSetup {
         runtime: Arc::new(runtime),
         policy: Policy::default(),

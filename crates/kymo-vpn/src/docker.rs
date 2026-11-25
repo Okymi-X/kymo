@@ -6,15 +6,17 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerInspectResponse, DeviceMapping, ExecConfig, HostConfig,
-    NetworkConnectRequest, NetworkDisconnectRequest, PortBinding, RestartPolicy,
-    RestartPolicyNameEnum,
+    ContainerCreateBody, ContainerInspectResponse, DeviceMapping, EndpointIpamConfig,
+    EndpointSettings, ExecConfig, HostConfig, NetworkConnectRequest, NetworkDisconnectRequest,
+    PortBinding, RestartPolicy, RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, InspectContainerOptions, StartContainerOptions,
+    CreateContainerOptionsBuilder, InspectContainerOptions, InspectNetworkOptions,
+    StartContainerOptions,
 };
 use futures_util::StreamExt;
 
+use crate::addressing::{GATEWAY_OFFSET, Ipv4Net};
 use crate::error::GatewayError;
 use crate::gateway::{Gateway, GatewayConfig, GatewayStatus};
 use crate::profile::{INNER_PORT, MANAGEMENT_PORT, MOUNT, valid_common_name};
@@ -137,6 +139,49 @@ fn published_on(
         })
 }
 
+impl DockerGateway {
+    /// The address the gateway should have on a lab network (`GATEWAY_OFFSET` hosts in), read from
+    /// the network's own subnet.
+    async fn gateway_address(&self, network: &str) -> Option<String> {
+        let info = self
+            .docker
+            .inspect_network(network, None::<InspectNetworkOptions>)
+            .await
+            .ok()?;
+        let subnet = info.ipam?.config?.into_iter().find_map(|c| c.subnet)?;
+        let net: Ipv4Net = subnet.parse().ok()?;
+        Some(net.host(GATEWAY_OFFSET)?.to_string())
+    }
+
+    async fn join_network(
+        &self,
+        network: &str,
+        container: &str,
+        ip: Option<String>,
+    ) -> Result<(), bollard::errors::Error> {
+        self.docker
+            .connect_network(
+                network,
+                NetworkConnectRequest {
+                    container: Some(container.to_owned()),
+                    endpoint_config: ip.map(|ip| EndpointSettings {
+                        ipam_config: Some(EndpointIpamConfig {
+                            ipv4_address: Some(ip),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                },
+            )
+            .await
+    }
+}
+
+/// Already connected: Docker answers 403, Podman 409 or 500 with a message.
+fn already_connected(e: &bollard::errors::Error) -> bool {
+    status_is(e, &[403, 409]) || e.to_string().contains("already")
+}
+
 #[async_trait]
 impl Gateway for DockerGateway {
     async fn ensure_running(&self, config: &GatewayConfig) -> Result<(), GatewayError> {
@@ -235,20 +280,19 @@ impl Gateway for DockerGateway {
 
     async fn attach(&self, network: &str) -> Result<(), GatewayError> {
         let name = self.container().await?;
-        match self
-            .docker
-            .connect_network(
-                network,
-                NetworkConnectRequest {
-                    container: Some(name),
-                    endpoint_config: None,
-                },
-            )
-            .await
-        {
+        // The gateway takes the address every machine's route points at. If the network cannot be
+        // read, or the address is refused, it joins without one, as it always did.
+        let pinned = self.gateway_address(network).await;
+        if let Some(ip) = pinned {
+            match self.join_network(network, &name, Some(ip)).await {
+                Ok(()) => return Ok(()),
+                Err(e) if already_connected(&e) => return Ok(()),
+                Err(_) => {}
+            }
+        }
+        match self.join_network(network, &name, None).await {
             Ok(()) => Ok(()),
-            // Already connected: Docker answers 403, Podman 409 or 500 with a message.
-            Err(e) if status_is(&e, &[403, 409]) || e.to_string().contains("already") => Ok(()),
+            Err(e) if already_connected(&e) => Ok(()),
             Err(e) => Err(failed(e)),
         }
     }

@@ -14,7 +14,7 @@ mod pki;
 mod profile;
 mod rules;
 
-pub use addressing::{FIRST_INSTANCE_OFFSET, Ipv4Net, LabPool, TunnelPool};
+pub use addressing::{FIRST_INSTANCE_OFFSET, GATEWAY_OFFSET, Ipv4Net, LabPool, TunnelPool};
 pub use error::{GatewayError, VpnError};
 pub use gateway::{FakeGateway, Gateway, GatewayConfig, GatewayStatus};
 pub use pki::{Ca, CaMaterial, Issued, Revoked, generate_tls_crypt_key};

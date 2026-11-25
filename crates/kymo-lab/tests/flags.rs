@@ -184,6 +184,7 @@ async fn the_verifier_and_its_address_must_agree_with_the_manifest() {
         network: "kymo-lab-1".into(),
         ip: "10.77.0.42".into(),
         gateway: Some("10.77.0.33".into()),
+        route: None,
     };
     let held = StartExtras {
         flags: vec![flag("flag", FlagDelivery::Hold)],

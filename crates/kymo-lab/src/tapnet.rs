@@ -14,6 +14,16 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 
+/// A route the machine is told about when it asks for its address: the VPN clients' range through
+/// the VPN gateway's address on the lab network, so the machine can start a connection to its
+/// player. Without it the machine's only router is the lab host's bridge, which leads nowhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TapRoute {
+    pub to: Ipv4Addr,
+    pub prefix: u8,
+    pub via: Ipv4Addr,
+}
+
 /// Where a machine sits: its address, the network's own address (the bridge) and prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TapSpec {
@@ -21,6 +31,7 @@ pub struct TapSpec {
     /// The bridge's address on this network, which names the bridge to attach to.
     pub gateway: Ipv4Addr,
     pub prefix: u8,
+    pub route: Option<TapRoute>,
 }
 
 fn hash(name: &str) -> u64 {
@@ -172,6 +183,24 @@ fn parse(packet: &[u8]) -> Option<Query> {
     })
 }
 
+/// One entry of a classless static route option (RFC 3442): the prefix length, only the
+/// significant octets of the destination, then the router.
+fn push_route(out: &mut Vec<u8>, to: Ipv4Addr, prefix: u8, via: Ipv4Addr) {
+    out.push(prefix);
+    out.extend_from_slice(&to.octets()[..usize::from(prefix).div_ceil(8)]);
+    out.extend_from_slice(&via.octets());
+}
+
+/// The routes option. A client that understands it ignores the plain router option, so the
+/// default route through the bridge is repeated here to keep the machine's usual router.
+fn classless_routes(spec: &TapSpec) -> Option<Vec<u8>> {
+    let route = spec.route?;
+    let mut out = Vec::new();
+    push_route(&mut out, route.to, route.prefix, route.via);
+    push_route(&mut out, Ipv4Addr::UNSPECIFIED, 0, spec.gateway);
+    Some(out)
+}
+
 /// The answer to a client, or none when it is not for this machine or not a question we answer.
 fn answer(packet: &[u8], expected_mac: [u8; 6], spec: &TapSpec) -> Option<Vec<u8>> {
     let q = parse(packet)?;
@@ -205,6 +234,9 @@ fn answer(packet: &[u8], expected_mac: [u8; 6], spec: &TapSpec) -> Option<Vec<u8
     option(59, &75_600u32.to_be_bytes());
     option(1, &netmask(spec.prefix).octets());
     option(3, &spec.gateway.octets());
+    if let Some(routes) = classless_routes(spec) {
+        option(121, &routes);
+    }
     out.push(255);
     // Some clients want at least a BOOTP minimum size.
     while out.len() < 300 {
@@ -388,6 +420,18 @@ mod tests {
             ip: "10.77.0.42".parse().unwrap(),
             gateway: "10.77.0.33".parse().unwrap(),
             prefix: 27,
+            route: None,
+        }
+    }
+
+    fn routed() -> TapSpec {
+        TapSpec {
+            route: Some(TapRoute {
+                to: "10.8.0.0".parse().unwrap(),
+                prefix: 16,
+                via: "10.77.0.34".parse().unwrap(),
+            }),
+            ..spec()
         }
     }
 
@@ -417,6 +461,45 @@ mod tests {
             // Subnet mask of a /27 is in the options.
             assert!(reply.windows(6).any(|w| w == [1, 4, 255, 255, 255, 224]));
         }
+    }
+
+    #[test]
+    fn a_machine_is_told_the_route_to_its_player_and_keeps_its_default_router() {
+        let m = mac("vm-1");
+        let reply = answer(&discover(m, DISCOVER), m, &routed()).unwrap();
+        // Option 121: 10.8.0.0/16 via the VPN gateway, then the default route via the bridge.
+        let want = [121, 12, 16, 10, 8, 10, 77, 0, 34, 0, 10, 77, 0, 33];
+        assert!(reply.windows(want.len()).any(|w| w == want), "{reply:?}");
+        // The plain router option stays for clients that ignore the classless one.
+        assert!(reply.windows(6).any(|w| w == [3, 4, 10, 77, 0, 33]));
+    }
+
+    #[test]
+    fn a_machine_without_a_route_is_answered_as_before() {
+        let m = mac("vm-1");
+        let reply = answer(&discover(m, DISCOVER), m, &spec()).unwrap();
+        assert!(!reply.windows(2).any(|w| w == [121, 12]));
+        assert_eq!(classless_routes(&spec()), None);
+    }
+
+    #[test]
+    fn the_route_option_carries_only_the_octets_the_prefix_needs() {
+        let mut out = Vec::new();
+        push_route(
+            &mut out,
+            "10.8.0.0".parse().unwrap(),
+            16,
+            "10.77.0.34".parse().unwrap(),
+        );
+        assert_eq!(out, [16, 10, 8, 10, 77, 0, 34]);
+        let mut out = Vec::new();
+        push_route(
+            &mut out,
+            "172.16.4.0".parse().unwrap(),
+            22,
+            "10.77.0.34".parse().unwrap(),
+        );
+        assert_eq!(out, [22, 172, 16, 4, 10, 77, 0, 34]);
     }
 
     #[test]

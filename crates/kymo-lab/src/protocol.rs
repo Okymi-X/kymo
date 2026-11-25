@@ -34,7 +34,7 @@
 
 use std::collections::BTreeMap;
 
-use kymo_instances::{Endpoint, ExtraPort, InstanceSpec, RunFlag};
+use kymo_instances::{Endpoint, ExtraPort, InstanceSpec, LabRoute, RunFlag};
 use serde::{Deserialize, Serialize};
 
 pub const API_VERSION: &str = "v1";
@@ -75,6 +75,11 @@ pub struct LabPlacement {
     /// instance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verifier_ip: Option<String>,
+    /// How the machine reaches its player: the VPN clients' range through the VPN gateway's
+    /// address on this network. Absent from an older platform, which leaves the machine unable to
+    /// start a connection to its player.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<LabRoute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

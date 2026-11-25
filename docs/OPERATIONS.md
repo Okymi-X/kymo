@@ -87,7 +87,7 @@ By default an instance gets a port on the server, and anyone who can reach the s
                               +-----------+  +-----------+
 ```
 
-- Every player (or team, in team events) gets an **isolated lab network** with no route to the internet and no route to other labs. Their instances start inside it at a private address, with nothing published on the host.
+- Every player (or team, in team events) gets an **isolated lab network** with no route to the internet and no route to other labs. Their instances start inside it at a private address, with nothing published on the host. A machine can also start a connection to **its own player's tunnel address** (to download a payload, or to call back to a listener on the player's computer): it is given the route when it starts and reaches no one else. The player's listener sees the connection come from the machine's lab address, and has to listen on the tunnel address or on all addresses, with the computer's own firewall open for that port on the VPN interface.
 - Every account gets its **own OpenVPN profile** (one file, certificate and key inside). The gateway gives each profile a fixed tunnel address and a firewall that allows that address to reach **only its own lab**. Players cannot reach each other's tunnels or labs.
 - Teammates share the team's lab, each with their own profile. Leaving or being removed from a team closes the lab to that player immediately.
 - Downloading a new profile revokes the old one. A ban or the admin's *Revoke* removes the player's access and drops their session. Certificates are also on a revocation list.

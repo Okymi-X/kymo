@@ -596,6 +596,11 @@ async fn run(s: Settings) -> Result<(), String> {
         docker
             .set_judge_runtime(s.config.judge_runtime.clone())
             .map_err(|e| format!("KYMO_LAB_JUDGE_RUNTIME: {e}"))?;
+        // A machine on a lab network gets its route to its player from a short helper container of
+        // the VPN gateway's image, which has the `ip` command and is already on this host.
+        docker
+            .set_route_helper(s.vpn.as_ref().map(|v| v.image.clone()))
+            .map_err(|e| format!("KYMO_LAB_VPN_IMAGE: {e}"))?;
         // The same connection runs coding submissions; leftovers of a crashed run are removed.
         let docker = Arc::new(docker);
         match docker.reap_jobs().await {

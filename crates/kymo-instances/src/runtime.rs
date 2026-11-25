@@ -23,7 +23,22 @@ pub enum Placement {
         network: String,
         ip: String,
         gateway: Option<String>,
+        /// How the machine reaches its player's side of the VPN. None leaves it with no way to
+        /// start a connection to the player, as before.
+        route: Option<LabRoute>,
     },
+}
+
+/// A route a machine on a lab network needs so it can start connections to its player (to fetch a
+/// payload, to call back to a listener): the VPN clients' range, through the VPN gateway's own
+/// address on the lab network. The gateway's firewall still decides what may pass, which is only
+/// the machine's own player.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabRoute {
+    /// The VPN clients' range, CIDR text (`10.8.0.0/16`).
+    pub to: String,
+    /// The VPN gateway's address on the lab network.
+    pub via: String,
 }
 
 #[derive(Debug, Clone)]
@@ -543,6 +558,7 @@ mod tests {
                 network: network.into(),
                 ip: ip.into(),
                 gateway: None,
+                route: None,
             },
             name: None,
             meta: Vec::new(),

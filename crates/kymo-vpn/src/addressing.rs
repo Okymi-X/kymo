@@ -93,6 +93,11 @@ impl FromStr for Ipv4Net {
 /// left for the VPN gateway container, and instances start at this offset.
 pub const FIRST_INSTANCE_OFFSET: u32 = 10;
 
+/// Where the VPN gateway container sits in every lab network: the first of the addresses left
+/// for it. It is placed at this address when it joins a lab, so a machine can be given a route
+/// through it without asking the container where it is.
+pub const GATEWAY_OFFSET: u32 = 2;
+
 /// A pool carved into equal lab networks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LabPool {

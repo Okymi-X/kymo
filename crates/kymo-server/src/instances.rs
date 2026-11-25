@@ -464,6 +464,8 @@ async fn begin(
                 .and_then(|s| vpn::lab_subnet(s, lab).ok())
                 .and_then(|n| n.host(1))
                 .map(|a| a.to_string()),
+            // So the machine can start a connection to its player.
+            route: state.vpn_setup().and_then(|s| vpn::lab_route(s, lab)),
         },
         _ => Placement::Published,
     };

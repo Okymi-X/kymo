@@ -113,6 +113,7 @@ fn request(name: &str, ip: &str) -> StartRequest {
             network: "kymo-lab-1".into(),
             ip: ip.into(),
             gateway: Some("10.77.0.33".into()),
+            route: None,
         },
         name: Some(name.into()),
         meta: vec![("owner".into(), "user:7".into())],

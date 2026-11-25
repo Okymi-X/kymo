@@ -277,6 +277,7 @@ fn on_a_lab_network_a_machine_is_a_tap_with_its_own_address_and_nothing_is_forwa
         ip: "10.77.0.42".parse().unwrap(),
         gateway: "10.77.0.33".parse().unwrap(),
         prefix: 27,
+        route: None,
     });
     let args =
         f.rt.qemu_args(&v, Path::new("/tmp/x"), &[80, 22], Accel::Kvm)

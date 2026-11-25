@@ -21,8 +21,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kymo_instances::{
-    ExtraPort, InstanceRuntime, InstanceSpec, Placement, ResourceCaps, RunFlag, RuntimeError,
-    RuntimeStatus, StartRequest,
+    ExtraPort, InstanceRuntime, InstanceSpec, LabRoute, Placement, ResourceCaps, RunFlag,
+    RuntimeError, RuntimeStatus, StartRequest,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -254,6 +254,20 @@ struct Checked {
     network: String,
     ip: std::net::Ipv4Addr,
     bind: std::net::Ipv4Addr,
+    /// The machine's route to its player, when the platform sent a valid one.
+    route: Option<LabRoute>,
+}
+
+/// A route as a machine's DHCP answer carries it. `check_placement` has already refused anything
+/// that is not a plain network through a plain address.
+fn tap_route(route: &LabRoute) -> Option<crate::tapnet::TapRoute> {
+    let to: kymo_vpn::Ipv4Net = route.to.parse().ok()?;
+    let via = route.via.parse().ok()?;
+    Some(crate::tapnet::TapRoute {
+        to: to.network(),
+        prefix: to.prefix(),
+        via,
+    })
 }
 
 type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
@@ -773,10 +787,30 @@ impl Lab {
                 ));
             }
         }
+        let route = match &place.route {
+            None => None,
+            Some(route) => {
+                // The route is how a machine reaches its player: a plain network that is not the
+                // lab range, through an address inside it.
+                let to: kymo_vpn::Ipv4Net = route
+                    .to
+                    .parse()
+                    .map_err(|_| ApiError::BadRequest("the lab route is not valid".into()))?;
+                let via: std::net::Ipv4Addr = route
+                    .via
+                    .parse()
+                    .map_err(|_| ApiError::BadRequest("the lab route is not valid".into()))?;
+                if to.prefix() < 8 || to.overlaps(&vpn.pool()) || !vpn.in_pool(via) || via == ip {
+                    return Err(ApiError::BadRequest("the lab route is not valid".into()));
+                }
+                Some(route.clone())
+            }
+        };
         Ok(Some(Checked {
             network: place.network.clone(),
             ip,
             bind,
+            route,
         }))
     }
 
@@ -821,6 +855,7 @@ impl Lab {
                 ip: l.ip,
                 gateway: l.bind,
                 prefix: 0,
+                route: l.route.as_ref().and_then(tap_route),
             });
         }
         let machine = self
@@ -904,6 +939,7 @@ impl Lab {
                             network: l.network.clone(),
                             ip: l.ip.to_string(),
                             gateway: Some(l.bind.to_string()),
+                            route: l.route.clone(),
                         },
                         None => Placement::Published,
                     },

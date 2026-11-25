@@ -211,6 +211,7 @@ async fn scenario(env: Env) {
                     network: lab_network.clone(),
                     ip: flag_ip.to_string(),
                     gateway: None,
+                    route: None,
                 },
                 name: None,
                 meta: Vec::new(),

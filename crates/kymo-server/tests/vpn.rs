@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Request, StatusCode};
 use http_body_util::BodyExt;
-use kymo_instances::{FakeRuntime, Policy, ResourceCaps};
+use kymo_instances::{FakeRuntime, InstanceRuntime, LabRoute, Placement, Policy, ResourceCaps};
 use kymo_server::state::InstanceSetup;
 use kymo_server::vpn::VpnSetup;
 use kymo_server::{AppState, db, instances, router, vpn};
@@ -530,6 +530,36 @@ async fn vpn_instances_get_a_private_lab_address_and_nothing_is_published() {
     assert!(
         !rules.contains("-s 10.8.0.3 -d 10.77.0.0/27"),
         "no cross access"
+    );
+
+    // Each machine is told how to reach its own player, through the gateway's address in its own
+    // lab, so it can fetch a payload or call back to a listener without anyone adding a route.
+    let routes: std::collections::BTreeMap<String, LabRoute> = lab
+        .runtime
+        .list_managed()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|m| match lab.runtime.placement_of(&m.handle)? {
+            Placement::Lab {
+                ip,
+                route: Some(route),
+                ..
+            } => Some((ip, route)),
+            _ => None,
+        })
+        .collect();
+    let route = |to: &str, via: &str| LabRoute {
+        to: to.into(),
+        via: via.into(),
+    };
+    assert_eq!(
+        routes.get("10.77.0.10"),
+        Some(&route("10.8.0.0/16", "10.77.0.2"))
+    );
+    assert_eq!(
+        routes.get("10.77.0.42"),
+        Some(&route("10.8.0.0/16", "10.77.0.34"))
     );
 
     // The same player's next challenge shares their lab; a restart takes the next address.

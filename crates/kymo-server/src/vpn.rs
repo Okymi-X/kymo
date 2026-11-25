@@ -7,12 +7,12 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use kymo_instances::InstanceRuntime;
+use kymo_instances::{InstanceRuntime, LabRoute};
 use kymo_lab::client::RemoteGateway;
 use kymo_vpn::{
-    Allow, Ca, CaMaterial, ClientProfile, Gateway, GatewayConfig, Ipv4Net, Issued, LabPool,
-    Revoked, TunnelPool, client_config, client_profile, firewall_script, generate_tls_crypt_key,
-    server_conf, valid_common_name,
+    Allow, Ca, CaMaterial, ClientProfile, GATEWAY_OFFSET, Gateway, GatewayConfig, Ipv4Net, Issued,
+    LabPool, Revoked, TunnelPool, client_config, client_profile, firewall_script,
+    generate_tls_crypt_key, server_conf, valid_common_name,
 };
 
 use crate::error::ApiError;
@@ -405,6 +405,17 @@ pub fn lab_subnet(setup: &VpnSetup, lab: &LabRow) -> Result<Ipv4Net, ApiError> {
         .ok()
         .and_then(|i| setup.labs.lab(i))
         .ok_or(ApiError::Internal)
+}
+
+/// The route a machine in a lab needs to start a connection to its player (to fetch a payload, to
+/// call back to a listener): the VPN clients' range through the gateway's address in the lab. The
+/// gateway's firewall still lets a machine reach only its own player.
+pub fn lab_route(setup: &VpnSetup, lab: &LabRow) -> Option<LabRoute> {
+    let via = lab_subnet(setup, lab).ok()?.host(GATEWAY_OFFSET)?;
+    Some(LabRoute {
+        to: setup.tunnel.net().to_string(),
+        via: via.to_string(),
+    })
 }
 
 /// The next address for a new instance in a lab. Addresses are handed out in turn, not lowest

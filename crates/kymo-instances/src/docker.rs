@@ -22,7 +22,8 @@ use bollard::query_parameters::{
 use crate::error::RuntimeError;
 use crate::hardening::{ALLOWED_CAPS, Hardening};
 use crate::runtime::{
-    InstanceRuntime, Managed, Placement, RuntimeStatus, StartRequest, Started, VerifierSpec,
+    InstanceRuntime, LabRoute, Managed, Placement, RuntimeStatus, StartRequest, Started,
+    VerifierSpec,
 };
 use crate::spec::InstanceSpec;
 
@@ -46,6 +47,10 @@ pub struct DockerRuntime {
     /// An OCI runtime for coding submissions, for example `runsc` (gVisor) or a Kata runtime,
     /// so untrusted code does not share the host kernel. `None` uses the daemon's default.
     judge_runtime: std::sync::RwLock<Option<String>>,
+    /// An image with the `ip` command (the VPN gateway's). A machine that must reach its player
+    /// gets its route from a short helper container of this image, so the lab host needs no
+    /// rights of its own over the machine's network. `None` adds no routes.
+    route_helper: std::sync::RwLock<Option<String>>,
 }
 
 /// Docker's default seccomp profile without `ptrace`, `process_vm_readv`, `process_vm_writev`
@@ -94,7 +99,27 @@ impl DockerRuntime {
             scope: scope.to_owned(),
             hardening: std::sync::RwLock::new(HashMap::new()),
             judge_runtime: std::sync::RwLock::new(None),
+            route_helper: std::sync::RwLock::new(None),
         })
+    }
+
+    /// Sets the image that adds a lab machine's route to its player (see `LabRoute`). It needs the
+    /// `ip` command and nothing else, and it must already be on this machine: the VPN gateway's
+    /// image is.
+    pub fn set_route_helper(&self, image: Option<String>) -> Result<(), RuntimeError> {
+        if let Some(i) = &image
+            && (i.is_empty()
+                || i.len() > 200
+                || !i.chars().all(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/' | ':' | '@')
+                }))
+        {
+            return Err(RuntimeError::Failed(
+                "the route helper image name is not valid".into(),
+            ));
+        }
+        *self.route_helper.write().unwrap_or_else(|e| e.into_inner()) = image;
+        Ok(())
     }
 
     /// Sets what each image may relax, by image reference. Called once by the lab host from its
@@ -211,6 +236,12 @@ fn valid_network_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+fn route_failed(why: &str) -> RuntimeError {
+    RuntimeError::Failed(format!(
+        "could not give the machine its route to the player: {why}"
+    ))
+}
+
 fn failed(e: bollard::errors::Error) -> RuntimeError {
     RuntimeError::Failed(e.to_string())
 }
@@ -225,7 +256,110 @@ fn is_missing(e: &bollard::errors::Error) -> bool {
     )
 }
 
+/// The `ip` arguments that give a machine its route to the VPN clients. A route that is not a
+/// plain network and gateway address, or that would cover almost everything (a default route
+/// among them), is refused.
+fn route_command(route: &LabRoute) -> Option<Vec<String>> {
+    let (addr, prefix) = route.to.split_once('/')?;
+    let addr: std::net::Ipv4Addr = addr.parse().ok()?;
+    let prefix: u8 = prefix.parse().ok()?;
+    let via: std::net::Ipv4Addr = route.via.parse().ok()?;
+    if !(8..=30).contains(&prefix) {
+        return None;
+    }
+    Some(vec![
+        "route".into(),
+        "replace".into(),
+        format!("{addr}/{prefix}"),
+        "via".into(),
+        via.to_string(),
+    ])
+}
+
 impl DockerRuntime {
+    /// Adds the route inside a started machine's network. A helper container joins the machine's
+    /// network (`container:<id>`), runs `ip route replace` with the one capability that needs, and
+    /// is removed. The machine's own capabilities stay as they are, and a player with root in it
+    /// can delete the route again, which only costs that player their way back.
+    async fn add_route(&self, target: &str, route: &LabRoute) -> Result<(), RuntimeError> {
+        let image = self
+            .route_helper
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(image) = image else {
+            return Ok(());
+        };
+        let cmd = route_command(route)
+            .ok_or_else(|| RuntimeError::Failed("the lab route is not valid".into()))?;
+        let body = ContainerCreateBody {
+            image: Some(image),
+            entrypoint: Some(vec!["ip".into()]),
+            cmd: Some(cmd),
+            labels: Some(HashMap::from([(
+                "kymo.route-helper".to_owned(),
+                self.scope.clone(),
+            )])),
+            host_config: Some(HostConfig {
+                network_mode: Some(format!("container:{target}")),
+                cap_drop: Some(vec!["ALL".into()]),
+                cap_add: Some(vec!["NET_ADMIN".into()]),
+                security_opt: Some(vec!["no-new-privileges".into()]),
+                readonly_rootfs: Some(true),
+                memory: Some(32 * 1024 * 1024),
+                pids_limit: Some(16),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let created = self
+            .docker
+            .create_container(
+                None::<bollard::query_parameters::CreateContainerOptions>,
+                body,
+            )
+            .await
+            .map_err(|e| route_failed(&e.to_string()))?;
+        let outcome = self.run_route_helper(&created.id).await;
+        let options = RemoveContainerOptionsBuilder::new()
+            .force(true)
+            .v(true)
+            .build();
+        let _ = self
+            .docker
+            .remove_container(&created.id, Some(options))
+            .await;
+        outcome
+    }
+
+    async fn run_route_helper(&self, id: &str) -> Result<(), RuntimeError> {
+        self.docker
+            .start_container(id, None::<bollard::query_parameters::StartContainerOptions>)
+            .await
+            .map_err(|e| route_failed(&e.to_string()))?;
+        // The command takes a moment at most; wait for it to finish.
+        for _ in 0..50 {
+            let info = self
+                .docker
+                .inspect_container(
+                    id,
+                    None::<bollard::query_parameters::InspectContainerOptions>,
+                )
+                .await
+                .map_err(|e| route_failed(&e.to_string()))?;
+            if let Some(state) = info.state
+                && state.running != Some(true)
+            {
+                return match state.exit_code {
+                    Some(0) => Ok(()),
+                    code => Err(route_failed(&format!("ip exited with {code:?}"))),
+                };
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        Err(route_failed("ip took too long"))
+    }
+
     async fn start_lab(
         &self,
         request: &StartRequest,
@@ -454,7 +588,18 @@ impl InstanceRuntime for DockerRuntime {
     async fn start(&self, request: &StartRequest) -> Result<Started, RuntimeError> {
         match &request.placement {
             Placement::Published => self.start_published(request).await,
-            Placement::Lab { network, ip, .. } => self.start_lab(request, network, ip).await,
+            Placement::Lab {
+                network, ip, route, ..
+            } => {
+                let started = self.start_lab(request, network, ip).await?;
+                if let Some(route) = route
+                    && let Err(e) = self.add_route(&started.handle, route).await
+                {
+                    let _ = self.stop(&started.handle).await;
+                    return Err(e);
+                }
+                Ok(started)
+            }
         }
     }
 
@@ -1053,5 +1198,35 @@ mod tests {
             );
         }
         assert!(ALLOWED_CAPS.contains(&"SETUID") && ALLOWED_CAPS.contains(&"SYS_CHROOT"));
+    }
+
+    #[test]
+    fn a_lab_route_is_a_plain_network_through_a_plain_address() {
+        let ok = LabRoute {
+            to: "10.8.0.0/16".into(),
+            via: "10.77.0.2".into(),
+        };
+        assert_eq!(
+            route_command(&ok),
+            Some(
+                ["route", "replace", "10.8.0.0/16", "via", "10.77.0.2"]
+                    .map(String::from)
+                    .to_vec()
+            )
+        );
+        for (to, via) in [
+            ("0.0.0.0/0", "10.77.0.2"),
+            ("10.8.0.0/4", "10.77.0.2"),
+            ("10.8.0.0/31", "10.77.0.2"),
+            ("10.8.0.0", "10.77.0.2"),
+            ("10.8.0.0/16; reboot", "10.77.0.2"),
+            ("10.8.0.0/16", "gw"),
+        ] {
+            let bad = LabRoute {
+                to: to.into(),
+                via: via.into(),
+            };
+            assert_eq!(route_command(&bad), None, "{to} via {via}");
+        }
     }
 }

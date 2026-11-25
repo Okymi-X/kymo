@@ -318,6 +318,7 @@ impl InstanceRuntime for RemoteRuntime {
                 network,
                 ip,
                 gateway,
+                route,
             } => Some(crate::protocol::LabPlacement {
                 network: network.clone(),
                 ip: ip.clone(),
@@ -325,6 +326,7 @@ impl InstanceRuntime for RemoteRuntime {
                     RuntimeError::Failed("a lab placement needs the network's address".into())
                 })?,
                 verifier_ip: extras.verifier_ip.clone(),
+                route: route.clone(),
             }),
         };
         if lab.is_none() && extras.verifier_ip.is_some() {

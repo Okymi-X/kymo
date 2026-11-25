@@ -200,6 +200,9 @@ struct TapMeta {
     ip: std::net::Ipv4Addr,
     gateway: std::net::Ipv4Addr,
     prefix: u8,
+    /// The machine's route to its player. Kept so a restarted lab host answers the same way.
+    #[serde(default)]
+    route: Option<crate::tapnet::TapRoute>,
 }
 
 #[derive(Debug, Clone)]
@@ -779,6 +782,7 @@ impl VmRuntime {
                 ip: t.ip,
                 gateway: t.gateway,
                 prefix: t.prefix,
+                route: t.route,
             }),
         };
         std::fs::write(
@@ -845,6 +849,7 @@ impl VmRuntime {
                 ip: t.ip,
                 gateway: t.gateway,
                 prefix: t.prefix,
+                route: t.route,
             };
             if t.bridge.is_empty() {
                 continue;

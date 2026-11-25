@@ -19,7 +19,7 @@ pub use policy::{
     effective_state, expires_at,
 };
 pub use runtime::{
-    Endpoint, ExtraPort, FakeRuntime, FlagDelivery, InstanceRuntime, Managed, Placement, RunFlag,
-    RuntimeStatus, StartExtras, StartOutcome, StartRequest, Started, VerifierSpec,
+    Endpoint, ExtraPort, FakeRuntime, FlagDelivery, InstanceRuntime, LabRoute, Managed, Placement,
+    RunFlag, RuntimeStatus, StartExtras, StartOutcome, StartRequest, Started, VerifierSpec,
 };
 pub use spec::{InstanceSpec, ResourceCaps};

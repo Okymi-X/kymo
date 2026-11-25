@@ -257,6 +257,7 @@ async fn the_lab_host_does_not_trust_what_the_platform_sends() {
         network: "kymo-lab-1".into(),
         ip: "10.77.0.42".into(),
         gateway: Some("10.77.0.33".into()),
+        route: None,
     };
     assert!(refused(lab.start(&vpn).await).contains("VPN"));
 }
@@ -621,6 +622,7 @@ mod vpn {
             network: "kymo-lab-1".into(),
             ip: ip.into(),
             gateway: Some("10.77.0.33".into()),
+            route: None,
         };
         r
     }
@@ -675,6 +677,7 @@ mod vpn {
                 network: "kymo-lab-1".into(),
                 ip: ip.into(),
                 gateway: Some(bind.into()),
+                route: None,
             };
             let message = refused(v.client.start(&r).await);
             assert!(
@@ -689,6 +692,66 @@ mod vpn {
                 .await
                 .is_err()
         );
+    }
+
+    fn routed_request(route: Option<kymo_instances::LabRoute>) -> kymo_instances::StartRequest {
+        let mut r = lab_request("4", "kymo-c1-u7-dddddd", "10.77.0.42");
+        r.placement = Placement::Lab {
+            network: "kymo-lab-1".into(),
+            ip: "10.77.0.42".into(),
+            gateway: Some("10.77.0.33".into()),
+            route,
+        };
+        r
+    }
+
+    #[tokio::test]
+    async fn a_machine_is_given_the_route_to_its_player_and_it_reaches_the_runtime() {
+        let v = vpn_lab(true).await;
+        v.client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap();
+        let route = kymo_instances::LabRoute {
+            to: "10.8.0.0/16".into(),
+            via: "10.77.0.34".into(),
+        };
+        let started = v
+            .client
+            .start(&routed_request(Some(route.clone())))
+            .await
+            .unwrap();
+        let placed = v.f.runtime.placement_of(&started.handle).unwrap();
+        assert!(
+            matches!(placed, Placement::Lab { route: Some(ref r), .. } if *r == route),
+            "{placed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_route_that_could_reach_anything_but_the_player_is_refused() {
+        let v = vpn_lab(true).await;
+        v.client
+            .ensure_lab("kymo-lab-1", "10.77.0.32/27")
+            .await
+            .unwrap();
+        for (to, via) in [
+            ("0.0.0.0/0", "10.77.0.34"),
+            ("10.0.0.0/4", "10.77.0.34"),
+            ("10.77.0.0/16", "10.77.0.34"),
+            ("10.8.0.0/16", "192.168.1.9"),
+            ("10.8.0.0/16", "10.77.0.42"),
+            ("not a network", "10.77.0.34"),
+            ("10.8.0.0/16", "not an address"),
+        ] {
+            let route = kymo_instances::LabRoute {
+                to: to.into(),
+                via: via.into(),
+            };
+            let message = refused(v.client.start(&routed_request(Some(route))).await);
+            assert!(message.contains("route"), "{to} via {via}: {message}");
+        }
+        assert_eq!(v.f.runtime.running_count(), 0, "nothing was started");
     }
 
     #[tokio::test]
