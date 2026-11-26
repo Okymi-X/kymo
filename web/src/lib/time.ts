@@ -31,3 +31,17 @@ export function timeUntil(unixSeconds: number, nowMs: number = Date.now()): stri
   }
   return 'in 1 minute'
 }
+
+/** The exact moment to the second, with the time zone, e.g. "26 Nov 2026, 14:03:07 GMT+1". Used where ties are decided. */
+export function exactTime(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'short',
+  })
+}

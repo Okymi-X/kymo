@@ -3,7 +3,7 @@ import { platform } from '../../api/platform'
 import { Modal, ModalBody, ModalHeader } from '../../components/Modal'
 import { CopyButton } from '../../components/platform/bits'
 import { ErrorText } from '../../components/ui'
-import { timeAgo } from '../../lib/time'
+import { exactTime, timeAgo } from '../../lib/time'
 
 const stateTone = { fixed: 'text-win', failed: 'text-danger', broken: 'text-muted' } as const
 
@@ -38,8 +38,8 @@ export function InstanceDetails({ run, onClose }: { run: number; onClose: () => 
             .reverse()
             .map((entry, i) => (
               <div key={i} className="rounded-control border border-line p-2.5 text-sm">
-                <p className="text-xs text-muted" title={new Date(entry.at * 1000).toLocaleString()}>
-                  {timeAgo(entry.at)} · {entry.passed}/{entry.total} fixed · {entry.millis} ms
+                <p className="text-xs text-muted" title={new Date(entry.at * 1000).toISOString()}>
+                  <span className="font-medium text-ink">{exactTime(entry.at)}</span> ({timeAgo(entry.at)}) · {entry.passed}/{entry.total} fixed · {entry.millis} ms
                 </p>
                 <ul className="mt-1 flex flex-col gap-0.5">
                   {entry.checks.map((c) => (
